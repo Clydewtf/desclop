@@ -21,3 +21,60 @@ select {
   min-height: 100vh;
   padding: 32px;
 }
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.app-sidebar {
+  border-right: 1px solid #d8dee4;
+  background: #ffffff;
+  padding: 24px;
+}
+
+.app-content {
+  min-width: 0;
+  padding: 32px;
+}
+
+.start-flow {
+  max-width: 560px;
+}
+
+.stack {
+  display: grid;
+  gap: 16px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  font-weight: 600;
+}
+
+input,
+textarea,
+select {
+  border: 1px solid #c8d0d9;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #ffffff;
+}
+
+button {
+  border: 0;
+  border-radius: 6px;
+  padding: 10px 14px;
+  background: #23313d;
+  color: #ffffff;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.inline-field {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
