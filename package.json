@@ -1,0 +1,13 @@
+{
+  "name": "desclop",
+  "private": true,
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "scripts": {
+    "dev": "npm --workspace apps/desktop run dev",
+    "test": "npm --workspace apps/desktop run test",
+    "test:e2e": "npm --workspace apps/desktop run test:e2e",
+    "tauri": "npm --workspace apps/desktop run tauri"
+  }
+}

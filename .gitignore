@@ -1,0 +1,10 @@
+.DS_Store
+.superpowers/
+node_modules/
+dist/
+target/
+coverage/
+playwright-report/
+test-results/
+*.log
+*.desclop/
