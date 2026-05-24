@@ -78,3 +78,8 @@ button {
   align-items: center;
   gap: 10px;
 }
+
+.field-error {
+  color: #9f1239;
+  font-size: 0.9rem;
+}

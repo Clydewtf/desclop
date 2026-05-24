@@ -39,4 +39,32 @@ describe("ProjectSetup", () => {
       gitEnabled: false
     });
   });
+
+  it("blocks whitespace-only values", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn();
+
+    renderWithRouter(<ProjectSetup onCreate={onCreate} />);
+
+    await user.type(screen.getByLabelText("Project name"), "   ");
+    await user.type(screen.getByLabelText("Local folder path"), "   ");
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+
+    expect(onCreate).not.toHaveBeenCalled();
+    expect(screen.getByText("Project name is required.")).toBeInTheDocument();
+    expect(screen.getByText("Local folder path is required.")).toBeInTheDocument();
+  });
+
+  it("disables submit while creating and shows creation errors", () => {
+    renderWithRouter(
+      <ProjectSetup
+        creating
+        error="Unable to create project."
+        onCreate={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: "Creating project" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Unable to create project.");
+  });
 });
