@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ParsedStage } from "../../features/markdown-import/markdownParser";
-import type { ChecklistItem, Note, Project, Stage, Task, TaskStatus } from "../domain/types";
+import type { ChecklistItem, Note, Project, ResumeBrief, Stage, Task, TaskStatus } from "../domain/types";
 
 export interface CreateProjectInput {
   name: string;
@@ -33,5 +33,7 @@ export const api = {
   addNote: (projectId: string, taskId: string, body: string) =>
     invoke<Note>("add_note", { projectId, taskId, body }),
   listNotesForTask: (projectId: string, taskId: string) =>
-    invoke<Note[]>("list_notes_for_task", { projectId, taskId })
+    invoke<Note[]>("list_notes_for_task", { projectId, taskId }),
+  getResumeBrief: (projectId: string) =>
+    invoke<ResumeBrief>("get_resume_brief", { projectId })
 };

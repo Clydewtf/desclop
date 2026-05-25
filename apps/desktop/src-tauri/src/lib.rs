@@ -4,6 +4,7 @@ mod db;
 mod domain;
 mod errors;
 mod repositories;
+mod services;
 
 use app_state::AppState;
 use tauri::Manager;
@@ -27,7 +28,8 @@ pub fn run() {
             commands::tasks::update_checklist_item,
             commands::tasks::update_next_step,
             commands::notes::add_note,
-            commands::notes::list_notes_for_task
+            commands::notes::list_notes_for_task,
+            commands::resume::get_resume_brief
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
