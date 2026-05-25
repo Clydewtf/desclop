@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import type { ParsedStage } from "../../features/markdown-import/markdownParser";
 import { Project } from "../domain/types";
 
 export interface CreateProjectInput {
@@ -10,5 +11,7 @@ export interface CreateProjectInput {
 export const api = {
   listProjects: () => invoke<Project[]>("list_projects"),
   createProject: (input: CreateProjectInput) =>
-    invoke<Project>("create_project", { input })
+    invoke<Project>("create_project", { input }),
+  importPlan: (projectId: string, stages: ParsedStage[]) =>
+    invoke<void>("import_plan", { projectId, stages })
 };

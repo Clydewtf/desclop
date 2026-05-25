@@ -12,17 +12,15 @@ use tauri::Manager;
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            let app_data_dir = app
-                .path()
-                .app_data_dir()
-                .map_err(|err| err.to_string())?;
+            let app_data_dir = app.path().app_data_dir().map_err(|err| err.to_string())?;
             app.manage(AppState::new(app_data_dir)?);
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::projects::list_projects,
-            commands::projects::create_project
+            commands::projects::create_project,
+            commands::plans::import_plan
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
