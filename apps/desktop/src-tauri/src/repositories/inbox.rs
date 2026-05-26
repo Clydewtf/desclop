@@ -5,16 +5,16 @@ use uuid::Uuid;
 use crate::domain::{InboxItem, Note, Task};
 
 pub struct InboxRepository<'a> {
-    conn: &'a Connection,
+    conn: &'a mut Connection,
 }
 
 impl<'a> InboxRepository<'a> {
-    pub fn new(conn: &'a Connection) -> Self {
+    pub fn new(conn: &'a mut Connection) -> Self {
         Self { conn }
     }
 
     pub fn capture_item(
-        &self,
+        &mut self,
         project_id: &str,
         body: &str,
         kind: &str,
@@ -55,11 +55,13 @@ impl<'a> InboxRepository<'a> {
         Ok(item)
     }
 
-    pub fn attach_to_task(&self, item_id: &str, task_id: &str) -> rusqlite::Result<InboxItem> {
+    pub fn attach_to_task(&mut self, item_id: &str, task_id: &str) -> rusqlite::Result<InboxItem> {
         let updated_rows = self.conn.execute(
             "update inbox_items
              set task_id = ?1, status = 'attached', updated_at = ?2
-             where id = ?3 and project_id = (select project_id from tasks where id = ?1)",
+             where id = ?3
+               and status = 'open'
+               and project_id = (select project_id from tasks where id = ?1)",
             params![task_id, Utc::now().to_rfc3339(), item_id],
         )?;
         if updated_rows == 0 {
@@ -69,9 +71,14 @@ impl<'a> InboxRepository<'a> {
         self.get_item(item_id)
     }
 
-    pub fn convert_to_task(&self, item_id: &str, stage_id: &str) -> rusqlite::Result<Task> {
-        let item = self.get_item(item_id)?;
-        let stage_project_id: String = self.conn.query_row(
+    pub fn convert_to_task(&mut self, item_id: &str, stage_id: &str) -> rusqlite::Result<Task> {
+        let tx = self.conn.transaction()?;
+        let item = get_item_from_conn(&tx, item_id)?;
+        if item.status != "open" {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+
+        let stage_project_id: String = tx.query_row(
             "select project_id from stages where id = ?1",
             params![stage_id],
             |row| row.get(0),
@@ -80,7 +87,7 @@ impl<'a> InboxRepository<'a> {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
 
-        let position = self.conn.query_row(
+        let position = tx.query_row(
             "select coalesce(max(position), -1) + 1 from tasks where stage_id = ?1",
             params![stage_id],
             |row| row.get(0),
@@ -99,7 +106,7 @@ impl<'a> InboxRepository<'a> {
             position,
         };
 
-        self.conn.execute(
+        tx.execute(
             "insert into tasks (id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at)
              values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
             params![
@@ -117,18 +124,27 @@ impl<'a> InboxRepository<'a> {
                 &now
             ],
         )?;
-        self.conn.execute(
+        let updated_rows = tx.execute(
             "update inbox_items
              set task_id = ?1, status = 'converted', updated_at = ?2
-             where id = ?3",
+             where id = ?3 and status = 'open'",
             params![&task.id, Utc::now().to_rfc3339(), item_id],
         )?;
+        if updated_rows == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        tx.commit()?;
 
         Ok(task)
     }
 
-    pub fn keep_as_note(&self, item_id: &str) -> rusqlite::Result<Note> {
-        let item = self.get_item(item_id)?;
+    pub fn keep_as_note(&mut self, item_id: &str) -> rusqlite::Result<Note> {
+        let tx = self.conn.transaction()?;
+        let item = get_item_from_conn(&tx, item_id)?;
+        if item.status != "open" {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+
         let note = Note {
             id: Uuid::new_v4().to_string(),
             project_id: item.project_id,
@@ -137,7 +153,7 @@ impl<'a> InboxRepository<'a> {
             created_at: Utc::now().to_rfc3339(),
         };
 
-        self.conn.execute(
+        tx.execute(
             "insert into notes (id, project_id, task_id, body, created_at)
              values (?1, ?2, ?3, ?4, ?5)",
             params![
@@ -148,17 +164,25 @@ impl<'a> InboxRepository<'a> {
                 &note.created_at
             ],
         )?;
-        self.conn.execute(
-            "update inbox_items set status = 'kept_as_note', updated_at = ?1 where id = ?2",
+        let updated_rows = tx.execute(
+            "update inbox_items
+             set status = 'kept_as_note', updated_at = ?1
+             where id = ?2 and status = 'open'",
             params![Utc::now().to_rfc3339(), item_id],
         )?;
+        if updated_rows == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        tx.commit()?;
 
         Ok(note)
     }
 
-    pub fn delete_item(&self, item_id: &str) -> rusqlite::Result<InboxItem> {
+    pub fn delete_item(&mut self, item_id: &str) -> rusqlite::Result<InboxItem> {
         let updated_rows = self.conn.execute(
-            "update inbox_items set status = 'deleted', updated_at = ?1 where id = ?2",
+            "update inbox_items
+             set status = 'deleted', updated_at = ?1
+             where id = ?2 and status = 'open'",
             params![Utc::now().to_rfc3339(), item_id],
         )?;
         if updated_rows == 0 {
@@ -169,25 +193,29 @@ impl<'a> InboxRepository<'a> {
     }
 
     fn get_item(&self, item_id: &str) -> rusqlite::Result<InboxItem> {
-        self.conn.query_row(
-            "select id, project_id, task_id, body, kind, status, created_at, updated_at
-             from inbox_items
-             where id = ?1",
-            params![item_id],
-            |row| {
-                Ok(InboxItem {
-                    id: row.get(0)?,
-                    project_id: row.get(1)?,
-                    task_id: row.get(2)?,
-                    body: row.get(3)?,
-                    kind: row.get(4)?,
-                    status: row.get(5)?,
-                    created_at: row.get(6)?,
-                    updated_at: row.get(7)?,
-                })
-            },
-        )
+        get_item_from_conn(self.conn, item_id)
     }
+}
+
+fn get_item_from_conn(conn: &Connection, item_id: &str) -> rusqlite::Result<InboxItem> {
+    conn.query_row(
+        "select id, project_id, task_id, body, kind, status, created_at, updated_at
+         from inbox_items
+         where id = ?1",
+        params![item_id],
+        |row| {
+            Ok(InboxItem {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                task_id: row.get(2)?,
+                body: row.get(3)?,
+                kind: row.get(4)?,
+                status: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        },
+    )
 }
 
 #[cfg(test)]
@@ -244,7 +272,7 @@ mod tests {
             .into_iter()
             .next()
             .expect("stage");
-        let repository = InboxRepository::new(&conn);
+        let mut repository = InboxRepository::new(&mut conn);
 
         let attached = repository
             .capture_item(&project.id, "Investigate import warning", "question")
@@ -252,7 +280,10 @@ mod tests {
         let attached = repository
             .attach_to_task(&attached.id, &task.id)
             .expect("attach item");
-        let note = repository.keep_as_note(&attached.id).expect("keep as note");
+        let kept = repository
+            .capture_item(&project.id, "Keep context note", "note")
+            .expect("capture kept");
+        let note = repository.keep_as_note(&kept.id).expect("keep as note");
         let deleted = repository
             .capture_item(&project.id, "Delete stale note", "note")
             .expect("capture deleted");
@@ -266,9 +297,146 @@ mod tests {
 
         assert_eq!(attached.status, "attached");
         assert_eq!(attached.task_id, Some(task.id.clone()));
-        assert_eq!(note.body, "Investigate import warning");
-        assert_eq!(note.task_id, Some(task.id));
+        assert_eq!(note.body, "Keep context note");
+        assert_eq!(note.task_id, None);
         assert_eq!(deleted.status, "deleted");
         assert_eq!(converted_task.title, "Create parser tests");
+    }
+
+    #[test]
+    fn repeated_convert_is_rejected_and_does_not_create_duplicate_tasks() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_task(&mut conn, "desclop");
+        let stage = TaskRepository::new(&conn)
+            .list_stages(&project.id)
+            .expect("list stages")
+            .into_iter()
+            .next()
+            .expect("stage");
+
+        {
+            let mut repository = InboxRepository::new(&mut conn);
+            let item = repository
+                .capture_item(&project.id, "Create parser tests", "task_candidate")
+                .expect("capture converted");
+
+            repository
+                .convert_to_task(&item.id, &stage.id)
+                .expect("first convert");
+            assert!(repository.convert_to_task(&item.id, &stage.id).is_err());
+        }
+
+        let created_task_count: i64 = conn
+            .query_row(
+                "select count(*) from tasks where title = 'Create parser tests'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("created task count");
+        assert_eq!(created_task_count, 1);
+    }
+
+    #[test]
+    fn delete_then_keep_is_rejected_and_does_not_create_note() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_task(&mut conn, "desclop");
+
+        {
+            let mut repository = InboxRepository::new(&mut conn);
+            let item = repository
+                .capture_item(&project.id, "Discarded note", "note")
+                .expect("capture item");
+
+            repository.delete_item(&item.id).expect("delete item");
+            assert!(repository.keep_as_note(&item.id).is_err());
+        }
+
+        let note_count: i64 = conn
+            .query_row(
+                "select count(*) from notes where body = 'Discarded note'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("note count");
+        assert_eq!(note_count, 0);
+    }
+
+    #[test]
+    fn attach_then_convert_is_rejected() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_task(&mut conn, "desclop");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        let stage = TaskRepository::new(&conn)
+            .list_stages(&project.id)
+            .expect("list stages")
+            .into_iter()
+            .next()
+            .expect("stage");
+
+        {
+            let mut repository = InboxRepository::new(&mut conn);
+            let item = repository
+                .capture_item(&project.id, "Attached context", "question")
+                .expect("capture item");
+
+            repository
+                .attach_to_task(&item.id, &task.id)
+                .expect("attach item");
+            assert!(repository.convert_to_task(&item.id, &stage.id).is_err());
+        }
+
+        let created_task_count: i64 = conn
+            .query_row(
+                "select count(*) from tasks where title = 'Attached context'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("created task count");
+        assert_eq!(created_task_count, 0);
+    }
+
+    #[test]
+    fn already_processed_items_reject_other_mutations() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_task(&mut conn, "desclop");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        let stage = TaskRepository::new(&conn)
+            .list_stages(&project.id)
+            .expect("list stages")
+            .into_iter()
+            .next()
+            .expect("stage");
+
+        let mut repository = InboxRepository::new(&mut conn);
+        let converted = repository
+            .capture_item(&project.id, "Converted once", "task_candidate")
+            .expect("capture converted");
+        let kept = repository
+            .capture_item(&project.id, "Kept once", "note")
+            .expect("capture kept");
+
+        repository
+            .convert_to_task(&converted.id, &stage.id)
+            .expect("convert item");
+        repository.keep_as_note(&kept.id).expect("keep item");
+
+        assert!(repository.attach_to_task(&converted.id, &task.id).is_err());
+        assert!(repository.delete_item(&converted.id).is_err());
+        assert!(repository.delete_item(&kept.id).is_err());
+        assert!(repository.attach_to_task(&kept.id, &task.id).is_err());
     }
 }

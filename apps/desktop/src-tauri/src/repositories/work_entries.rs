@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
@@ -14,6 +14,24 @@ impl<'a> WorkEntryRepository<'a> {
     }
 
     pub fn create_work_entry(&self, input: CreateWorkEntryInput) -> rusqlite::Result<WorkEntry> {
+        if matches!(input.duration_seconds, Some(duration_seconds) if duration_seconds < 0) {
+            return Err(rusqlite::Error::InvalidParameterName(
+                "duration_seconds must be non-negative".to_string(),
+            ));
+        }
+        if let (Some(started_at), Some(ended_at)) = (&input.started_at, &input.ended_at) {
+            let started_at = DateTime::parse_from_rfc3339(started_at).map_err(|err| {
+                rusqlite::Error::InvalidParameterName(format!("started_at: {err}"))
+            })?;
+            let ended_at = DateTime::parse_from_rfc3339(ended_at)
+                .map_err(|err| rusqlite::Error::InvalidParameterName(format!("ended_at: {err}")))?;
+            if ended_at < started_at {
+                return Err(rusqlite::Error::InvalidParameterName(
+                    "ended_at must be greater than or equal to started_at".to_string(),
+                ));
+            }
+        }
+
         if let Some(task_id) = &input.task_id {
             self.conn.query_row(
                 "select 1 from tasks where id = ?1 and project_id = ?2",
@@ -135,6 +153,20 @@ mod tests {
         project
     }
 
+    fn valid_input(project_id: String, task_id: String) -> CreateWorkEntryInput {
+        CreateWorkEntryInput {
+            project_id,
+            task_id: Some(task_id),
+            source: "manual".to_string(),
+            started_at: None,
+            ended_at: None,
+            duration_seconds: Some(900),
+            done: "Added migration".to_string(),
+            remains: "Repository tests".to_string(),
+            next_step: "Run cargo test".to_string(),
+        }
+    }
+
     #[test]
     fn create_and_list_work_entries_for_task() {
         let mut conn = create_memory_connection().expect("memory database");
@@ -150,17 +182,7 @@ mod tests {
         let repository = WorkEntryRepository::new(&conn);
 
         let entry = repository
-            .create_work_entry(CreateWorkEntryInput {
-                project_id: project.id.clone(),
-                task_id: Some(task.id.clone()),
-                source: "manual".to_string(),
-                started_at: None,
-                ended_at: None,
-                duration_seconds: Some(900),
-                done: "Added migration".to_string(),
-                remains: "Repository tests".to_string(),
-                next_step: "Run cargo test".to_string(),
-            })
+            .create_work_entry(valid_input(project.id.clone(), task.id.clone()))
             .expect("create work entry");
         let entries = repository
             .list_work_entries_for_task(&project.id, &task.id)
@@ -173,5 +195,52 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, entry.id);
         assert_eq!(cross_project_entries.len(), 0);
+    }
+
+    #[test]
+    fn rejects_negative_duration() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_task(&mut conn, "desclop");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        let repository = WorkEntryRepository::new(&conn);
+        let mut input = valid_input(project.id, task.id);
+        input.duration_seconds = Some(-1);
+
+        assert!(repository.create_work_entry(input).is_err());
+
+        let work_entry_count: i64 = conn
+            .query_row("select count(*) from work_entries", [], |row| row.get(0))
+            .expect("work entry count");
+        assert_eq!(work_entry_count, 0);
+    }
+
+    #[test]
+    fn rejects_inverted_timestamps() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_task(&mut conn, "desclop");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        let repository = WorkEntryRepository::new(&conn);
+        let mut input = valid_input(project.id, task.id);
+        input.started_at = Some("2026-05-27T10:00:00Z".to_string());
+        input.ended_at = Some("2026-05-27T09:59:59Z".to_string());
+
+        assert!(repository.create_work_entry(input).is_err());
+
+        let work_entry_count: i64 = conn
+            .query_row("select count(*) from work_entries", [], |row| row.get(0))
+            .expect("work entry count");
+        assert_eq!(work_entry_count, 0);
     }
 }
