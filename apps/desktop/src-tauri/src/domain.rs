@@ -82,6 +82,28 @@ pub struct InboxItem {
     pub updated_at: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureInboxItemInput {
+    pub project_id: Id,
+    pub body: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachInboxItemInput {
+    pub item_id: Id,
+    pub task_id: Id,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConvertInboxItemInput {
+    pub item_id: Id,
+    pub stage_id: Id,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkEntry {
@@ -96,6 +118,20 @@ pub struct WorkEntry {
     pub remains: String,
     pub next_step: String,
     pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateWorkEntryInput {
+    pub project_id: Id,
+    pub task_id: Option<Id>,
+    pub source: String,
+    pub started_at: Option<String>,
+    pub ended_at: Option<String>,
+    pub duration_seconds: Option<i64>,
+    pub done: String,
+    pub remains: String,
+    pub next_step: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

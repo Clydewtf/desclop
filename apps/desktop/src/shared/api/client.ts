@@ -1,6 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { ParsedStage } from "../../features/markdown-import/markdownParser";
-import type { ChecklistItem, Note, Project, ResumeBrief, Stage, Task, TaskStatus } from "../domain/types";
+import type {
+  ChecklistItem,
+  InboxItem,
+  InboxKind,
+  Note,
+  Project,
+  ResumeBrief,
+  Stage,
+  Task,
+  TaskStatus,
+  WorkEntry,
+  WorkEntrySource
+} from "../domain/types";
 
 export interface CreateProjectInput {
   name: string;
@@ -12,6 +24,34 @@ export interface ProjectPlanPayload {
   stages: Stage[];
   tasks: Task[];
   checklistItems: ChecklistItem[];
+}
+
+export interface CaptureInboxItemInput {
+  projectId: string;
+  body: string;
+  kind: InboxKind;
+}
+
+export interface AttachInboxItemInput {
+  itemId: string;
+  taskId: string;
+}
+
+export interface ConvertInboxItemInput {
+  itemId: string;
+  stageId: string;
+}
+
+export interface CreateWorkEntryInput {
+  projectId: string;
+  taskId: string | null;
+  source: WorkEntrySource;
+  startedAt: string | null;
+  endedAt: string | null;
+  durationSeconds: number | null;
+  done: string;
+  remains: string;
+  nextStep: string;
 }
 
 export const api = {
@@ -30,10 +70,24 @@ export const api = {
     invoke<void>("update_checklist_item", { itemId, completed }),
   updateNextStep: (taskId: string, nextStep: string) =>
     invoke<void>("update_next_step", { taskId, nextStep }),
+  captureInboxItem: (input: CaptureInboxItemInput) =>
+    invoke<InboxItem>("capture_inbox_item", { input }),
+  attachInboxItemToTask: (input: AttachInboxItemInput) =>
+    invoke<InboxItem>("attach_inbox_item_to_task", { input }),
+  convertInboxItemToTask: (input: ConvertInboxItemInput) =>
+    invoke<Task>("convert_inbox_item_to_task", { input }),
+  keepInboxItemAsNote: (itemId: string) =>
+    invoke<Note>("keep_inbox_item_as_note", { itemId }),
+  deleteInboxItem: (itemId: string) =>
+    invoke<InboxItem>("delete_inbox_item", { itemId }),
   addNote: (projectId: string, taskId: string, body: string) =>
     invoke<Note>("add_note", { projectId, taskId, body }),
   listNotesForTask: (projectId: string, taskId: string) =>
     invoke<Note[]>("list_notes_for_task", { projectId, taskId }),
+  createWorkEntry: (input: CreateWorkEntryInput) =>
+    invoke<WorkEntry>("create_work_entry", { input }),
+  listWorkEntriesForTask: (projectId: string, taskId: string) =>
+    invoke<WorkEntry[]>("list_work_entries_for_task", { projectId, taskId }),
   getResumeBrief: (projectId: string) =>
     invoke<ResumeBrief>("get_resume_brief", { projectId })
 };
