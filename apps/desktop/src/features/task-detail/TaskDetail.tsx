@@ -8,6 +8,13 @@ import type {
   TaskStatus,
   WorkEntry
 } from "../../shared/domain/types";
+import type { FocusModeKind } from "../focus-mode/focusTimer";
+
+export interface StartFocusInput {
+  taskId: string;
+  mode: FocusModeKind;
+  timeboxMinutes: number | null;
+}
 
 export interface TaskDetailProps {
   task: Task;
@@ -20,7 +27,7 @@ export interface TaskDetailProps {
   onChecklistToggle: (itemId: string, completed: boolean) => void | Promise<void>;
   onNoteAdd: (taskId: string, body: string) => void | Promise<void>;
   onNextStepSave: (taskId: string, nextStep: string) => void | Promise<void>;
-  onStartFocus: (taskId: string) => void | Promise<void>;
+  onStartFocus: (input: StartFocusInput) => void | Promise<void>;
 }
 
 const taskStatuses: TaskStatus[] = ["todo", "active", "blocked", "done"];
@@ -46,6 +53,7 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const [noteBody, setNoteBody] = useState("");
   const [nextStep, setNextStep] = useState(task.nextStep);
+  const [timeboxMinutes, setTimeboxMinutes] = useState(25);
 
   useEffect(() => {
     setNextStep(task.nextStep);
@@ -67,6 +75,19 @@ export function TaskDetail({
     await onNextStepSave(task.id, nextStep.trim());
   }
 
+  function startAmbientFocus() {
+    onStartFocus({ taskId: task.id, mode: "ambient", timeboxMinutes: null });
+  }
+
+  function startTimeboxFocus() {
+    const roundedMinutes = Math.floor(timeboxMinutes);
+    onStartFocus({
+      taskId: task.id,
+      mode: "timebox",
+      timeboxMinutes: Number.isFinite(roundedMinutes) ? Math.max(1, roundedMinutes) : 1
+    });
+  }
+
   return (
     <section className="stack" aria-labelledby={`${task.id}-detail-title`}>
       <header className="stack">
@@ -74,9 +95,24 @@ export function TaskDetail({
           <h2 id={`${task.id}-detail-title`}>{task.title}</h2>
           {task.description ? <p>{task.description}</p> : null}
         </div>
-        <button type="button" onClick={() => onStartFocus(task.id)}>
-          Start Focus Mode
-        </button>
+        <div className="stack">
+          <button type="button" onClick={startAmbientFocus}>
+            Start ambient focus
+          </button>
+          <label htmlFor={`${task.id}-timebox-minutes`}>
+            Timebox minutes
+            <input
+              id={`${task.id}-timebox-minutes`}
+              min={1}
+              type="number"
+              value={timeboxMinutes}
+              onChange={(event) => setTimeboxMinutes(Number(event.target.value))}
+            />
+          </label>
+          <button type="button" onClick={startTimeboxFocus}>
+            Start timebox focus
+          </button>
+        </div>
       </header>
 
       <label htmlFor={`${task.id}-status`}>

@@ -8,6 +8,7 @@ describe("FocusMode", () => {
   it("shows task, checklist, quick note, inbox capture, and finish control", async () => {
     const user = userEvent.setup();
     const onFinish = vi.fn();
+    const onCaptureInbox = vi.fn();
 
     renderWithRouter(
       <FocusMode
@@ -18,6 +19,7 @@ describe("FocusMode", () => {
         nowMs={60000}
         timeboxMinutes={null}
         onFinish={onFinish}
+        onCaptureInbox={onCaptureInbox}
       />
     );
 
@@ -30,5 +32,34 @@ describe("FocusMode", () => {
     await user.click(screen.getByRole("button", { name: "Finish focus session" }));
 
     expect(onFinish).toHaveBeenCalledWith({ elapsedSeconds: 60 });
+  });
+
+  it("captures inbox items during focus", async () => {
+    const user = userEvent.setup();
+    const onCaptureInbox = vi.fn();
+
+    renderWithRouter(
+      <FocusMode
+        task={{ id: "t1", projectId: "p1", stageId: "s1", title: "Create local store", description: "", status: "active", priority: null, dueDate: null, nextStep: "", position: 0 }}
+        checklist={[]}
+        mode="timebox"
+        startedAtMs={0}
+        nowMs={60000}
+        timeboxMinutes={5}
+        onFinish={vi.fn()}
+        onCaptureInbox={onCaptureInbox}
+      />
+    );
+
+    expect(screen.getByText("04:00 remaining")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Capture"), "Remember repository tests");
+    await user.selectOptions(screen.getByLabelText("Capture type"), "note");
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+
+    expect(onCaptureInbox).toHaveBeenCalledWith({
+      body: "Remember repository tests",
+      kind: "note"
+    });
   });
 });

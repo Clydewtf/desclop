@@ -50,13 +50,48 @@ describe("TaskDetail", () => {
     await user.click(screen.getByRole("button", { name: "Add note" }));
     await user.type(screen.getByLabelText("Next step"), "Write repository tests");
     await user.click(screen.getByRole("button", { name: "Save next step" }));
-    await user.click(screen.getByRole("button", { name: "Start Focus Mode" }));
+    await user.click(screen.getByRole("button", { name: "Start ambient focus" }));
 
     expect(onStatusChange).toHaveBeenCalledWith("t1", "active");
     expect(onChecklistToggle).toHaveBeenCalledWith("c1", true);
     expect(onNoteAdd).toHaveBeenCalledWith("t1", "Migration is ready");
     expect(onNextStepSave).toHaveBeenCalledWith("t1", "Write repository tests");
-    expect(onStartFocus).toHaveBeenCalledWith("t1");
+    expect(onStartFocus).toHaveBeenCalledWith({
+      taskId: "t1",
+      mode: "ambient",
+      timeboxMinutes: null
+    });
+  });
+
+  it("starts a fixed timebox focus session", async () => {
+    const user = userEvent.setup();
+    const onStartFocus = vi.fn();
+
+    renderWithRouter(
+      <TaskDetail
+        task={task}
+        checklist={[]}
+        notes={[]}
+        linkedCommits={[]}
+        workEntries={[]}
+        inboxItems={[]}
+        onStatusChange={vi.fn()}
+        onChecklistToggle={vi.fn()}
+        onNoteAdd={vi.fn()}
+        onNextStepSave={vi.fn()}
+        onStartFocus={onStartFocus}
+      />
+    );
+
+    await user.clear(screen.getByLabelText("Timebox minutes"));
+    await user.type(screen.getByLabelText("Timebox minutes"), "25");
+    await user.click(screen.getByRole("button", { name: "Start timebox focus" }));
+
+    expect(onStartFocus).toHaveBeenCalledWith({
+      taskId: "t1",
+      mode: "timebox",
+      timeboxMinutes: 25
+    });
   });
 
   it("keeps note text until async note add succeeds", async () => {

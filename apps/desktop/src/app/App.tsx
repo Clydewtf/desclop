@@ -2,12 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import "../styles/base.css";
 import { FocusMode } from "../features/focus-mode/FocusMode";
 import { ProjectSetup } from "../features/project-setup/ProjectSetup";
-import { TaskDetail } from "../features/task-detail/TaskDetail";
+import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDetail";
 import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
 import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
-import { type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
+import { type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
 import { AppShell } from "./shell/AppShell";
 
 function hasTauriInternals() {
@@ -23,6 +23,8 @@ type AppScreen = "today" | "task-detail" | "focus" | "work-review";
 
 interface FocusSession {
   taskId: string;
+  mode: StartFocusInput["mode"];
+  timeboxMinutes: number | null;
   startedAtMs: number;
   nowMs: number;
   endedAtMs: number | null;
@@ -243,10 +245,12 @@ export function App() {
     }));
   }
 
-  function startFocus(taskId: string) {
+  function startFocus(input: StartFocusInput) {
     const startedAtMs = Date.now();
     setFocusSession({
-      taskId,
+      taskId: input.taskId,
+      mode: input.mode,
+      timeboxMinutes: input.timeboxMinutes,
       startedAtMs,
       nowMs: startedAtMs,
       endedAtMs: null,
@@ -266,6 +270,18 @@ export function App() {
       durationSeconds: input.elapsedSeconds
     });
     setScreen("work-review");
+  }
+
+  async function captureInbox(input: { body: string; kind: InboxKind }) {
+    if (!project) {
+      return;
+    }
+
+    await api.captureInboxItem({
+      projectId: project.id,
+      body: input.body,
+      kind: input.kind
+    });
   }
 
   async function saveFocusReview(input: {
@@ -322,11 +338,12 @@ export function App() {
           <FocusMode
             task={focusTask}
             checklist={projectPlan.checklistItems.filter((item) => item.taskId === focusTask.id)}
-            mode="ambient"
+            mode={focusSession.mode}
             startedAtMs={focusSession.startedAtMs}
             nowMs={focusSession.nowMs}
-            timeboxMinutes={null}
+            timeboxMinutes={focusSession.timeboxMinutes}
             onFinish={finishFocus}
+            onCaptureInbox={captureInbox}
           />
         );
       }

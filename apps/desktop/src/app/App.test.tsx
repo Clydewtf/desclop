@@ -16,6 +16,7 @@ vi.mock("../shared/api/client", () => ({
     addNote: vi.fn(),
     updateNextStep: vi.fn(),
     createWorkEntry: vi.fn(),
+    captureInboxItem: vi.fn(),
     listNotesForTask: vi.fn(),
     listWorkEntriesForTask: vi.fn()
   }
@@ -26,6 +27,7 @@ const createProject = vi.mocked(api.createProject);
 const getResumeBrief = vi.mocked(api.getResumeBrief);
 const loadProjectPlan = vi.mocked(api.loadProjectPlan);
 const createWorkEntry = vi.mocked(api.createWorkEntry);
+const captureInboxItem = vi.mocked(api.captureInboxItem);
 const listNotesForTask = vi.mocked(api.listNotesForTask);
 const listWorkEntriesForTask = vi.mocked(api.listWorkEntriesForTask);
 
@@ -224,7 +226,7 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.click(screen.getByRole("button", { name: "Start Focus Mode" }));
+    await user.click(screen.getByRole("button", { name: "Start ambient focus" }));
     await user.click(screen.getByRole("button", { name: "Finish focus session" }));
     await user.type(screen.getByLabelText("What was done"), "Added migration");
     await user.type(screen.getByLabelText("What remains"), "Repository tests");
@@ -244,6 +246,91 @@ describe("App", () => {
         nextStep: "Run cargo test"
       })
     );
+  });
+
+  it("starts timebox focus and captures inbox items through the API", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([
+      {
+        id: "p1",
+        name: "Desclop",
+        localPath: "/tmp/desclop",
+        gitEnabled: false,
+        gitRemote: null,
+        activeTaskId: "t1",
+        createdAt: "2026-05-20T10:00:00Z",
+        updatedAt: "2026-05-20T10:00:00Z"
+      }
+    ]);
+    getResumeBrief.mockResolvedValue({
+      id: "rb1",
+      projectId: "p1",
+      taskId: "t1",
+      stageId: "s1",
+      latestNote: "",
+      nextStep: "Run repository tests",
+      facts: [],
+      generatedAt: "2026-05-20T10:00:00Z"
+    });
+    loadProjectPlan.mockResolvedValue({
+      stages: [
+        {
+          id: "s1",
+          projectId: "p1",
+          title: "Foundation",
+          description: "",
+          position: 0,
+          status: "current"
+        }
+      ],
+      tasks: [
+        {
+          id: "t1",
+          projectId: "p1",
+          stageId: "s1",
+          title: "Create local store",
+          description: "",
+          status: "active",
+          priority: null,
+          dueDate: null,
+          nextStep: "Run repository tests",
+          position: 0
+        }
+      ],
+      checklistItems: []
+    });
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    captureInboxItem.mockResolvedValue({
+      id: "i1",
+      projectId: "p1",
+      taskId: null,
+      body: "Remember repository tests",
+      kind: "note",
+      status: "open",
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.clear(screen.getByLabelText("Timebox minutes"));
+    await user.type(screen.getByLabelText("Timebox minutes"), "5");
+    await user.click(screen.getByRole("button", { name: "Start timebox focus" }));
+
+    expect(screen.getByText("05:00 remaining")).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Capture"), "Remember repository tests");
+    await user.selectOptions(screen.getByLabelText("Capture type"), "note");
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+
+    expect(captureInboxItem).toHaveBeenCalledWith({
+      projectId: "p1",
+      body: "Remember repository tests",
+      kind: "note"
+    });
   });
 
   it("represents unavailable resume context without failing the project load", async () => {

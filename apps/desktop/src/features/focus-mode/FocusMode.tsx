@@ -1,4 +1,4 @@
-import type { ChecklistItem, Task } from "../../shared/domain/types";
+import type { ChecklistItem, InboxKind, Task } from "../../shared/domain/types";
 import { InboxCapture } from "../inbox/InboxCapture";
 import { getFocusTimerState, type FocusModeKind } from "./focusTimer";
 
@@ -10,6 +10,7 @@ interface FocusModeProps {
   nowMs: number;
   timeboxMinutes: number | null;
   onFinish: (input: { elapsedSeconds: number }) => void;
+  onCaptureInbox: (input: { body: string; kind: InboxKind }) => void;
 }
 
 function formatSeconds(totalSeconds: number) {
@@ -39,7 +40,7 @@ export function FocusMode(props: FocusModeProps) {
         Quick note
         <textarea />
       </label>
-      <InboxCapture onCapture={() => undefined} />
+      <InboxCapture onCapture={props.onCaptureInbox} />
       <button type="button" onClick={() => props.onFinish({ elapsedSeconds: timer.elapsedSeconds })}>
         Finish focus session
       </button>
