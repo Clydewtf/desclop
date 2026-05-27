@@ -115,26 +115,31 @@ impl<'a> WorkEntryRepository<'a> {
         rows.collect()
     }
 
-    #[allow(dead_code)]
-    pub fn latest_focus_interval_for_task(
+    pub fn focus_interval_containing_commit(
         &self,
         project_id: &str,
-        task_id: &str,
-    ) -> rusqlite::Result<Option<(String, String)>> {
+        committed_at: &str,
+    ) -> rusqlite::Result<Option<(String, String, String)>> {
         let mut stmt = self.conn.prepare(
-            "select started_at, ended_at
+            "select task_id, started_at, ended_at
              from work_entries
              where project_id = ?1
-               and task_id = ?2
                and source = 'focus'
+               and task_id is not null
                and started_at is not null
                and ended_at is not null
+               and started_at <= ?2
+               and ended_at >= ?2
              order by ended_at desc, id desc
              limit 1",
         )?;
 
-        match stmt.query_row(params![project_id, task_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        match stmt.query_row(params![project_id, committed_at], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
         }) {
             Ok(interval) => Ok(Some(interval)),
             Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
@@ -272,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn returns_latest_focus_interval_for_task() {
+    fn returns_focus_interval_containing_commit() {
         let mut conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");
         let project = seed_project_with_task(&mut conn, "desclop");
@@ -296,14 +301,20 @@ mod tests {
         repository.create_work_entry(newer).expect("create newer");
 
         let interval = repository
-            .latest_focus_interval_for_task(&project.id, &task.id)
-            .expect("latest focus interval");
+            .focus_interval_containing_commit(&project.id, "2026-05-20T10:10:00Z")
+            .expect("matching focus interval");
         assert_eq!(
             interval,
             Some((
+                task.id,
                 "2026-05-20T10:00:00Z".to_string(),
                 "2026-05-20T10:30:00Z".to_string()
             ))
         );
+
+        let outside_interval = repository
+            .focus_interval_containing_commit(&project.id, "2026-05-20T11:00:00Z")
+            .expect("outside focus interval");
+        assert_eq!(outside_interval, None);
     }
 }

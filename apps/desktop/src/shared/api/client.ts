@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ParsedStage } from "../../features/markdown-import/markdownParser";
 import type {
   ChecklistItem,
+  GitCommit,
   InboxItem,
   InboxKind,
   Note,
@@ -101,6 +102,10 @@ export const api = {
     invoke<ResumeBrief>("get_resume_brief", { projectId }),
   readGitCommits: (localPath: string) =>
     invoke<GitCommitMetadata[]>("read_git_commits", { localPath }),
+  syncGitCommits: (projectId: string, localPath: string) =>
+    invoke<GitCommit[]>("sync_git_commits", { projectId, localPath }),
+  listLinkedCommitsForTask: (projectId: string, taskId: string) =>
+    invoke<GitCommit[]>("list_linked_commits_for_task", { projectId, taskId }),
   moveCommitLink: (commitSha: string, fromTaskId: string, toTaskId: string) =>
     invoke<void>("move_commit_link", { commitSha, fromTaskId, toTaskId }),
   unlinkCommit: (commitSha: string, taskId: string) =>

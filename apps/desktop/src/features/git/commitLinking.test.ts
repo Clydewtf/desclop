@@ -21,4 +21,32 @@ describe("chooseCommitLinkMode", () => {
       })
     ).toEqual({ taskId: "t1", linkMode: "active_task" });
   });
+
+  it("uses the focus task when it differs from the active task", () => {
+    expect(
+      chooseCommitLinkMode({
+        committedAt: "2026-05-20T10:30:00Z",
+        focusInterval: {
+          taskId: "focus-task",
+          startedAt: "2026-05-20T10:00:00Z",
+          endedAt: "2026-05-20T10:30:00Z"
+        },
+        activeTaskId: "active-task"
+      })
+    ).toEqual({ taskId: "focus-task", linkMode: "focus_interval" });
+  });
+
+  it("matches inclusive focus interval boundaries", () => {
+    expect(
+      chooseCommitLinkMode({
+        committedAt: "2026-05-20T10:00:00Z",
+        focusInterval: {
+          taskId: "focus-task",
+          startedAt: "2026-05-20T10:00:00Z",
+          endedAt: "2026-05-20T10:30:00Z"
+        },
+        activeTaskId: null
+      })
+    ).toEqual({ taskId: "focus-task", linkMode: "focus_interval" });
+  });
 });

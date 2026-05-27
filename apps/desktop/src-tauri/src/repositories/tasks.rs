@@ -174,7 +174,9 @@ impl<'a> TaskRepository<'a> {
         let updated_rows = self.conn.execute(
             "update commit_task_links
              set task_id = ?1, link_mode = 'manual'
-             where commit_sha = ?2 and task_id = ?3",
+             where commit_sha = ?2
+               and task_id = ?3
+               and project_id = (select project_id from tasks where id = ?1)",
             rusqlite::params![to_task_id, commit_sha, from_task_id],
         )?;
         if updated_rows == 0 {
@@ -510,6 +512,43 @@ mod tests {
             })
             .expect("link count");
         assert_eq!(link_count, 0);
+    }
+
+    #[test]
+    fn moving_commit_link_rejects_cross_project_target_task() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let other_project = seed_project_with_plan(&mut conn, "other");
+        let from_task_id = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task")
+            .id;
+        let other_task_id = TaskRepository::new(&conn)
+            .list_tasks(&other_project.id)
+            .expect("list other tasks")
+            .into_iter()
+            .next()
+            .expect("other task")
+            .id;
+        seed_commit_link(&conn, &project.id, &from_task_id, "abc123").expect("seed commit link");
+        let repository = TaskRepository::new(&conn);
+
+        assert!(repository
+            .move_commit_link("abc123", &from_task_id, &other_task_id)
+            .is_err());
+
+        let stored: (String, String) = conn
+            .query_row(
+                "select project_id, task_id from commit_task_links where commit_sha = 'abc123'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("stored link");
+        assert_eq!(stored, (project.id, from_task_id));
     }
 
     #[test]

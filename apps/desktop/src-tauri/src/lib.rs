@@ -38,6 +38,8 @@ pub fn run() {
             commands::work_entries::list_work_entries_for_task,
             commands::resume::get_resume_brief,
             commands::git::read_git_commits,
+            commands::git::sync_git_commits,
+            commands::git::list_linked_commits_for_task,
             commands::git::move_commit_link,
             commands::git::unlink_commit
         ])

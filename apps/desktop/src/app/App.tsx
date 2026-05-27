@@ -6,7 +6,7 @@ import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDe
 import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
 import { WorkReview } from "../features/work-log/WorkReview";
-import { api, type CreateProjectInput, type GitCommitMetadata, type ProjectPlanPayload } from "../shared/api/client";
+import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
 import { type GitCommit, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
 import { AppShell } from "./shell/AppShell";
 
@@ -44,24 +44,13 @@ async function loadResumeBrief(projectId: string): Promise<ResumeLoadResult> {
   }
 }
 
-function toGitCommit(projectId: string, commit: GitCommitMetadata): GitCommit {
-  return {
-    projectId,
-    ...commit
-  };
-}
-
 async function loadGitCommits(project: Project): Promise<GitLoadResult> {
   if (!project.gitEnabled) {
     return { commits: [], unavailable: false };
   }
 
   try {
-    const commits = await api.readGitCommits(project.localPath);
-    return {
-      commits: commits.map((commit) => toGitCommit(project.id, commit)),
-      unavailable: false
-    };
+    return { commits: await api.syncGitCommits(project.id, project.localPath), unavailable: false };
   } catch {
     return { commits: [], unavailable: true };
   }
@@ -115,6 +104,7 @@ export function App() {
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedNotes, setSelectedNotes] = useState<Note[]>([]);
   const [selectedWorkEntries, setSelectedWorkEntries] = useState<WorkEntry[]>([]);
+  const [selectedLinkedCommits, setSelectedLinkedCommits] = useState<GitCommit[]>([]);
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null);
 
   const loadProjects = useCallback(async () => {
@@ -158,6 +148,7 @@ export function App() {
         setResumeError(null);
         setGitCommits([]);
         setGitError(null);
+        setSelectedLinkedCommits([]);
         setProjectPlan({ stages: [], tasks: [], checklistItems: [] });
       }
     } catch {
@@ -217,6 +208,7 @@ export function App() {
       setSelectedTaskId(null);
       setSelectedNotes([]);
       setSelectedWorkEntries([]);
+      setSelectedLinkedCommits([]);
       setFocusSession(null);
     } catch {
       setCreateError("Could not create project.");
@@ -239,12 +231,16 @@ export function App() {
       return;
     }
 
-    const [notes, workEntries] = await Promise.all([
+    const [notes, workEntries, linkedCommits] = await Promise.all([
       api.listNotesForTask(project.id, taskId).catch(() => []),
-      api.listWorkEntriesForTask(project.id, taskId).catch(() => [])
+      api.listWorkEntriesForTask(project.id, taskId).catch(() => []),
+      project.gitEnabled
+        ? api.listLinkedCommitsForTask(project.id, taskId).catch(() => [])
+        : Promise.resolve([])
     ]);
     setSelectedNotes(notes);
     setSelectedWorkEntries(workEntries);
+    setSelectedLinkedCommits(linkedCommits);
   }
 
   async function continueTask() {
@@ -365,7 +361,7 @@ export function App() {
           task={selectedTask}
           checklist={projectPlan.checklistItems.filter((item) => item.taskId === selectedTask.id)}
           notes={selectedNotes}
-          linkedCommits={gitCommits}
+          linkedCommits={selectedLinkedCommits}
           workEntries={selectedWorkEntries}
           inboxItems={[]}
           onStatusChange={changeTaskStatus}

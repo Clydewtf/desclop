@@ -1,4 +1,10 @@
 use chrono::{DateTime, FixedOffset};
+use rusqlite::{params, Connection, OptionalExtension};
+use uuid::Uuid;
+
+use crate::domain::GitCommit;
+use crate::repositories::work_entries::WorkEntryRepository;
+use crate::services::git_adapter::GitCommitMetadata;
 
 #[allow(dead_code)]
 #[derive(Debug, PartialEq, Eq)]
@@ -49,9 +55,220 @@ fn is_inside_interval(committed_at: &str, started_at: &str, ended_at: &str) -> b
     }
 }
 
+pub fn sync_commits(
+    conn: &Connection,
+    project_id: &str,
+    commits: Vec<GitCommitMetadata>,
+) -> rusqlite::Result<Vec<GitCommit>> {
+    let active_task_id = load_active_task_id(conn, project_id)?;
+    let mut synced_commits = Vec::new();
+
+    for commit in commits {
+        let changed_files_json =
+            serde_json::to_string(&commit.changed_files).unwrap_or_else(|_| "[]".to_string());
+        conn.execute(
+            "insert into commits (sha, project_id, branch, message, author_name, committed_at, changed_files_json)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+             on conflict(sha) do update set
+               project_id = excluded.project_id,
+               branch = excluded.branch,
+               message = excluded.message,
+               author_name = excluded.author_name,
+               committed_at = excluded.committed_at,
+               changed_files_json = excluded.changed_files_json",
+            params![
+                &commit.sha,
+                project_id,
+                &commit.branch,
+                &commit.message,
+                &commit.author_name,
+                &commit.committed_at,
+                changed_files_json
+            ],
+        )?;
+
+        if !has_link_for_commit(conn, project_id, &commit.sha)? {
+            let focus_interval = WorkEntryRepository::new(conn)
+                .focus_interval_containing_commit(project_id, &commit.committed_at)?;
+            let decision = match focus_interval {
+                Some((task_id, started_at, ended_at)) => decide_link(
+                    &commit.committed_at,
+                    Some(&started_at),
+                    Some(&ended_at),
+                    Some(&task_id),
+                    active_task_id.as_deref(),
+                ),
+                None => decide_link(
+                    &commit.committed_at,
+                    None,
+                    None,
+                    None,
+                    active_task_id.as_deref(),
+                ),
+            };
+            insert_link_decision(conn, project_id, &commit.sha, decision)?;
+        }
+
+        synced_commits.push(GitCommit {
+            sha: commit.sha,
+            project_id: project_id.to_string(),
+            branch: commit.branch,
+            message: commit.message,
+            author_name: commit.author_name,
+            committed_at: commit.committed_at,
+            changed_files: commit.changed_files,
+        });
+    }
+
+    Ok(synced_commits)
+}
+
+pub fn list_linked_commits_for_task(
+    conn: &Connection,
+    project_id: &str,
+    task_id: &str,
+) -> rusqlite::Result<Vec<GitCommit>> {
+    let mut stmt = conn.prepare(
+        "select commits.sha, commits.project_id, commits.branch, commits.message, commits.author_name,
+                commits.committed_at, commits.changed_files_json
+         from commits
+         inner join commit_task_links on commit_task_links.commit_sha = commits.sha
+         where commits.project_id = ?1
+           and commit_task_links.project_id = ?1
+           and commit_task_links.task_id = ?2
+         order by commits.committed_at desc, commits.sha asc",
+    )?;
+
+    let rows = stmt.query_map(params![project_id, task_id], |row| {
+        let changed_files_json: String = row.get(6)?;
+        Ok(GitCommit {
+            sha: row.get(0)?,
+            project_id: row.get(1)?,
+            branch: row.get(2)?,
+            message: row.get(3)?,
+            author_name: row.get(4)?,
+            committed_at: row.get(5)?,
+            changed_files: serde_json::from_str(&changed_files_json).unwrap_or_default(),
+        })
+    })?;
+
+    rows.collect()
+}
+
+fn load_active_task_id(conn: &Connection, project_id: &str) -> rusqlite::Result<Option<String>> {
+    conn.query_row(
+        "select active_task_id from projects where id = ?1",
+        params![project_id],
+        |row| row.get(0),
+    )
+    .optional()
+    .map(|active_task_id| active_task_id.flatten())
+}
+
+fn has_link_for_commit(
+    conn: &Connection,
+    project_id: &str,
+    commit_sha: &str,
+) -> rusqlite::Result<bool> {
+    conn.query_row(
+        "select 1 from commit_task_links where project_id = ?1 and commit_sha = ?2 limit 1",
+        params![project_id, commit_sha],
+        |_| Ok(()),
+    )
+    .optional()
+    .map(|row| row.is_some())
+}
+
+fn insert_link_decision(
+    conn: &Connection,
+    project_id: &str,
+    commit_sha: &str,
+    decision: LinkDecision,
+) -> rusqlite::Result<()> {
+    let (task_id, link_mode) = match decision {
+        LinkDecision::FocusInterval { task_id } => (task_id, "focus_interval"),
+        LinkDecision::ActiveTask { task_id } => (task_id, "active_task"),
+        LinkDecision::NoLink => return Ok(()),
+    };
+
+    conn.execute(
+        "insert or ignore into commit_task_links (id, project_id, task_id, commit_sha, link_mode, created_at)
+         values (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![
+            Uuid::new_v4().to_string(),
+            project_id,
+            task_id,
+            commit_sha,
+            link_mode,
+            chrono::Utc::now().to_rfc3339()
+        ],
+    )?;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::{create_memory_connection, run_migrations};
+    use crate::domain::CreateWorkEntryInput;
+    use crate::repositories::plans::{ImportStage, ImportTask, PlanRepository};
+    use crate::repositories::projects::ProjectRepository;
+    use crate::repositories::tasks::TaskRepository;
+    use crate::repositories::work_entries::WorkEntryRepository;
+
+    fn seed_project_with_tasks(conn: &mut Connection) -> (String, String, String) {
+        let project = ProjectRepository::new(conn)
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), true)
+            .expect("create project");
+
+        PlanRepository::new(conn)
+            .replace_plan(
+                &project.id,
+                vec![ImportStage {
+                    title: "Foundation".to_string(),
+                    description: "".to_string(),
+                    position: 0,
+                    tasks: vec![
+                        ImportTask {
+                            title: "Focused task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        },
+                        ImportTask {
+                            title: "Active task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 1,
+                        },
+                    ],
+                }],
+            )
+            .expect("replace plan");
+
+        let tasks = TaskRepository::new(conn)
+            .list_tasks(&project.id)
+            .expect("list tasks");
+        let focused_task_id = tasks[0].id.clone();
+        let active_task_id = tasks[1].id.clone();
+        TaskRepository::new(conn)
+            .set_active_task(&project.id, &active_task_id)
+            .expect("set active task");
+
+        (project.id, focused_task_id, active_task_id)
+    }
+
+    fn commit(sha: &str, committed_at: &str) -> GitCommitMetadata {
+        GitCommitMetadata {
+            sha: sha.to_string(),
+            branch: "main".to_string(),
+            message: format!("Commit {sha}"),
+            author_name: "Clyde".to_string(),
+            committed_at: committed_at.to_string(),
+            changed_files: vec!["src/main.ts".to_string()],
+        }
+    }
 
     #[test]
     fn prefers_matching_focus_interval() {
@@ -109,5 +326,87 @@ mod tests {
                 task_id: "active-task".to_string()
             }
         );
+    }
+
+    #[test]
+    fn sync_commits_auto_links_focus_interval_before_active_task() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let (project_id, focused_task_id, _active_task_id) = seed_project_with_tasks(&mut conn);
+        WorkEntryRepository::new(&conn)
+            .create_work_entry(CreateWorkEntryInput {
+                project_id: project_id.clone(),
+                task_id: Some(focused_task_id.clone()),
+                source: "focus".to_string(),
+                started_at: Some("2026-05-20T10:00:00Z".to_string()),
+                ended_at: Some("2026-05-20T10:30:00Z".to_string()),
+                duration_seconds: Some(1800),
+                done: "Focused".to_string(),
+                remains: "".to_string(),
+                next_step: "".to_string(),
+            })
+            .expect("create focus entry");
+
+        sync_commits(
+            &conn,
+            &project_id,
+            vec![commit("abc123", "2026-05-20T10:10:00Z")],
+        )
+        .expect("sync commits");
+
+        let linked = list_linked_commits_for_task(&conn, &project_id, &focused_task_id)
+            .expect("linked commits");
+        let link_mode: String = conn
+            .query_row(
+                "select link_mode from commit_task_links where commit_sha = 'abc123'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("link mode");
+        assert_eq!(linked.len(), 1);
+        assert_eq!(linked[0].sha, "abc123");
+        assert_eq!(linked[0].changed_files, vec!["src/main.ts".to_string()]);
+        assert_eq!(link_mode, "focus_interval");
+    }
+
+    #[test]
+    fn sync_commits_preserves_existing_manual_links() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let (project_id, focused_task_id, active_task_id) = seed_project_with_tasks(&mut conn);
+        conn.execute(
+            "insert into commits (sha, project_id, branch, message, author_name, committed_at, changed_files_json)
+             values ('abc123', ?1, 'main', 'Manual link', 'Clyde', '2026-05-20T09:00:00Z', '[]')",
+            params![project_id],
+        )
+        .expect("insert commit");
+        conn.execute(
+            "insert into commit_task_links (id, project_id, task_id, commit_sha, link_mode, created_at)
+             values ('link-1', ?1, ?2, 'abc123', 'manual', '2026-05-20T09:01:00Z')",
+            params![project_id, focused_task_id],
+        )
+        .expect("insert link");
+
+        sync_commits(
+            &conn,
+            &project_id,
+            vec![commit("abc123", "2026-05-20T11:00:00Z")],
+        )
+        .expect("sync commits");
+
+        let linked_to_focused = list_linked_commits_for_task(&conn, &project_id, &focused_task_id)
+            .expect("focused links");
+        let linked_to_active = list_linked_commits_for_task(&conn, &project_id, &active_task_id)
+            .expect("active links");
+        let link_mode: String = conn
+            .query_row(
+                "select link_mode from commit_task_links where commit_sha = 'abc123'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("link mode");
+        assert_eq!(linked_to_focused.len(), 1);
+        assert_eq!(linked_to_active.len(), 0);
+        assert_eq!(link_mode, "manual");
     }
 }

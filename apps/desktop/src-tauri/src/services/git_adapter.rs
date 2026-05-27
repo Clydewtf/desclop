@@ -1,6 +1,6 @@
 use git2::{Repository, Sort};
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitCommitMetadata {
     pub sha: String,
