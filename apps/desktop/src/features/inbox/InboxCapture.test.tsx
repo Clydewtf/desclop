@@ -7,7 +7,7 @@ import { InboxCapture } from "./InboxCapture";
 describe("InboxCapture", () => {
   it("captures typed and untyped items without interrupting work", async () => {
     const user = userEvent.setup();
-    const onCapture = vi.fn();
+    const onCapture = vi.fn().mockResolvedValue(undefined);
 
     renderWithRouter(<InboxCapture onCapture={onCapture} />);
 
@@ -19,5 +19,22 @@ describe("InboxCapture", () => {
       body: "Investigate import warning",
       kind: "question"
     });
+    expect(screen.getByLabelText("Capture")).toHaveValue("");
+    expect(screen.getByLabelText("Capture type")).toHaveValue("untyped");
+  });
+
+  it("keeps capture text and shows an error when capture fails", async () => {
+    const user = userEvent.setup();
+    const onCapture = vi.fn().mockRejectedValue(new Error("database unavailable"));
+
+    renderWithRouter(<InboxCapture onCapture={onCapture} />);
+
+    await user.type(screen.getByLabelText("Capture"), "Investigate import warning");
+    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not capture inbox item.");
+    expect(screen.getByLabelText("Capture")).toHaveValue("Investigate import warning");
+    expect(screen.getByLabelText("Capture type")).toHaveValue("question");
   });
 });

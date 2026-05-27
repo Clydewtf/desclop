@@ -344,6 +344,7 @@ export function App() {
             timeboxMinutes={focusSession.timeboxMinutes}
             onFinish={finishFocus}
             onCaptureInbox={captureInbox}
+            onNoteAdd={(body) => addNote(focusTask.id, body)}
           />
         );
       }

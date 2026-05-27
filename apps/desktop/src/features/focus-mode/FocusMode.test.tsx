@@ -9,6 +9,7 @@ describe("FocusMode", () => {
     const user = userEvent.setup();
     const onFinish = vi.fn();
     const onCaptureInbox = vi.fn();
+    const onNoteAdd = vi.fn();
 
     renderWithRouter(
       <FocusMode
@@ -20,6 +21,7 @@ describe("FocusMode", () => {
         timeboxMinutes={null}
         onFinish={onFinish}
         onCaptureInbox={onCaptureInbox}
+        onNoteAdd={onNoteAdd}
       />
     );
 
@@ -31,6 +33,32 @@ describe("FocusMode", () => {
 
     await user.click(screen.getByRole("button", { name: "Finish focus session" }));
 
+    expect(onFinish).toHaveBeenCalledWith({ elapsedSeconds: 60 });
+  });
+
+  it("saves a quick note before finishing focus", async () => {
+    const user = userEvent.setup();
+    const onFinish = vi.fn();
+    const onNoteAdd = vi.fn().mockResolvedValue(undefined);
+
+    renderWithRouter(
+      <FocusMode
+        task={{ id: "t1", projectId: "p1", stageId: "s1", title: "Create local store", description: "", status: "active", priority: null, dueDate: null, nextStep: "", position: 0 }}
+        checklist={[]}
+        mode="ambient"
+        startedAtMs={0}
+        nowMs={60000}
+        timeboxMinutes={null}
+        onFinish={onFinish}
+        onCaptureInbox={vi.fn()}
+        onNoteAdd={onNoteAdd}
+      />
+    );
+
+    await user.type(screen.getByLabelText("Quick note"), "Keep this focus note");
+    await user.click(screen.getByRole("button", { name: "Finish focus session" }));
+
+    expect(onNoteAdd).toHaveBeenCalledWith("Keep this focus note");
     expect(onFinish).toHaveBeenCalledWith({ elapsedSeconds: 60 });
   });
 
@@ -48,6 +76,7 @@ describe("FocusMode", () => {
         timeboxMinutes={5}
         onFinish={vi.fn()}
         onCaptureInbox={onCaptureInbox}
+        onNoteAdd={vi.fn()}
       />
     );
 

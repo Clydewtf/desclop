@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ChecklistItem, InboxKind, Task } from "../../shared/domain/types";
 import { InboxCapture } from "../inbox/InboxCapture";
 import { getFocusTimerState, type FocusModeKind } from "./focusTimer";
@@ -11,6 +12,7 @@ interface FocusModeProps {
   timeboxMinutes: number | null;
   onFinish: (input: { elapsedSeconds: number }) => void;
   onCaptureInbox: (input: { body: string; kind: InboxKind }) => void;
+  onNoteAdd: (body: string) => void | Promise<void>;
 }
 
 function formatSeconds(totalSeconds: number) {
@@ -20,7 +22,31 @@ function formatSeconds(totalSeconds: number) {
 }
 
 export function FocusMode(props: FocusModeProps) {
+  const [quickNote, setQuickNote] = useState("");
+  const [finishing, setFinishing] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
   const timer = getFocusTimerState(props);
+
+  async function finishSession() {
+    if (finishing) {
+      return;
+    }
+
+    const trimmedNote = quickNote.trim();
+    setFinishing(true);
+    setNoteError(null);
+    try {
+      if (trimmedNote) {
+        await props.onNoteAdd(trimmedNote);
+        setQuickNote("");
+      }
+      props.onFinish({ elapsedSeconds: timer.elapsedSeconds });
+    } catch {
+      setNoteError("Could not save quick note.");
+    } finally {
+      setFinishing(false);
+    }
+  }
 
   return (
     <section className="focus-mode" aria-labelledby="focus-title">
@@ -36,13 +62,18 @@ export function FocusMode(props: FocusModeProps) {
           </label>
         ))}
       </section>
+      {noteError ? <p role="alert">{noteError}</p> : null}
       <label>
         Quick note
-        <textarea />
+        <textarea
+          value={quickNote}
+          onChange={(event) => setQuickNote(event.target.value)}
+          disabled={finishing}
+        />
       </label>
       <InboxCapture onCapture={props.onCaptureInbox} />
-      <button type="button" onClick={() => props.onFinish({ elapsedSeconds: timer.elapsedSeconds })}>
-        Finish focus session
+      <button type="button" onClick={finishSession} disabled={finishing}>
+        {finishing ? "Finishing focus session" : "Finish focus session"}
       </button>
     </section>
   );

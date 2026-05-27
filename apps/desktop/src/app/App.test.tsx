@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { act, fireEvent, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "./test-utils";
@@ -28,6 +28,7 @@ const getResumeBrief = vi.mocked(api.getResumeBrief);
 const loadProjectPlan = vi.mocked(api.loadProjectPlan);
 const createWorkEntry = vi.mocked(api.createWorkEntry);
 const captureInboxItem = vi.mocked(api.captureInboxItem);
+const addNote = vi.mocked(api.addNote);
 const listNotesForTask = vi.mocked(api.listNotesForTask);
 const listWorkEntriesForTask = vi.mocked(api.listWorkEntriesForTask);
 
@@ -39,6 +40,7 @@ function enableTauriApi() {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.clearAllMocks();
   delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
 });
@@ -209,43 +211,61 @@ describe("App", () => {
     });
     listNotesForTask.mockResolvedValue([]);
     listWorkEntriesForTask.mockResolvedValue([]);
+    addNote.mockResolvedValue({
+      id: "n1",
+      projectId: "p1",
+      taskId: "t1",
+      body: "Keep this focus note",
+      createdAt: "2026-05-20T10:01:30Z"
+    });
     createWorkEntry.mockResolvedValue({
       id: "w1",
       projectId: "p1",
       taskId: "t1",
       source: "focus",
       startedAt: "2026-05-20T10:00:00Z",
-      endedAt: "2026-05-20T10:01:00Z",
-      durationSeconds: 60,
+      endedAt: "2026-05-20T10:01:30Z",
+      durationSeconds: 90,
       done: "Added migration",
       remains: "Repository tests",
       nextStep: "Run cargo test",
-      createdAt: "2026-05-20T10:01:00Z"
+      createdAt: "2026-05-20T10:01:30Z"
     });
 
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.click(screen.getByRole("button", { name: "Start ambient focus" }));
-    await user.click(screen.getByRole("button", { name: "Finish focus session" }));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-20T10:00:00.000Z"));
+    fireEvent.click(screen.getByRole("button", { name: "Start ambient focus" }));
+    act(() => {
+      vi.advanceTimersByTime(90000);
+    });
+    fireEvent.change(screen.getByLabelText("Quick note"), {
+      target: { value: "Keep this focus note" }
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Finish focus session" }));
+    });
+    vi.useRealTimers();
+    expect(screen.getByLabelText("What was done")).toBeInTheDocument();
     await user.type(screen.getByLabelText("What was done"), "Added migration");
     await user.type(screen.getByLabelText("What remains"), "Repository tests");
     await user.type(screen.getByLabelText("Next step"), "Run cargo test");
     await user.click(screen.getByRole("button", { name: "Save work review" }));
 
-    expect(createWorkEntry).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectId: "p1",
-        taskId: "t1",
-        source: "focus",
-        startedAt: expect.any(String),
-        endedAt: expect.any(String),
-        durationSeconds: expect.any(Number),
-        done: "Added migration",
-        remains: "Repository tests",
-        nextStep: "Run cargo test"
-      })
-    );
+    expect(addNote).toHaveBeenCalledWith("p1", "t1", "Keep this focus note");
+    expect(createWorkEntry).toHaveBeenCalledWith({
+      projectId: "p1",
+      taskId: "t1",
+      source: "focus",
+      startedAt: "2026-05-20T10:00:00.000Z",
+      endedAt: "2026-05-20T10:01:30.000Z",
+      durationSeconds: 90,
+      done: "Added migration",
+      remains: "Repository tests",
+      nextStep: "Run cargo test"
+    });
   });
 
   it("starts timebox focus and captures inbox items through the API", async () => {
