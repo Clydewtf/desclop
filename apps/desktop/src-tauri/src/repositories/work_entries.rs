@@ -114,6 +114,33 @@ impl<'a> WorkEntryRepository<'a> {
 
         rows.collect()
     }
+
+    #[allow(dead_code)]
+    pub fn latest_focus_interval_for_task(
+        &self,
+        project_id: &str,
+        task_id: &str,
+    ) -> rusqlite::Result<Option<(String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "select started_at, ended_at
+             from work_entries
+             where project_id = ?1
+               and task_id = ?2
+               and source = 'focus'
+               and started_at is not null
+               and ended_at is not null
+             order by ended_at desc, id desc
+             limit 1",
+        )?;
+
+        match stmt.query_row(params![project_id, task_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }) {
+            Ok(interval) => Ok(Some(interval)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(err),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -242,5 +269,41 @@ mod tests {
             .query_row("select count(*) from work_entries", [], |row| row.get(0))
             .expect("work entry count");
         assert_eq!(work_entry_count, 0);
+    }
+
+    #[test]
+    fn returns_latest_focus_interval_for_task() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_task(&mut conn, "desclop");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        let repository = WorkEntryRepository::new(&conn);
+        let mut older = valid_input(project.id.clone(), task.id.clone());
+        older.source = "focus".to_string();
+        older.started_at = Some("2026-05-20T09:00:00Z".to_string());
+        older.ended_at = Some("2026-05-20T09:30:00Z".to_string());
+        let mut newer = valid_input(project.id.clone(), task.id.clone());
+        newer.source = "focus".to_string();
+        newer.started_at = Some("2026-05-20T10:00:00Z".to_string());
+        newer.ended_at = Some("2026-05-20T10:30:00Z".to_string());
+
+        repository.create_work_entry(older).expect("create older");
+        repository.create_work_entry(newer).expect("create newer");
+
+        let interval = repository
+            .latest_focus_interval_for_task(&project.id, &task.id)
+            .expect("latest focus interval");
+        assert_eq!(
+            interval,
+            Some((
+                "2026-05-20T10:00:00Z".to_string(),
+                "2026-05-20T10:30:00Z".to_string()
+            ))
+        );
     }
 }

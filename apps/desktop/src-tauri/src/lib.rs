@@ -36,7 +36,10 @@ pub fn run() {
             commands::notes::list_notes_for_task,
             commands::work_entries::create_work_entry,
             commands::work_entries::list_work_entries_for_task,
-            commands::resume::get_resume_brief
+            commands::resume::get_resume_brief,
+            commands::git::read_git_commits,
+            commands::git::move_commit_link,
+            commands::git::unlink_commit
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

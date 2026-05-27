@@ -1,3 +1,4 @@
+pub mod git;
 pub mod inbox;
 pub mod notes;
 pub mod plans;

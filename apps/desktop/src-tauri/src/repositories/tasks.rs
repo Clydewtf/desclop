@@ -164,6 +164,35 @@ impl<'a> TaskRepository<'a> {
         }
         Ok(())
     }
+
+    pub fn move_commit_link(
+        &self,
+        commit_sha: &str,
+        from_task_id: &str,
+        to_task_id: &str,
+    ) -> rusqlite::Result<()> {
+        let updated_rows = self.conn.execute(
+            "update commit_task_links
+             set task_id = ?1, link_mode = 'manual'
+             where commit_sha = ?2 and task_id = ?3",
+            rusqlite::params![to_task_id, commit_sha, from_task_id],
+        )?;
+        if updated_rows == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        Ok(())
+    }
+
+    pub fn unlink_commit(&self, commit_sha: &str, task_id: &str) -> rusqlite::Result<()> {
+        let deleted_rows = self.conn.execute(
+            "delete from commit_task_links where commit_sha = ?1 and task_id = ?2",
+            rusqlite::params![commit_sha, task_id],
+        )?;
+        if deleted_rows == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -214,6 +243,25 @@ mod tests {
             .expect("replace plan");
 
         project
+    }
+
+    fn seed_commit_link(
+        conn: &Connection,
+        project_id: &str,
+        task_id: &str,
+        commit_sha: &str,
+    ) -> rusqlite::Result<()> {
+        conn.execute(
+            "insert into commits (sha, project_id, branch, message, author_name, committed_at, changed_files_json)
+             values (?1, ?2, 'main', 'Initial commit', 'Clyde', '2026-05-20T10:10:00Z', '[]')",
+            rusqlite::params![commit_sha, project_id],
+        )?;
+        conn.execute(
+            "insert into commit_task_links (id, project_id, task_id, commit_sha, link_mode, created_at)
+             values ('link-1', ?1, ?2, ?3, 'active_task', '2026-05-20T10:11:00Z')",
+            rusqlite::params![project_id, task_id, commit_sha],
+        )?;
+        Ok(())
     }
 
     #[test]
@@ -425,6 +473,43 @@ mod tests {
         assert!(repository
             .update_next_step("missing-task", "Stale update")
             .is_err());
+    }
+
+    #[test]
+    fn moves_and_unlinks_commit_task_links() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let tasks = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks");
+        let from_task_id = &tasks[0].id;
+        let to_task_id = &tasks[1].id;
+        seed_commit_link(&conn, &project.id, from_task_id, "abc123").expect("seed commit link");
+        let repository = TaskRepository::new(&conn);
+
+        repository
+            .move_commit_link("abc123", from_task_id, to_task_id)
+            .expect("move commit link");
+
+        let moved: (String, String) = conn
+            .query_row(
+                "select task_id, link_mode from commit_task_links where commit_sha = 'abc123'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("moved link");
+        assert_eq!(moved, (to_task_id.clone(), "manual".to_string()));
+
+        repository
+            .unlink_commit("abc123", to_task_id)
+            .expect("unlink commit");
+        let link_count: i64 = conn
+            .query_row("select count(*) from commit_task_links", [], |row| {
+                row.get(0)
+            })
+            .expect("link count");
+        assert_eq!(link_count, 0);
     }
 
     #[test]

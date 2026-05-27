@@ -54,6 +54,15 @@ export interface CreateWorkEntryInput {
   nextStep: string;
 }
 
+export interface GitCommitMetadata {
+  sha: string;
+  branch: string;
+  message: string;
+  authorName: string;
+  committedAt: string;
+  changedFiles: string[];
+}
+
 export const api = {
   listProjects: () => invoke<Project[]>("list_projects"),
   createProject: (input: CreateProjectInput) =>
@@ -89,5 +98,11 @@ export const api = {
   listWorkEntriesForTask: (projectId: string, taskId: string) =>
     invoke<WorkEntry[]>("list_work_entries_for_task", { projectId, taskId }),
   getResumeBrief: (projectId: string) =>
-    invoke<ResumeBrief>("get_resume_brief", { projectId })
+    invoke<ResumeBrief>("get_resume_brief", { projectId }),
+  readGitCommits: (localPath: string) =>
+    invoke<GitCommitMetadata[]>("read_git_commits", { localPath }),
+  moveCommitLink: (commitSha: string, fromTaskId: string, toTaskId: string) =>
+    invoke<void>("move_commit_link", { commitSha, fromTaskId, toTaskId }),
+  unlinkCommit: (commitSha: string, taskId: string) =>
+    invoke<void>("unlink_commit", { commitSha, taskId })
 };
