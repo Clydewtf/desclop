@@ -6,8 +6,8 @@ import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDe
 import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
 import { WorkReview } from "../features/work-log/WorkReview";
-import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
-import { type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
+import { api, type CreateProjectInput, type GitCommitMetadata, type ProjectPlanPayload } from "../shared/api/client";
+import { type GitCommit, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
 import { AppShell } from "./shell/AppShell";
 
 function hasTauriInternals() {
@@ -16,6 +16,11 @@ function hasTauriInternals() {
 
 interface ResumeLoadResult {
   brief: ResumeBrief | null;
+  unavailable: boolean;
+}
+
+interface GitLoadResult {
+  commits: GitCommit[];
   unavailable: boolean;
 }
 
@@ -39,7 +44,34 @@ async function loadResumeBrief(projectId: string): Promise<ResumeLoadResult> {
   }
 }
 
-function buildTodayView(resumeBrief: ResumeBrief | null, plan: ProjectPlanPayload): ResumeBriefView {
+function toGitCommit(projectId: string, commit: GitCommitMetadata): GitCommit {
+  return {
+    projectId,
+    ...commit
+  };
+}
+
+async function loadGitCommits(project: Project): Promise<GitLoadResult> {
+  if (!project.gitEnabled) {
+    return { commits: [], unavailable: false };
+  }
+
+  try {
+    const commits = await api.readGitCommits(project.localPath);
+    return {
+      commits: commits.map((commit) => toGitCommit(project.id, commit)),
+      unavailable: false
+    };
+  } catch {
+    return { commits: [], unavailable: true };
+  }
+}
+
+function buildTodayView(
+  resumeBrief: ResumeBrief | null,
+  plan: ProjectPlanPayload,
+  commits: GitCommit[]
+): ResumeBriefView {
   const task = plan.tasks.find((candidate) => candidate.id === resumeBrief?.taskId) ?? null;
   const resumeTask =
     task && resumeBrief
@@ -56,8 +88,8 @@ function buildTodayView(resumeBrief: ResumeBrief | null, plan: ProjectPlanPayloa
     task: resumeTask,
     stage,
     latestNote: resumeBrief?.latestNote ?? "",
-    precomputedFacts: resumeBrief?.facts ?? [],
-    commits: [],
+    precomputedFacts: resumeBrief?.facts.length ? resumeBrief.facts : undefined,
+    commits,
     workEntries: [],
     inboxItems: [],
     nextTasks
@@ -69,6 +101,8 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [resumeError, setResumeError] = useState<string | null>(null);
+  const [gitError, setGitError] = useState<string | null>(null);
+  const [gitCommits, setGitCommits] = useState<GitCommit[]>([]);
   const [resumeBrief, setResumeBrief] = useState<ResumeBrief | null>(null);
   const [projectPlan, setProjectPlan] = useState<ProjectPlanPayload>({
     stages: [],
@@ -94,15 +128,19 @@ export function App() {
     setLoading(true);
     setLoadError(null);
     setResumeError(null);
+    setGitError(null);
     try {
       const loadedProjects = await api.listProjects();
       if (loadedProjects[0]) {
+        const activeProject = loadedProjects[0];
         let resumeResult: ResumeLoadResult;
+        let gitResult: GitLoadResult;
         let plan: ProjectPlanPayload;
         try {
-          [resumeResult, plan] = await Promise.all([
-            loadResumeBrief(loadedProjects[0].id),
-            api.loadProjectPlan(loadedProjects[0].id)
+          [resumeResult, gitResult, plan] = await Promise.all([
+            loadResumeBrief(activeProject.id),
+            loadGitCommits(activeProject),
+            api.loadProjectPlan(activeProject.id)
           ]);
         } catch {
           setLoadError("Could not load project plan.");
@@ -111,11 +149,15 @@ export function App() {
         setProjects(loadedProjects);
         setResumeBrief(resumeResult.brief);
         setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
+        setGitCommits(gitResult.commits);
+        setGitError(gitResult.unavailable ? "Git unavailable." : null);
         setProjectPlan(plan);
       } else {
         setProjects(loadedProjects);
         setResumeBrief(null);
         setResumeError(null);
+        setGitCommits([]);
+        setGitError(null);
         setProjectPlan({ stages: [], tasks: [], checklistItems: [] });
       }
     } catch {
@@ -149,13 +191,16 @@ export function App() {
     setCreating(true);
     setCreateError(null);
     setResumeError(null);
+    setGitError(null);
     try {
       const project = await api.createProject(input);
       let resumeResult: ResumeLoadResult;
+      let gitResult: GitLoadResult;
       let plan: ProjectPlanPayload;
       try {
-        [resumeResult, plan] = await Promise.all([
+        [resumeResult, gitResult, plan] = await Promise.all([
           loadResumeBrief(project.id),
+          loadGitCommits(project),
           api.loadProjectPlan(project.id)
         ]);
       } catch {
@@ -165,6 +210,8 @@ export function App() {
       setProjects([project]);
       setResumeBrief(resumeResult.brief);
       setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
+      setGitCommits(gitResult.commits);
+      setGitError(gitResult.unavailable ? "Git unavailable." : null);
       setProjectPlan(plan);
       setScreen("today");
       setSelectedTaskId(null);
@@ -318,7 +365,7 @@ export function App() {
           task={selectedTask}
           checklist={projectPlan.checklistItems.filter((item) => item.taskId === selectedTask.id)}
           notes={selectedNotes}
-          linkedCommits={[]}
+          linkedCommits={gitCommits}
           workEntries={selectedWorkEntries}
           inboxItems={[]}
           onStatusChange={changeTaskStatus}
@@ -361,7 +408,7 @@ export function App() {
 
     return (
       <Today
-        view={buildTodayView(resumeBrief, projectPlan)}
+        view={buildTodayView(resumeBrief, projectPlan, gitCommits)}
         onContinue={() => void continueTask()}
         canContinue={Boolean(resumableTask)}
       />
@@ -405,7 +452,12 @@ export function App() {
 
   return (
     <AppShell>
-      {resumeError ? <p role="status">{resumeError}</p> : null}
+      {resumeError || gitError ? (
+        <div role="status">
+          {resumeError ? <p>{resumeError}</p> : null}
+          {gitError ? <p>{gitError}</p> : null}
+        </div>
+      ) : null}
       {renderProjectScreen()}
     </AppShell>
   );

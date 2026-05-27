@@ -18,7 +18,8 @@ vi.mock("../shared/api/client", () => ({
     createWorkEntry: vi.fn(),
     captureInboxItem: vi.fn(),
     listNotesForTask: vi.fn(),
-    listWorkEntriesForTask: vi.fn()
+    listWorkEntriesForTask: vi.fn(),
+    readGitCommits: vi.fn()
   }
 }));
 
@@ -31,6 +32,7 @@ const captureInboxItem = vi.mocked(api.captureInboxItem);
 const addNote = vi.mocked(api.addNote);
 const listNotesForTask = vi.mocked(api.listNotesForTask);
 const listWorkEntriesForTask = vi.mocked(api.listWorkEntriesForTask);
+const readGitCommits = vi.mocked(api.readGitCommits);
 
 function enableTauriApi() {
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -378,6 +380,75 @@ describe("App", () => {
 
     expect(await screen.findByRole("status")).toHaveTextContent("Resume context unavailable.");
     expect(screen.queryByText("Project loading failed")).not.toBeInTheDocument();
+  });
+
+  it("represents unavailable git context without blocking project workflows", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([
+      {
+        id: "p1",
+        name: "Desclop",
+        localPath: "/tmp/desclop",
+        gitEnabled: true,
+        gitRemote: null,
+        activeTaskId: "t1",
+        createdAt: "2026-05-20T10:00:00Z",
+        updatedAt: "2026-05-20T10:00:00Z"
+      }
+    ]);
+    getResumeBrief.mockResolvedValue({
+      id: "rb1",
+      projectId: "p1",
+      taskId: "t1",
+      stageId: "s1",
+      latestNote: "",
+      nextStep: "Run repository tests",
+      facts: [],
+      generatedAt: "2026-05-20T10:00:00Z"
+    });
+    loadProjectPlan.mockResolvedValue({
+      stages: [
+        {
+          id: "s1",
+          projectId: "p1",
+          title: "Foundation",
+          description: "",
+          position: 0,
+          status: "current"
+        }
+      ],
+      tasks: [
+        {
+          id: "t1",
+          projectId: "p1",
+          stageId: "s1",
+          title: "Create local store",
+          description: "",
+          status: "active",
+          priority: null,
+          dueDate: null,
+          nextStep: "Run repository tests",
+          position: 0
+        }
+      ],
+      checklistItems: []
+    });
+    readGitCommits.mockRejectedValue(new Error("not a git repository"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Git unavailable.");
+    expect(readGitCommits).toHaveBeenCalledWith("/tmp/desclop");
+    expect(screen.getByRole("heading", { name: "Continue where you left off" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue task" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Continue task" }));
+
+    expect(await screen.findByRole("button", { name: "Start ambient focus" })).toBeInTheDocument();
+    expect(screen.getByText("0 linked commits")).toBeInTheDocument();
   });
 
   it("shows create errors without leaving the setup flow", async () => {
