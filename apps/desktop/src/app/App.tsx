@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import "../styles/base.css";
+import { FocusMode } from "../features/focus-mode/FocusMode";
 import { ProjectSetup } from "../features/project-setup/ProjectSetup";
+import { TaskDetail } from "../features/task-detail/TaskDetail";
 import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
+import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
-import { type Project, type ResumeBrief } from "../shared/domain/types";
+import { type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
 import { AppShell } from "./shell/AppShell";
 
 function hasTauriInternals() {
@@ -14,6 +17,16 @@ function hasTauriInternals() {
 interface ResumeLoadResult {
   brief: ResumeBrief | null;
   unavailable: boolean;
+}
+
+type AppScreen = "today" | "task-detail" | "focus" | "work-review";
+
+interface FocusSession {
+  taskId: string;
+  startedAtMs: number;
+  nowMs: number;
+  endedAtMs: number | null;
+  durationSeconds: number | null;
 }
 
 async function loadResumeBrief(projectId: string): Promise<ResumeLoadResult> {
@@ -62,6 +75,11 @@ export function App() {
   });
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [screen, setScreen] = useState<AppScreen>("today");
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [selectedNotes, setSelectedNotes] = useState<Note[]>([]);
+  const [selectedWorkEntries, setSelectedWorkEntries] = useState<WorkEntry[]>([]);
+  const [focusSession, setFocusSession] = useState<FocusSession | null>(null);
 
   const loadProjects = useCallback(async () => {
     if (!hasTauriInternals()) {
@@ -109,6 +127,18 @@ export function App() {
     void loadProjects();
   }, [loadProjects]);
 
+  useEffect(() => {
+    if (screen !== "focus") {
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      setFocusSession((session) => (session ? { ...session, nowMs: Date.now() } : session));
+    }, 1000);
+
+    return () => window.clearInterval(timerId);
+  }, [screen]);
+
   async function createProject(input: CreateProjectInput) {
     if (creating) {
       return;
@@ -134,11 +164,190 @@ export function App() {
       setResumeBrief(resumeResult.brief);
       setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
       setProjectPlan(plan);
+      setScreen("today");
+      setSelectedTaskId(null);
+      setSelectedNotes([]);
+      setSelectedWorkEntries([]);
+      setFocusSession(null);
     } catch {
       setCreateError("Could not create project.");
     } finally {
       setCreating(false);
     }
+  }
+
+  const project = projects[0] ?? null;
+  const selectedTask =
+    projectPlan.tasks.find((candidate) => candidate.id === selectedTaskId) ?? null;
+  const resumableTask =
+    projectPlan.tasks.find((candidate) => candidate.id === resumeBrief?.taskId) ??
+    projectPlan.tasks.find((candidate) => candidate.id === project?.activeTaskId) ??
+    projectPlan.tasks.find((candidate) => candidate.status !== "done") ??
+    null;
+
+  async function loadTaskContext(taskId: string) {
+    if (!project) {
+      return;
+    }
+
+    const [notes, workEntries] = await Promise.all([
+      api.listNotesForTask(project.id, taskId).catch(() => []),
+      api.listWorkEntriesForTask(project.id, taskId).catch(() => [])
+    ]);
+    setSelectedNotes(notes);
+    setSelectedWorkEntries(workEntries);
+  }
+
+  async function continueTask() {
+    if (!resumableTask) {
+      return;
+    }
+
+    setSelectedTaskId(resumableTask.id);
+    await loadTaskContext(resumableTask.id);
+    setScreen("task-detail");
+  }
+
+  async function changeTaskStatus(taskId: string, status: TaskStatus) {
+    await api.updateTaskStatus(taskId, status);
+    setProjectPlan((plan) => ({
+      ...plan,
+      tasks: plan.tasks.map((task) => (task.id === taskId ? { ...task, status } : task))
+    }));
+  }
+
+  async function toggleChecklistItem(itemId: string, completed: boolean) {
+    await api.updateChecklistItem(itemId, completed);
+    setProjectPlan((plan) => ({
+      ...plan,
+      checklistItems: plan.checklistItems.map((item) =>
+        item.id === itemId ? { ...item, completed } : item
+      )
+    }));
+  }
+
+  async function addNote(taskId: string, body: string) {
+    if (!project) {
+      return;
+    }
+
+    const note = await api.addNote(project.id, taskId, body);
+    setSelectedNotes((notes) => [...notes, note]);
+  }
+
+  async function saveNextStep(taskId: string, nextStep: string) {
+    await api.updateNextStep(taskId, nextStep);
+    setProjectPlan((plan) => ({
+      ...plan,
+      tasks: plan.tasks.map((task) => (task.id === taskId ? { ...task, nextStep } : task))
+    }));
+  }
+
+  function startFocus(taskId: string) {
+    const startedAtMs = Date.now();
+    setFocusSession({
+      taskId,
+      startedAtMs,
+      nowMs: startedAtMs,
+      endedAtMs: null,
+      durationSeconds: null
+    });
+    setScreen("focus");
+  }
+
+  function finishFocus(input: { elapsedSeconds: number }) {
+    if (!focusSession) {
+      return;
+    }
+
+    setFocusSession({
+      ...focusSession,
+      endedAtMs: focusSession.startedAtMs + input.elapsedSeconds * 1000,
+      durationSeconds: input.elapsedSeconds
+    });
+    setScreen("work-review");
+  }
+
+  async function saveFocusReview(input: {
+    done: string;
+    remains: string;
+    nextStep: string;
+    durationSeconds: number | null;
+  }) {
+    if (!project || !focusSession) {
+      return;
+    }
+
+    const endedAtMs = focusSession.endedAtMs ?? Date.now();
+    const workEntry = await api.createWorkEntry({
+      projectId: project.id,
+      taskId: focusSession.taskId,
+      source: "focus",
+      startedAt: new Date(focusSession.startedAtMs).toISOString(),
+      endedAt: new Date(endedAtMs).toISOString(),
+      durationSeconds: input.durationSeconds,
+      done: input.done,
+      remains: input.remains,
+      nextStep: input.nextStep
+    });
+
+    setSelectedWorkEntries((entries) => [...entries, workEntry]);
+    setScreen("task-detail");
+  }
+
+  function renderProjectScreen() {
+    if (screen === "task-detail" && selectedTask) {
+      return (
+        <TaskDetail
+          task={selectedTask}
+          checklist={projectPlan.checklistItems.filter((item) => item.taskId === selectedTask.id)}
+          notes={selectedNotes}
+          linkedCommits={[]}
+          workEntries={selectedWorkEntries}
+          inboxItems={[]}
+          onStatusChange={changeTaskStatus}
+          onChecklistToggle={toggleChecklistItem}
+          onNoteAdd={addNote}
+          onNextStepSave={saveNextStep}
+          onStartFocus={startFocus}
+        />
+      );
+    }
+
+    if (screen === "focus" && focusSession) {
+      const focusTask =
+        projectPlan.tasks.find((candidate) => candidate.id === focusSession.taskId) ?? null;
+      if (focusTask) {
+        return (
+          <FocusMode
+            task={focusTask}
+            checklist={projectPlan.checklistItems.filter((item) => item.taskId === focusTask.id)}
+            mode="ambient"
+            startedAtMs={focusSession.startedAtMs}
+            nowMs={focusSession.nowMs}
+            timeboxMinutes={null}
+            onFinish={finishFocus}
+          />
+        );
+      }
+    }
+
+    if (screen === "work-review" && focusSession) {
+      return (
+        <WorkReview
+          durationSeconds={focusSession.durationSeconds}
+          onSave={saveFocusReview}
+        />
+      );
+    }
+
+    return (
+      <Today
+        view={buildTodayView(resumeBrief, projectPlan)}
+        onContinue={() => void continueTask()}
+        canContinue={Boolean(resumableTask)}
+      />
+    );
   }
 
   if (loading) {
@@ -179,11 +388,7 @@ export function App() {
   return (
     <AppShell>
       {resumeError ? <p role="status">{resumeError}</p> : null}
-      <Today
-        view={buildTodayView(resumeBrief, projectPlan)}
-        onContinue={() => undefined}
-        canContinue={false}
-      />
+      {renderProjectScreen()}
     </AppShell>
   );
 }

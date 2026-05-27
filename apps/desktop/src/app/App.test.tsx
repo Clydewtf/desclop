@@ -10,7 +10,14 @@ vi.mock("../shared/api/client", () => ({
     listProjects: vi.fn(),
     createProject: vi.fn(),
     getResumeBrief: vi.fn(),
-    loadProjectPlan: vi.fn()
+    loadProjectPlan: vi.fn(),
+    updateTaskStatus: vi.fn(),
+    updateChecklistItem: vi.fn(),
+    addNote: vi.fn(),
+    updateNextStep: vi.fn(),
+    createWorkEntry: vi.fn(),
+    listNotesForTask: vi.fn(),
+    listWorkEntriesForTask: vi.fn()
   }
 }));
 
@@ -18,6 +25,9 @@ const listProjects = vi.mocked(api.listProjects);
 const createProject = vi.mocked(api.createProject);
 const getResumeBrief = vi.mocked(api.getResumeBrief);
 const loadProjectPlan = vi.mocked(api.loadProjectPlan);
+const createWorkEntry = vi.mocked(api.createWorkEntry);
+const listNotesForTask = vi.mocked(api.listNotesForTask);
+const listWorkEntriesForTask = vi.mocked(api.listWorkEntriesForTask);
 
 function enableTauriApi() {
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -137,8 +147,103 @@ describe("App", () => {
     expect(screen.getByText("Foundation")).toBeInTheDocument();
     expect(screen.getByText("Migration passes")).toBeInTheDocument();
     expect(screen.getByText("1 recent commit on main")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Continue task" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Continue task" })).toBeEnabled();
     expect(screen.queryByText("Active task")).not.toBeInTheDocument();
+  });
+
+  it("persists a focus session from task detail through work review", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([
+      {
+        id: "p1",
+        name: "Desclop",
+        localPath: "/tmp/desclop",
+        gitEnabled: false,
+        gitRemote: null,
+        activeTaskId: "t1",
+        createdAt: "2026-05-20T10:00:00Z",
+        updatedAt: "2026-05-20T10:00:00Z"
+      }
+    ]);
+    getResumeBrief.mockResolvedValue({
+      id: "rb1",
+      projectId: "p1",
+      taskId: "t1",
+      stageId: "s1",
+      latestNote: "",
+      nextStep: "Run repository tests",
+      facts: [],
+      generatedAt: "2026-05-20T10:00:00Z"
+    });
+    loadProjectPlan.mockResolvedValue({
+      stages: [
+        {
+          id: "s1",
+          projectId: "p1",
+          title: "Foundation",
+          description: "",
+          position: 0,
+          status: "current"
+        }
+      ],
+      tasks: [
+        {
+          id: "t1",
+          projectId: "p1",
+          stageId: "s1",
+          title: "Create local store",
+          description: "",
+          status: "active",
+          priority: null,
+          dueDate: null,
+          nextStep: "Run repository tests",
+          position: 0
+        }
+      ],
+      checklistItems: [
+        { id: "c1", taskId: "t1", title: "Add migration", completed: false, position: 0 }
+      ]
+    });
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    createWorkEntry.mockResolvedValue({
+      id: "w1",
+      projectId: "p1",
+      taskId: "t1",
+      source: "focus",
+      startedAt: "2026-05-20T10:00:00Z",
+      endedAt: "2026-05-20T10:01:00Z",
+      durationSeconds: 60,
+      done: "Added migration",
+      remains: "Repository tests",
+      nextStep: "Run cargo test",
+      createdAt: "2026-05-20T10:01:00Z"
+    });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(screen.getByRole("button", { name: "Start Focus Mode" }));
+    await user.click(screen.getByRole("button", { name: "Finish focus session" }));
+    await user.type(screen.getByLabelText("What was done"), "Added migration");
+    await user.type(screen.getByLabelText("What remains"), "Repository tests");
+    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save work review" }));
+
+    expect(createWorkEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "p1",
+        taskId: "t1",
+        source: "focus",
+        startedAt: expect.any(String),
+        endedAt: expect.any(String),
+        durationSeconds: expect.any(Number),
+        done: "Added migration",
+        remains: "Repository tests",
+        nextStep: "Run cargo test"
+      })
+    );
   });
 
   it("represents unavailable resume context without failing the project load", async () => {
