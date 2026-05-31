@@ -50,6 +50,19 @@ fn migrate_commit_tables_to_project_scoped_keys(conn: &Connection) -> rusqlite::
          select project_id, sha, branch, message, author_name, committed_at, changed_files_json
          from commits_old;
 
+         insert or ignore into commits (project_id, sha, branch, message, author_name, committed_at, changed_files_json)
+         select commit_task_links_old.project_id,
+                commits_old.sha,
+                commits_old.branch,
+                commits_old.message,
+                commits_old.author_name,
+                commits_old.committed_at,
+                commits_old.changed_files_json
+         from commit_task_links_old
+         inner join commits_old on commits_old.sha = commit_task_links_old.commit_sha
+         inner join tasks on tasks.id = commit_task_links_old.task_id
+                         and tasks.project_id = commit_task_links_old.project_id;
+
          insert or ignore into commit_task_links (id, project_id, task_id, commit_sha, link_mode, created_at)
          select commit_task_links_old.id,
                 commit_task_links_old.project_id,
@@ -205,5 +218,105 @@ mod tests {
             )
             .expect("preserved link");
         assert_eq!(link_mode, "manual");
+    }
+
+    #[test]
+    fn migration_preserves_old_manual_link_when_global_sha_points_to_other_project() {
+        let conn = create_memory_connection().expect("memory database");
+        conn.execute_batch(
+            "pragma foreign_keys = on;
+             create table projects (
+               id text primary key,
+               name text not null,
+               local_path text not null,
+               git_enabled integer not null default 0,
+               git_remote text,
+               active_task_id text,
+               created_at text not null,
+               updated_at text not null
+             );
+             create table stages (
+               id text primary key,
+               project_id text not null references projects(id) on delete cascade,
+               title text not null,
+               description text not null default '',
+               position integer not null,
+               status text not null check(status in ('future', 'current', 'completed')),
+               created_at text not null,
+               updated_at text not null
+             );
+             create table tasks (
+               id text primary key,
+               project_id text not null references projects(id) on delete cascade,
+               stage_id text not null references stages(id) on delete cascade,
+               title text not null,
+               description text not null default '',
+               status text not null check(status in ('todo', 'active', 'blocked', 'done')),
+               priority text check(priority in ('low', 'normal', 'high')),
+               due_date text,
+               next_step text not null default '',
+               position integer not null,
+               created_at text not null,
+               updated_at text not null
+             );
+             create table commits (
+               sha text primary key,
+               project_id text not null references projects(id) on delete cascade,
+               branch text not null,
+               message text not null,
+               author_name text not null default '',
+               committed_at text not null,
+               changed_files_json text not null
+             );
+             create table commit_task_links (
+               id text primary key,
+               project_id text not null references projects(id) on delete cascade,
+               task_id text not null references tasks(id) on delete cascade,
+               commit_sha text not null references commits(sha) on delete cascade,
+               link_mode text not null check(link_mode in ('focus_interval', 'active_task', 'manual')),
+               created_at text not null,
+               unique(task_id, commit_sha)
+             );
+             insert into projects (id, name, local_path, git_enabled, created_at, updated_at)
+             values ('p1', 'First', '/tmp/first', 1, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z'),
+                    ('p2', 'Second', '/tmp/second', 1, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z');
+             insert into stages (id, project_id, title, position, status, created_at, updated_at)
+             values ('s1', 'p1', 'Foundation', 0, 'current', '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z'),
+                    ('s2', 'p2', 'Foundation', 0, 'current', '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z');
+             insert into tasks (id, project_id, stage_id, title, status, position, created_at, updated_at)
+             values ('t1', 'p1', 's1', 'First task', 'active', 0, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z'),
+                    ('t2', 'p2', 's2', 'Second task', 'active', 0, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z');
+             insert into commits (sha, project_id, branch, message, author_name, committed_at, changed_files_json)
+             values ('shared-sha', 'p2', 'main', 'Shared commit', 'Clyde', '2026-05-20T10:10:00Z', '[]');
+             insert into commit_task_links (id, project_id, task_id, commit_sha, link_mode, created_at)
+             values ('manual-p1', 'p1', 't1', 'shared-sha', 'manual', '2026-05-20T10:11:00Z'),
+                    ('manual-p2', 'p2', 't2', 'shared-sha', 'manual', '2026-05-20T10:11:00Z');",
+        )
+        .expect("old cross-project sha schema");
+
+        run_migrations(&conn).expect("migrate old cross-project schema");
+
+        let p1_link_count: i64 = conn
+            .query_row(
+                "select count(*)
+                 from commit_task_links
+                 inner join commits on commits.project_id = commit_task_links.project_id
+                                   and commits.sha = commit_task_links.commit_sha
+                 where commit_task_links.id = 'manual-p1'
+                   and commit_task_links.link_mode = 'manual'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("p1 link count");
+        let commit_count: i64 = conn
+            .query_row(
+                "select count(*) from commits where sha = 'shared-sha'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("commit count");
+
+        assert_eq!(p1_link_count, 1);
+        assert_eq!(commit_count, 2);
     }
 }
