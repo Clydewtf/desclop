@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, FixedOffset, Utc};
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
@@ -120,6 +120,8 @@ impl<'a> WorkEntryRepository<'a> {
         project_id: &str,
         committed_at: &str,
     ) -> rusqlite::Result<Option<(String, String, String)>> {
+        let committed_at = DateTime::parse_from_rfc3339(committed_at)
+            .map_err(|err| rusqlite::Error::InvalidParameterName(format!("committed_at: {err}")))?;
         let mut stmt = self.conn.prepare(
             "select task_id, started_at, ended_at
              from work_entries
@@ -128,23 +130,41 @@ impl<'a> WorkEntryRepository<'a> {
                and task_id is not null
                and started_at is not null
                and ended_at is not null
-               and started_at <= ?2
-               and ended_at >= ?2
              order by ended_at desc, id desc
-             limit 1",
+             limit 25",
         )?;
 
-        match stmt.query_row(params![project_id, committed_at], |row| {
+        let rows = stmt.query_map(params![project_id], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
             ))
-        }) {
-            Ok(interval) => Ok(Some(interval)),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(err) => Err(err),
+        })?;
+
+        for row in rows {
+            let (task_id, started_at, ended_at) = row?;
+            if contains_commit_time(&committed_at, &started_at, &ended_at) {
+                return Ok(Some((task_id, started_at, ended_at)));
+            }
         }
+
+        Ok(None)
+    }
+}
+
+fn contains_commit_time(
+    committed_at: &DateTime<FixedOffset>,
+    started_at: &str,
+    ended_at: &str,
+) -> bool {
+    let parsed = (
+        DateTime::parse_from_rfc3339(started_at),
+        DateTime::parse_from_rfc3339(ended_at),
+    );
+    match parsed {
+        (Ok(started_at), Ok(ended_at)) => *committed_at >= started_at && *committed_at <= ended_at,
+        _ => false,
     }
 }
 

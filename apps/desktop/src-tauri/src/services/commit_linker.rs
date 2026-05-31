@@ -69,8 +69,7 @@ pub fn sync_commits(
         conn.execute(
             "insert into commits (sha, project_id, branch, message, author_name, committed_at, changed_files_json)
              values (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-             on conflict(sha) do update set
-               project_id = excluded.project_id,
+             on conflict(project_id, sha) do update set
                branch = excluded.branch,
                message = excluded.message,
                author_name = excluded.author_name,
@@ -408,5 +407,78 @@ mod tests {
         assert_eq!(linked_to_focused.len(), 1);
         assert_eq!(linked_to_active.len(), 0);
         assert_eq!(link_mode, "manual");
+    }
+
+    #[test]
+    fn sync_commits_keeps_same_sha_scoped_to_each_project() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let (first_project_id, _first_focused_task_id, first_active_task_id) =
+            seed_project_with_tasks(&mut conn);
+        let (second_project_id, _second_focused_task_id, second_active_task_id) =
+            seed_project_with_tasks(&mut conn);
+
+        sync_commits(
+            &conn,
+            &first_project_id,
+            vec![commit("shared-sha", "2026-05-20T11:00:00Z")],
+        )
+        .expect("sync first project");
+        sync_commits(
+            &conn,
+            &second_project_id,
+            vec![commit("shared-sha", "2026-05-20T11:00:00Z")],
+        )
+        .expect("sync second project");
+
+        let first_links =
+            list_linked_commits_for_task(&conn, &first_project_id, &first_active_task_id)
+                .expect("first links");
+        let second_links =
+            list_linked_commits_for_task(&conn, &second_project_id, &second_active_task_id)
+                .expect("second links");
+        let commit_count: i64 = conn
+            .query_row(
+                "select count(*) from commits where sha = 'shared-sha'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("commit count");
+
+        assert_eq!(first_links.len(), 1);
+        assert_eq!(second_links.len(), 1);
+        assert_eq!(commit_count, 2);
+    }
+
+    #[test]
+    fn sync_commits_matches_focus_interval_with_rfc3339_offsets() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let (project_id, focused_task_id, _active_task_id) = seed_project_with_tasks(&mut conn);
+        WorkEntryRepository::new(&conn)
+            .create_work_entry(CreateWorkEntryInput {
+                project_id: project_id.clone(),
+                task_id: Some(focused_task_id.clone()),
+                source: "focus".to_string(),
+                started_at: Some("2026-05-20T12:00:00+02:00".to_string()),
+                ended_at: Some("2026-05-20T12:30:00+02:00".to_string()),
+                duration_seconds: Some(1800),
+                done: "Focused".to_string(),
+                remains: "".to_string(),
+                next_step: "".to_string(),
+            })
+            .expect("create focus entry");
+
+        sync_commits(
+            &conn,
+            &project_id,
+            vec![commit("abc123", "2026-05-20T10:10:00Z")],
+        )
+        .expect("sync commits");
+
+        let linked = list_linked_commits_for_task(&conn, &project_id, &focused_task_id)
+            .expect("linked commits");
+        assert_eq!(linked.len(), 1);
+        assert_eq!(linked[0].sha, "abc123");
     }
 }

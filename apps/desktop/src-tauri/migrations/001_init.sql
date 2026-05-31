@@ -81,23 +81,25 @@ create table if not exists work_entries (
 );
 
 create table if not exists commits (
-  sha text primary key,
   project_id text not null references projects(id) on delete cascade,
+  sha text not null,
   branch text not null,
   message text not null,
   author_name text not null default '',
   committed_at text not null,
-  changed_files_json text not null
+  changed_files_json text not null,
+  primary key (project_id, sha)
 );
 
 create table if not exists commit_task_links (
   id text primary key,
   project_id text not null references projects(id) on delete cascade,
   task_id text not null references tasks(id) on delete cascade,
-  commit_sha text not null references commits(sha) on delete cascade,
+  commit_sha text not null,
   link_mode text not null check(link_mode in ('focus_interval', 'active_task', 'manual')),
   created_at text not null,
-  unique(task_id, commit_sha)
+  unique(project_id, task_id, commit_sha),
+  foreign key (project_id, commit_sha) references commits(project_id, sha) on delete cascade
 );
 
 create table if not exists resume_briefs (
