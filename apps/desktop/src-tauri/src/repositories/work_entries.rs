@@ -130,8 +130,7 @@ impl<'a> WorkEntryRepository<'a> {
                and task_id is not null
                and started_at is not null
                and ended_at is not null
-             order by ended_at desc, id desc
-             limit 25",
+             order by ended_at desc, id desc",
         )?;
 
         let rows = stmt.query_map(params![project_id], |row| {

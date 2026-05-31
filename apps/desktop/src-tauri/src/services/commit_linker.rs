@@ -481,4 +481,54 @@ mod tests {
         assert_eq!(linked.len(), 1);
         assert_eq!(linked[0].sha, "abc123");
     }
+
+    #[test]
+    fn sync_commits_checks_focus_intervals_beyond_newest_twenty_five() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let (project_id, focused_task_id, _active_task_id) = seed_project_with_tasks(&mut conn);
+        let repository = WorkEntryRepository::new(&conn);
+        repository
+            .create_work_entry(CreateWorkEntryInput {
+                project_id: project_id.clone(),
+                task_id: Some(focused_task_id.clone()),
+                source: "focus".to_string(),
+                started_at: Some("2026-05-20T10:00:00Z".to_string()),
+                ended_at: Some("2026-05-20T10:30:00Z".to_string()),
+                duration_seconds: Some(1800),
+                done: "Matching focus".to_string(),
+                remains: "".to_string(),
+                next_step: "".to_string(),
+            })
+            .expect("create matching focus entry");
+        for index in 0..30 {
+            let day = if index < 24 { 21 } else { 22 };
+            let hour = if index < 24 { index } else { index - 24 };
+            repository
+                .create_work_entry(CreateWorkEntryInput {
+                    project_id: project_id.clone(),
+                    task_id: Some(focused_task_id.clone()),
+                    source: "focus".to_string(),
+                    started_at: Some(format!("2026-05-{day:02}T{hour:02}:00:00Z")),
+                    ended_at: Some(format!("2026-05-{day:02}T{hour:02}:30:00Z")),
+                    duration_seconds: Some(1800),
+                    done: "Non-matching focus".to_string(),
+                    remains: "".to_string(),
+                    next_step: "".to_string(),
+                })
+                .expect("create non-matching focus entry");
+        }
+
+        sync_commits(
+            &conn,
+            &project_id,
+            vec![commit("abc123", "2026-05-20T10:10:00Z")],
+        )
+        .expect("sync commits");
+
+        let linked = list_linked_commits_for_task(&conn, &project_id, &focused_task_id)
+            .expect("linked commits");
+        assert_eq!(linked.len(), 1);
+        assert_eq!(linked[0].sha, "abc123");
+    }
 }
