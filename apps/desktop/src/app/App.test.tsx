@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "./test-utils";
@@ -22,7 +22,9 @@ vi.mock("../shared/api/client", () => ({
     listWorkEntriesForTask: vi.fn(),
     readGitCommits: vi.fn(),
     syncGitCommits: vi.fn(),
-    listLinkedCommitsForTask: vi.fn()
+    listLinkedCommitsForTask: vi.fn(),
+    moveCommitLink: vi.fn(),
+    unlinkCommit: vi.fn()
   }
 }));
 
@@ -39,6 +41,8 @@ const listNotesForTask = vi.mocked(api.listNotesForTask);
 const listWorkEntriesForTask = vi.mocked(api.listWorkEntriesForTask);
 const syncGitCommits = vi.mocked(api.syncGitCommits);
 const listLinkedCommitsForTask = vi.mocked(api.listLinkedCommitsForTask);
+const moveCommitLink = vi.mocked(api.moveCommitLink);
+const unlinkCommit = vi.mocked(api.unlinkCommit);
 
 function enableTauriApi() {
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -942,6 +946,108 @@ describe("App", () => {
 
     expect(listLinkedCommitsForTask).toHaveBeenCalledWith("p1", "t1");
     expect(await screen.findByText("1 linked commits")).toBeInTheDocument();
+  });
+
+  it("unlinks and moves linked commits from Task Detail then reloads task context", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: true })]);
+    getResumeBrief.mockResolvedValue({
+      ...emptyResumeBrief(),
+      taskId: "t1",
+      stageId: "s1",
+      nextStep: "Run repository tests"
+    });
+    loadProjectPlan.mockResolvedValue({
+      stages: [
+        {
+          id: "s1",
+          projectId: "p1",
+          title: "Foundation",
+          description: "",
+          position: 0,
+          status: "current"
+        }
+      ],
+      tasks: [
+        {
+          id: "t1",
+          projectId: "p1",
+          stageId: "s1",
+          title: "Create local store",
+          description: "",
+          status: "active",
+          priority: null,
+          dueDate: null,
+          nextStep: "Run repository tests",
+          position: 0
+        },
+        {
+          id: "t2",
+          projectId: "p1",
+          stageId: "s1",
+          title: "Other task",
+          description: "",
+          status: "todo",
+          priority: null,
+          dueDate: null,
+          nextStep: "",
+          position: 1
+        }
+      ],
+      checklistItems: []
+    });
+    syncGitCommits.mockResolvedValue([]);
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    listLinkedCommitsForTask
+      .mockResolvedValueOnce([
+        {
+          sha: "abc123",
+          projectId: "p1",
+          branch: "main",
+          message: "Fix import",
+          authorName: "Clyde",
+          committedAt: "2026-05-20T10:00:00Z",
+          changedFiles: ["src/app/App.tsx"]
+        }
+      ])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          sha: "def456",
+          projectId: "p1",
+          branch: "main",
+          message: "Move follow-up",
+          authorName: "Clyde",
+          committedAt: "2026-05-20T10:05:00Z",
+          changedFiles: ["src/features/task-detail/TaskDetail.tsx"]
+        }
+      ])
+      .mockResolvedValueOnce([]);
+    unlinkCommit.mockResolvedValue(undefined);
+    moveCommitLink.mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(await screen.findByRole("button", { name: "Unlink abc123" }));
+
+    expect(unlinkCommit).toHaveBeenCalledWith("abc123", "t1");
+    await waitFor(() => {
+      expect(listLinkedCommitsForTask).toHaveBeenLastCalledWith("p1", "t1");
+    });
+    expect(await screen.findByText("0 linked commits")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Today" }));
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.selectOptions(await screen.findByLabelText("Move def456 to task"), "t2");
+    await user.click(screen.getByRole("button", { name: "Move def456" }));
+
+    expect(moveCommitLink).toHaveBeenCalledWith("def456", "t1", "t2");
+    await waitFor(() => {
+      expect(listLinkedCommitsForTask).toHaveBeenLastCalledWith("p1", "t1");
+    });
   });
 
   it("shows create errors without leaving the setup flow", async () => {

@@ -318,6 +318,16 @@ export function App() {
     }));
   }
 
+  async function unlinkCommit(commitSha: string, taskId: string) {
+    await api.unlinkCommit(commitSha, taskId);
+    await loadTaskContext(taskId);
+  }
+
+  async function moveCommit(commitSha: string, fromTaskId: string, toTaskId: string) {
+    await api.moveCommitLink(commitSha, fromTaskId, toTaskId);
+    await loadTaskContext(fromTaskId);
+  }
+
   function startFocus(input: StartFocusInput) {
     const startedAtMs = Date.now();
     setFocusSession({
@@ -496,6 +506,7 @@ export function App() {
           checklist={projectPlan.checklistItems.filter((item) => item.taskId === selectedTask.id)}
           notes={selectedNotes}
           linkedCommits={selectedLinkedCommits}
+          availableTasks={projectPlan.tasks.filter((candidate) => candidate.id !== selectedTask.id)}
           workEntries={selectedWorkEntries}
           inboxItems={[]}
           onStatusChange={changeTaskStatus}
@@ -503,6 +514,8 @@ export function App() {
           onNoteAdd={addNote}
           onNextStepSave={saveNextStep}
           onStartFocus={startFocus}
+          onCommitUnlink={unlinkCommit}
+          onCommitMove={moveCommit}
           onCaptureInbox={captureInbox}
           onStartManualWorkReview={() => startManualWorkReview(selectedTask.id)}
         />

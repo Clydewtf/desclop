@@ -3,10 +3,39 @@ import { render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
-import type { Task } from "../../shared/domain/types";
+import type { GitCommit, Task } from "../../shared/domain/types";
 import { TaskDetail } from "./TaskDetail";
 
-const task: Task = {
+function taskFixture(overrides: Partial<Task> = {}): Task {
+  return {
+    id: "t1",
+    projectId: "p1",
+    stageId: "s1",
+    title: "Create local store",
+    description: "",
+    status: "todo",
+    priority: null,
+    dueDate: null,
+    nextStep: "",
+    position: 0,
+    ...overrides
+  };
+}
+
+function gitCommitFixture(overrides: Partial<GitCommit> = {}): GitCommit {
+  return {
+    sha: "abc123",
+    projectId: "p1",
+    branch: "main",
+    message: "Fix import",
+    authorName: "Clyde",
+    committedAt: "2026-05-20T10:00:00Z",
+    changedFiles: ["src/app/App.tsx"],
+    ...overrides
+  };
+}
+
+const task: Task = taskFixture({
   id: "t1",
   projectId: "p1",
   stageId: "s1",
@@ -17,7 +46,7 @@ const task: Task = {
   dueDate: null,
   nextStep: "",
   position: 0
-};
+});
 
 describe("TaskDetail", () => {
   it("updates status, checklist, notes, and next step", async () => {
@@ -34,6 +63,7 @@ describe("TaskDetail", () => {
         checklist={[{ id: "c1", taskId: "t1", title: "Add migration", completed: false, position: 0 }]}
         notes={[]}
         linkedCommits={[]}
+        availableTasks={[]}
         workEntries={[]}
         inboxItems={[]}
         onStatusChange={onStatusChange}
@@ -41,6 +71,8 @@ describe("TaskDetail", () => {
         onNoteAdd={onNoteAdd}
         onNextStepSave={onNextStepSave}
         onStartFocus={onStartFocus}
+        onCommitUnlink={vi.fn()}
+        onCommitMove={vi.fn()}
       />
     );
 
@@ -73,6 +105,7 @@ describe("TaskDetail", () => {
         checklist={[]}
         notes={[]}
         linkedCommits={[]}
+        availableTasks={[]}
         workEntries={[]}
         inboxItems={[]}
         onStatusChange={vi.fn()}
@@ -80,6 +113,8 @@ describe("TaskDetail", () => {
         onNoteAdd={vi.fn()}
         onNextStepSave={vi.fn()}
         onStartFocus={onStartFocus}
+        onCommitUnlink={vi.fn()}
+        onCommitMove={vi.fn()}
       />
     );
 
@@ -110,6 +145,7 @@ describe("TaskDetail", () => {
         checklist={[]}
         notes={[]}
         linkedCommits={[]}
+        availableTasks={[]}
         workEntries={[]}
         inboxItems={[]}
         onStatusChange={vi.fn()}
@@ -117,6 +153,8 @@ describe("TaskDetail", () => {
         onNoteAdd={onNoteAdd}
         onNextStepSave={vi.fn()}
         onStartFocus={vi.fn()}
+        onCommitUnlink={vi.fn()}
+        onCommitMove={vi.fn()}
       />
     );
 
@@ -134,13 +172,16 @@ describe("TaskDetail", () => {
       checklist: [],
       notes: [],
       linkedCommits: [],
+      availableTasks: [],
       workEntries: [],
       inboxItems: [],
       onStatusChange: vi.fn(),
       onChecklistToggle: vi.fn(),
       onNoteAdd: vi.fn(),
       onNextStepSave: vi.fn(),
-      onStartFocus: vi.fn()
+      onStartFocus: vi.fn(),
+      onCommitUnlink: vi.fn(),
+      onCommitMove: vi.fn()
     };
     const { rerender } = render(
       <TaskDetail task={{ ...task, nextStep: "Write tests" }} {...props} />
@@ -165,6 +206,7 @@ describe("TaskDetail", () => {
         checklist={[]}
         notes={[]}
         linkedCommits={[]}
+        availableTasks={[]}
         workEntries={[]}
         inboxItems={[]}
         onStatusChange={vi.fn()}
@@ -172,6 +214,8 @@ describe("TaskDetail", () => {
         onNoteAdd={vi.fn()}
         onNextStepSave={vi.fn()}
         onStartFocus={vi.fn()}
+        onCommitUnlink={vi.fn()}
+        onCommitMove={vi.fn()}
       />
     );
 
@@ -192,6 +236,7 @@ describe("TaskDetail", () => {
         checklist={[]}
         notes={[]}
         linkedCommits={[]}
+        availableTasks={[]}
         workEntries={[]}
         inboxItems={[]}
         onStatusChange={vi.fn()}
@@ -199,6 +244,8 @@ describe("TaskDetail", () => {
         onNoteAdd={vi.fn()}
         onNextStepSave={vi.fn()}
         onStartFocus={vi.fn()}
+        onCommitUnlink={vi.fn()}
+        onCommitMove={vi.fn()}
         onCaptureInbox={onCaptureInbox}
         onStartManualWorkReview={onStartManualWorkReview}
       />
@@ -214,5 +261,73 @@ describe("TaskDetail", () => {
       kind: "question"
     });
     expect(onStartManualWorkReview).toHaveBeenCalled();
+  });
+
+  it("renders linked commits with changed files and unlinks a commit", async () => {
+    const user = userEvent.setup();
+    const onCommitUnlink = vi.fn();
+    const onCommitMove = vi.fn();
+
+    renderWithRouter(
+      <TaskDetail
+        task={task}
+        checklist={[]}
+        notes={[]}
+        linkedCommits={[
+          gitCommitFixture({
+            sha: "abc123",
+            message: "Fix import",
+            changedFiles: ["src/app/App.tsx"]
+          })
+        ]}
+        availableTasks={[taskFixture({ id: "t2", title: "Other task" })]}
+        workEntries={[]}
+        inboxItems={[]}
+        onStatusChange={vi.fn()}
+        onChecklistToggle={vi.fn()}
+        onNoteAdd={vi.fn()}
+        onNextStepSave={vi.fn()}
+        onStartFocus={vi.fn()}
+        onCommitUnlink={onCommitUnlink}
+        onCommitMove={onCommitMove}
+      />
+    );
+
+    expect(screen.getByText("Fix import")).toBeInTheDocument();
+    expect(screen.getByText("src/app/App.tsx")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Unlink abc123" }));
+
+    expect(onCommitUnlink).toHaveBeenCalledWith("abc123", "t1");
+  });
+
+  it("moves a linked commit to another task", async () => {
+    const user = userEvent.setup();
+    const onCommitUnlink = vi.fn();
+    const onCommitMove = vi.fn();
+
+    renderWithRouter(
+      <TaskDetail
+        task={task}
+        checklist={[]}
+        notes={[]}
+        linkedCommits={[gitCommitFixture({ sha: "abc123", message: "Fix import" })]}
+        availableTasks={[taskFixture({ id: "t2", title: "Other task" })]}
+        workEntries={[]}
+        inboxItems={[]}
+        onStatusChange={vi.fn()}
+        onChecklistToggle={vi.fn()}
+        onNoteAdd={vi.fn()}
+        onNextStepSave={vi.fn()}
+        onStartFocus={vi.fn()}
+        onCommitUnlink={onCommitUnlink}
+        onCommitMove={onCommitMove}
+      />
+    );
+
+    await user.selectOptions(screen.getByLabelText("Move abc123 to task"), "t2");
+    await user.click(screen.getByRole("button", { name: "Move abc123" }));
+
+    expect(onCommitMove).toHaveBeenCalledWith("abc123", "t1", "t2");
   });
 });

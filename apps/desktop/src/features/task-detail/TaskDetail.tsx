@@ -23,6 +23,7 @@ export interface TaskDetailProps {
   checklist: ChecklistItem[];
   notes: Note[];
   linkedCommits: GitCommit[];
+  availableTasks: Task[];
   workEntries: WorkEntry[];
   inboxItems: InboxItem[];
   onStatusChange: (taskId: string, status: TaskStatus) => void | Promise<void>;
@@ -30,6 +31,8 @@ export interface TaskDetailProps {
   onNoteAdd: (taskId: string, body: string) => void | Promise<void>;
   onNextStepSave: (taskId: string, nextStep: string) => void | Promise<void>;
   onStartFocus: (input: StartFocusInput) => void | Promise<void>;
+  onCommitUnlink: (commitSha: string, taskId: string) => void | Promise<void>;
+  onCommitMove: (commitSha: string, fromTaskId: string, toTaskId: string) => void | Promise<void>;
   onCaptureInbox?: (input: { body: string; kind: InboxKind }) => void | Promise<void>;
   onStartManualWorkReview?: () => void;
 }
@@ -47,6 +50,7 @@ export function TaskDetail({
   checklist,
   notes,
   linkedCommits,
+  availableTasks,
   workEntries,
   inboxItems,
   onStatusChange,
@@ -54,12 +58,15 @@ export function TaskDetail({
   onNoteAdd,
   onNextStepSave,
   onStartFocus,
+  onCommitUnlink,
+  onCommitMove,
   onCaptureInbox,
   onStartManualWorkReview
 }: TaskDetailProps) {
   const [noteBody, setNoteBody] = useState("");
   const [nextStep, setNextStep] = useState(task.nextStep);
   const [timeboxMinutes, setTimeboxMinutes] = useState(25);
+  const [moveTargets, setMoveTargets] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setNextStep(task.nextStep);
@@ -92,6 +99,23 @@ export function TaskDetail({
       mode: "timebox",
       timeboxMinutes: Number.isFinite(roundedMinutes) ? Math.max(1, roundedMinutes) : 1
     });
+  }
+
+  function shortSha(commitSha: string) {
+    return commitSha.slice(0, 7);
+  }
+
+  function selectedMoveTarget(commitSha: string) {
+    return moveTargets[commitSha] ?? availableTasks[0]?.id ?? "";
+  }
+
+  async function moveCommit(commitSha: string) {
+    const toTaskId = selectedMoveTarget(commitSha);
+    if (!toTaskId) {
+      return;
+    }
+
+    await onCommitMove(commitSha, task.id, toTaskId);
   }
 
   return (
@@ -199,6 +223,64 @@ export function TaskDetail({
       <section className="stack" aria-labelledby={`${task.id}-context-title`}>
         <h3 id={`${task.id}-context-title`}>Context</h3>
         <p>{linkedCommits.length} linked commits</p>
+        {linkedCommits.length > 0 ? (
+          <ul>
+            {linkedCommits.map((commit) => {
+              const displaySha = shortSha(commit.sha);
+              const moveTarget = selectedMoveTarget(commit.sha);
+
+              return (
+                <li className="stack" key={commit.sha}>
+                  <div>
+                    <strong>{commit.message}</strong>
+                    <p>
+                      {displaySha} on {commit.branch} at {commit.committedAt}
+                    </p>
+                  </div>
+                  {commit.changedFiles.length > 0 ? (
+                    <ul>
+                      {commit.changedFiles.map((changedFile) => (
+                        <li key={changedFile}>{changedFile}</li>
+                      ))}
+                    </ul>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => void onCommitUnlink(commit.sha, task.id)}
+                  >
+                    Unlink {displaySha}
+                  </button>
+                  <label htmlFor={`${task.id}-${commit.sha}-move-target`}>
+                    Move {displaySha} to task
+                    <select
+                      id={`${task.id}-${commit.sha}-move-target`}
+                      value={moveTarget}
+                      onChange={(event) =>
+                        setMoveTargets((targets) => ({
+                          ...targets,
+                          [commit.sha]: event.target.value
+                        }))
+                      }
+                    >
+                      {availableTasks.map((availableTask) => (
+                        <option key={availableTask.id} value={availableTask.id}>
+                          {availableTask.title}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!moveTarget}
+                    onClick={() => void moveCommit(commit.sha)}
+                  >
+                    Move {displaySha}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
         <p>{workEntries.length} work entries</p>
         <p>{inboxItems.length} inbox items</p>
         {onCaptureInbox ? <InboxCapture onCapture={onCaptureInbox} /> : null}
