@@ -74,7 +74,11 @@ pub fn sync_commits(
                message = excluded.message,
                author_name = excluded.author_name,
                committed_at = excluded.committed_at,
-               changed_files_json = excluded.changed_files_json",
+               changed_files_json = case
+                 when excluded.changed_files_json = '[]' and commits.changed_files_json != '[]'
+                 then commits.changed_files_json
+                 else excluded.changed_files_json
+               end",
             params![
                 &commit.sha,
                 project_id,
@@ -82,9 +86,10 @@ pub fn sync_commits(
                 &commit.message,
                 &commit.author_name,
                 &commit.committed_at,
-                changed_files_json
+                &changed_files_json
             ],
         )?;
+        let changed_files = load_changed_files(conn, project_id, &commit.sha)?;
 
         if !has_link_for_commit(conn, project_id, &commit.sha)? {
             let focus_interval = WorkEntryRepository::new(conn)
@@ -115,11 +120,25 @@ pub fn sync_commits(
             message: commit.message,
             author_name: commit.author_name,
             committed_at: commit.committed_at,
-            changed_files: commit.changed_files,
+            changed_files,
         });
     }
 
     Ok(synced_commits)
+}
+
+fn load_changed_files(
+    conn: &Connection,
+    project_id: &str,
+    sha: &str,
+) -> rusqlite::Result<Vec<String>> {
+    let changed_files_json: String = conn.query_row(
+        "select changed_files_json from commits where project_id = ?1 and sha = ?2",
+        params![project_id, sha],
+        |row| row.get(0),
+    )?;
+
+    Ok(serde_json::from_str(&changed_files_json).unwrap_or_default())
 }
 
 pub fn list_linked_commits_for_task(
@@ -269,6 +288,21 @@ mod tests {
         }
     }
 
+    fn commit_with_changed_files(
+        sha: &str,
+        committed_at: &str,
+        changed_files: Vec<String>,
+    ) -> GitCommitMetadata {
+        GitCommitMetadata {
+            sha: sha.to_string(),
+            branch: "main".to_string(),
+            message: format!("Commit {sha}"),
+            author_name: "Clyde".to_string(),
+            committed_at: committed_at.to_string(),
+            changed_files,
+        }
+    }
+
     #[test]
     fn prefers_matching_focus_interval() {
         assert_eq!(
@@ -407,6 +441,44 @@ mod tests {
         assert_eq!(linked_to_focused.len(), 1);
         assert_eq!(linked_to_active.len(), 0);
         assert_eq!(link_mode, "manual");
+    }
+
+    #[test]
+    fn sync_commits_does_not_overwrite_existing_changed_files_with_empty_metadata() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let (project_id, _focused_task_id, _active_task_id) = seed_project_with_tasks(&mut conn);
+
+        sync_commits(
+            &conn,
+            &project_id,
+            vec![commit_with_changed_files(
+                "abc123",
+                "2026-05-20T10:10:00Z",
+                vec!["src/main.ts".to_string()],
+            )],
+        )
+        .expect("initial sync");
+        let synced = sync_commits(
+            &conn,
+            &project_id,
+            vec![commit_with_changed_files(
+                "abc123",
+                "2026-05-20T10:10:00Z",
+                vec![],
+            )],
+        )
+        .expect("second sync");
+
+        let stored_changed_files_json: String = conn
+            .query_row(
+                "select changed_files_json from commits where project_id = ?1 and sha = 'abc123'",
+                params![project_id],
+                |row| row.get(0),
+            )
+            .expect("stored changed files");
+        assert_eq!(stored_changed_files_json, "[\"src/main.ts\"]");
+        assert_eq!(synced[0].changed_files, vec!["src/main.ts".to_string()]);
     }
 
     #[test]
