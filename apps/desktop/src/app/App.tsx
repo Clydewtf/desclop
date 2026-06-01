@@ -61,7 +61,7 @@ async function loadGitCommits(project: Project): Promise<GitLoadResult> {
   }
 
   try {
-    return { commits: await api.syncGitCommits(project.id, project.localPath), unavailable: false };
+    return { commits: await api.syncGitCommits(project.id), unavailable: false };
   } catch {
     return { commits: [], unavailable: true };
   }

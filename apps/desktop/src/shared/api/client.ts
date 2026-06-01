@@ -102,8 +102,8 @@ export const api = {
     invoke<ResumeBrief>("get_resume_brief", { projectId }),
   readGitCommits: (localPath: string) =>
     invoke<GitCommitMetadata[]>("read_git_commits", { localPath }),
-  syncGitCommits: (projectId: string, localPath: string) =>
-    invoke<GitCommit[]>("sync_git_commits", { projectId, localPath }),
+  syncGitCommits: (projectId: string) =>
+    invoke<GitCommit[]>("sync_git_commits", { projectId }),
   listLinkedCommitsForTask: (projectId: string, taskId: string) =>
     invoke<GitCommit[]>("list_linked_commits_for_task", { projectId, taskId }),
   moveCommitLink: (commitSha: string, fromTaskId: string, toTaskId: string) =>

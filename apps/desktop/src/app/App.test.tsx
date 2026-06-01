@@ -838,7 +838,8 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     expect(await screen.findByRole("status")).toHaveTextContent("Git unavailable.");
-    expect(syncGitCommits).toHaveBeenCalledWith("p1", "/tmp/desclop");
+    expect(syncGitCommits).toHaveBeenCalledWith("p1");
+    expect(syncGitCommits).not.toHaveBeenCalledWith("p1", "/tmp/desclop");
     expect(screen.getByRole("heading", { name: "Continue where you left off" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue task" })).toBeEnabled();
 

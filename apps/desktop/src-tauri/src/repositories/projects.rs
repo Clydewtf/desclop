@@ -70,6 +70,26 @@ impl<'a> ProjectRepository<'a> {
 
         rows.collect()
     }
+
+    pub fn get_project(&self, project_id: &str) -> rusqlite::Result<Project> {
+        self.conn.query_row(
+            "select id, name, local_path, git_enabled, git_remote, active_task_id, created_at, updated_at
+             from projects where id = ?1",
+            params![project_id],
+            |row| {
+                Ok(Project {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    local_path: row.get(2)?,
+                    git_enabled: row.get::<_, i32>(3)? == 1,
+                    git_remote: row.get(4)?,
+                    active_task_id: row.get(5)?,
+                    created_at: row.get(6)?,
+                    updated_at: row.get(7)?,
+                })
+            },
+        )
+    }
 }
 
 #[cfg(test)]
@@ -94,5 +114,22 @@ mod tests {
         assert_eq!(created.git_enabled, false);
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].id, created.id);
+    }
+
+    #[test]
+    fn get_project_returns_one_project_by_id() {
+        let conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let repo = ProjectRepository::new(&conn);
+        let created = repo
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), true)
+            .expect("create project");
+
+        let loaded = repo.get_project(&created.id).expect("load project");
+
+        assert_eq!(loaded.id, created.id);
+        assert_eq!(loaded.local_path, "/tmp/desclop");
+        assert!(loaded.git_enabled);
+        assert!(repo.get_project("missing-project").is_err());
     }
 }
