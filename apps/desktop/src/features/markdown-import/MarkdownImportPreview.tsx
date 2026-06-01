@@ -2,10 +2,15 @@ import type { ParsedMarkdownPlan } from "./markdownParser";
 
 interface MarkdownImportPreviewProps {
   parsed: ParsedMarkdownPlan;
+  importing?: boolean;
   onImport: () => void;
 }
 
-export function MarkdownImportPreview({ parsed, onImport }: MarkdownImportPreviewProps) {
+export function MarkdownImportPreview({
+  parsed,
+  importing = false,
+  onImport
+}: MarkdownImportPreviewProps) {
   return (
     <section className="stack" aria-labelledby="preview-title">
       <h2 id="preview-title">Import preview</h2>
@@ -31,8 +36,8 @@ export function MarkdownImportPreview({ parsed, onImport }: MarkdownImportPrevie
           </article>
         ))}
       </div>
-      <button type="button" disabled={parsed.stages.length === 0} onClick={onImport}>
-        Import plan
+      <button type="button" disabled={parsed.stages.length === 0 || importing} onClick={onImport}>
+        {importing ? "Importing plan" : "Import plan"}
       </button>
     </section>
   );

@@ -30,4 +30,38 @@ describe("Today", () => {
     await user.click(screen.getByRole("button", { name: "Continue task" }));
     expect(onContinue).toHaveBeenCalled();
   });
+
+  it("renders inbox capture and starts manual work review", async () => {
+    const user = userEvent.setup();
+    const onCaptureInbox = vi.fn().mockResolvedValue(undefined);
+    const onStartManualWorkReview = vi.fn();
+
+    renderWithRouter(
+      <Today
+        view={{
+          heading: "Continue where you left off",
+          primaryTaskTitle: "Create local store",
+          stageTitle: "Foundation",
+          latestNote: "",
+          nextStep: "Run repository tests",
+          facts: [],
+          nextTasks: []
+        }}
+        onContinue={vi.fn()}
+        onCaptureInbox={onCaptureInbox}
+        onStartManualWorkReview={onStartManualWorkReview}
+      />
+    );
+
+    await user.type(screen.getByLabelText("Capture"), "Check export shape");
+    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+    await user.click(screen.getByRole("button", { name: "Add manual work review" }));
+
+    expect(onCaptureInbox).toHaveBeenCalledWith({
+      body: "Check export shape",
+      kind: "question"
+    });
+    expect(onStartManualWorkReview).toHaveBeenCalled();
+  });
 });

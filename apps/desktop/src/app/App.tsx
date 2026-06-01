@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import "../styles/base.css";
 import { FocusMode } from "../features/focus-mode/FocusMode";
+import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImportPreview";
+import { parseMarkdownPlan, type ParsedMarkdownPlan } from "../features/markdown-import/markdownParser";
+import { Planner } from "../features/planner/Planner";
+import { buildPlannerFrames } from "../features/planner/plannerEngine";
 import { ProjectSetup } from "../features/project-setup/ProjectSetup";
 import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDetail";
 import { Today } from "../features/today/Today";
@@ -24,7 +28,14 @@ interface GitLoadResult {
   unavailable: boolean;
 }
 
-type AppScreen = "today" | "task-detail" | "focus" | "work-review";
+type AppScreen =
+  | "today"
+  | "task-detail"
+  | "focus"
+  | "work-review"
+  | "manual-work-review"
+  | "import"
+  | "planner";
 
 interface FocusSession {
   taskId: string;
@@ -106,6 +117,11 @@ export function App() {
   const [selectedWorkEntries, setSelectedWorkEntries] = useState<WorkEntry[]>([]);
   const [selectedLinkedCommits, setSelectedLinkedCommits] = useState<GitCommit[]>([]);
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null);
+  const [manualReviewTaskId, setManualReviewTaskId] = useState<string | null>(null);
+  const [markdownDraft, setMarkdownDraft] = useState("");
+  const [parsedPlan, setParsedPlan] = useState<ParsedMarkdownPlan | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const loadProjects = useCallback(async () => {
     if (!hasTauriInternals()) {
@@ -243,14 +259,28 @@ export function App() {
     setSelectedLinkedCommits(linkedCommits);
   }
 
+  async function refreshProjectData(projectId: string) {
+    const [plan, resumeResult] = await Promise.all([
+      api.loadProjectPlan(projectId),
+      loadResumeBrief(projectId)
+    ]);
+    setProjectPlan(plan);
+    setResumeBrief(resumeResult.brief);
+    setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
+  }
+
+  async function openTask(taskId: string) {
+    setSelectedTaskId(taskId);
+    await loadTaskContext(taskId);
+    setScreen("task-detail");
+  }
+
   async function continueTask() {
     if (!resumableTask) {
       return;
     }
 
-    setSelectedTaskId(resumableTask.id);
-    await loadTaskContext(resumableTask.id);
-    setScreen("task-detail");
+    await openTask(resumableTask.id);
   }
 
   async function changeTaskStatus(taskId: string, status: TaskStatus) {
@@ -300,6 +330,11 @@ export function App() {
       durationSeconds: null
     });
     setScreen("focus");
+  }
+
+  function startManualWorkReview(taskId: string | null) {
+    setManualReviewTaskId(taskId);
+    setScreen("manual-work-review");
   }
 
   function finishFocus(input: { elapsedSeconds: number }) {
@@ -354,7 +389,106 @@ export function App() {
     setScreen("task-detail");
   }
 
+  async function saveManualReview(input: {
+    done: string;
+    remains: string;
+    nextStep: string;
+    durationSeconds: number | null;
+  }) {
+    if (!project) {
+      return;
+    }
+
+    const taskId = manualReviewTaskId;
+    await api.createWorkEntry({
+      projectId: project.id,
+      taskId,
+      source: "manual",
+      startedAt: null,
+      endedAt: null,
+      durationSeconds: null,
+      done: input.done,
+      remains: input.remains,
+      nextStep: input.nextStep
+    });
+
+    if (taskId && input.nextStep.trim()) {
+      await api.updateNextStep(taskId, input.nextStep.trim());
+    }
+
+    await refreshProjectData(project.id);
+    if (taskId) {
+      await openTask(taskId);
+    } else {
+      setScreen("today");
+    }
+  }
+
+  function previewImport() {
+    setImportError(null);
+    setParsedPlan(parseMarkdownPlan(markdownDraft));
+  }
+
+  async function importMarkdownPlan() {
+    if (!project || !parsedPlan || importing) {
+      return;
+    }
+
+    setImporting(true);
+    setImportError(null);
+    try {
+      await api.importPlan(project.id, parsedPlan.stages);
+      await refreshProjectData(project.id);
+      setMarkdownDraft("");
+      setParsedPlan(null);
+      setScreen("planner");
+    } catch {
+      setImportError("Could not import plan.");
+    } finally {
+      setImporting(false);
+    }
+  }
+
   function renderProjectScreen() {
+    if (screen === "import") {
+      return (
+        <section className="stack" aria-labelledby="import-title">
+          <h1 id="import-title">Import plan</h1>
+          {importError ? <p role="alert">{importError}</p> : null}
+          <label htmlFor="markdown-plan">Markdown plan</label>
+          <textarea
+            id="markdown-plan"
+            value={markdownDraft}
+            disabled={importing}
+            onChange={(event) => setMarkdownDraft(event.target.value)}
+          />
+          <button type="button" disabled={importing} onClick={previewImport}>
+            Preview import
+          </button>
+          {parsedPlan ? (
+            <MarkdownImportPreview
+              parsed={parsedPlan}
+              onImport={() => void importMarkdownPlan()}
+              importing={importing}
+            />
+          ) : null}
+        </section>
+      );
+    }
+
+    if (screen === "planner") {
+      return (
+        <Planner
+          frames={buildPlannerFrames(
+            projectPlan.stages,
+            projectPlan.tasks,
+            projectPlan.checklistItems
+          )}
+          onContinueTask={(taskId) => void openTask(taskId)}
+        />
+      );
+    }
+
     if (screen === "task-detail" && selectedTask) {
       return (
         <TaskDetail
@@ -369,6 +503,8 @@ export function App() {
           onNoteAdd={addNote}
           onNextStepSave={saveNextStep}
           onStartFocus={startFocus}
+          onCaptureInbox={captureInbox}
+          onStartManualWorkReview={() => startManualWorkReview(selectedTask.id)}
         />
       );
     }
@@ -402,10 +538,21 @@ export function App() {
       );
     }
 
+    if (screen === "manual-work-review") {
+      return (
+        <WorkReview
+          durationSeconds={null}
+          onSave={saveManualReview}
+        />
+      );
+    }
+
     return (
       <Today
         view={buildTodayView(resumeBrief, projectPlan, gitCommits)}
         onContinue={() => void continueTask()}
+        onCaptureInbox={captureInbox}
+        onStartManualWorkReview={() => startManualWorkReview(resumableTask?.id ?? null)}
         canContinue={Boolean(resumableTask)}
       />
     );
@@ -453,6 +600,23 @@ export function App() {
           {resumeError ? <p>{resumeError}</p> : null}
           {gitError ? <p>{gitError}</p> : null}
         </div>
+      ) : null}
+      {project ? (
+        <nav aria-label="Project navigation">
+          <button type="button" onClick={() => setScreen("today")}>
+            Today
+          </button>
+          <button type="button" onClick={() => setScreen("planner")}>
+            Open planner
+          </button>
+          <button
+            type="button"
+            aria-label={screen === "import" ? "Import plan navigation" : undefined}
+            onClick={() => setScreen("import")}
+          >
+            Import plan
+          </button>
+        </nav>
       ) : null}
       {renderProjectScreen()}
     </AppShell>

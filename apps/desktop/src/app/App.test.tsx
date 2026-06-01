@@ -11,6 +11,7 @@ vi.mock("../shared/api/client", () => ({
     createProject: vi.fn(),
     getResumeBrief: vi.fn(),
     loadProjectPlan: vi.fn(),
+    importPlan: vi.fn(),
     updateTaskStatus: vi.fn(),
     updateChecklistItem: vi.fn(),
     addNote: vi.fn(),
@@ -29,8 +30,10 @@ const listProjects = vi.mocked(api.listProjects);
 const createProject = vi.mocked(api.createProject);
 const getResumeBrief = vi.mocked(api.getResumeBrief);
 const loadProjectPlan = vi.mocked(api.loadProjectPlan);
+const importPlan = vi.mocked(api.importPlan);
 const createWorkEntry = vi.mocked(api.createWorkEntry);
 const captureInboxItem = vi.mocked(api.captureInboxItem);
+const updateNextStep = vi.mocked(api.updateNextStep);
 const addNote = vi.mocked(api.addNote);
 const listNotesForTask = vi.mocked(api.listNotesForTask);
 const listWorkEntriesForTask = vi.mocked(api.listWorkEntriesForTask);
@@ -42,6 +45,71 @@ function enableTauriApi() {
     value: {},
     configurable: true
   });
+}
+
+function projectFixture(overrides: Partial<Awaited<ReturnType<typeof api.listProjects>>[number]> = {}) {
+  return {
+    id: "p1",
+    name: "Desclop",
+    localPath: "/tmp/desclop",
+    gitEnabled: false,
+    gitRemote: null,
+    activeTaskId: null,
+    createdAt: "2026-05-20T10:00:00Z",
+    updatedAt: "2026-05-20T10:00:00Z",
+    ...overrides
+  };
+}
+
+function emptyResumeBrief() {
+  return {
+    id: "rb1",
+    projectId: "p1",
+    taskId: null,
+    stageId: null,
+    latestNote: "",
+    nextStep: "",
+    facts: [],
+    generatedAt: "2026-05-20T10:00:00Z"
+  };
+}
+
+function importedPlanFixture(projectId: string) {
+  return {
+    stages: [
+      {
+        id: "s1",
+        projectId,
+        title: "Foundation",
+        description: "",
+        position: 0,
+        status: "current" as const
+      }
+    ],
+    tasks: [
+      {
+        id: "t1",
+        projectId,
+        stageId: "s1",
+        title: "Create local store",
+        description: "",
+        status: "todo" as const,
+        priority: null,
+        dueDate: null,
+        nextStep: "",
+        position: 0
+      }
+    ],
+    checklistItems: [
+      {
+        id: "c1",
+        taskId: "t1",
+        title: "Add migration",
+        completed: true,
+        position: 0
+      }
+    ]
+  };
 }
 
 afterEach(() => {
@@ -158,6 +226,331 @@ describe("App", () => {
     expect(screen.getByText("1 recent commit on main")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue task" })).toBeEnabled();
     expect(screen.queryByText("Active task")).not.toBeInTheDocument();
+  });
+
+  it("imports a markdown plan and opens the Planner with refreshed stages", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan
+      .mockResolvedValueOnce({ stages: [], tasks: [], checklistItems: [] })
+      .mockResolvedValueOnce(importedPlanFixture("p1"));
+    importPlan.mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Import plan" }));
+    fireEvent.change(screen.getByLabelText("Markdown plan"), {
+      target: { value: "## Foundation\n- [ ] Create local store\n  - [x] Add migration" }
+    });
+    await user.click(screen.getByRole("button", { name: "Preview import" }));
+    await user.click(screen.getByRole("button", { name: "Import plan" }));
+
+    expect(importPlan).toHaveBeenCalledWith("p1", [
+      {
+        title: "Foundation",
+        description: "",
+        position: 0,
+        tasks: [
+          {
+            title: "Create local store",
+            status: "todo",
+            position: 0,
+            checklist: [{ title: "Add migration", completed: true, position: 0 }]
+          }
+        ]
+      }
+    ]);
+    expect(await screen.findByRole("heading", { name: "Foundation" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Continue Create local store" })).toBeEnabled();
+  });
+
+  it("prevents duplicate markdown imports while import is pending", async () => {
+    const user = userEvent.setup();
+    let resolveImport: () => void = () => {};
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+    importPlan.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveImport = resolve;
+      })
+    );
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Import plan" }));
+    fireEvent.change(screen.getByLabelText("Markdown plan"), {
+      target: { value: "## Foundation\n- [ ] Create local store" }
+    });
+    await user.click(screen.getByRole("button", { name: "Preview import" }));
+    await user.click(screen.getByRole("button", { name: "Import plan" }));
+
+    expect(screen.getByRole("button", { name: "Importing plan" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Importing plan" }));
+    expect(importPlan).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveImport();
+    });
+  });
+
+  it("opens Planner from Today and continues a Planner task", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: null })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open planner" }));
+    await user.click(screen.getByRole("button", { name: "Continue Create local store" }));
+
+    expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
+    expect(await screen.findByRole("button", { name: "Start ambient focus" })).toBeInTheDocument();
+  });
+
+  it("captures inbox items from Today", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    captureInboxItem.mockResolvedValue({
+      id: "i1",
+      projectId: "p1",
+      taskId: null,
+      body: "Check export shape",
+      kind: "question",
+      status: "open",
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    });
+
+    renderWithRouter(<App />);
+
+    await user.type(await screen.findByLabelText("Capture"), "Check export shape");
+    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+
+    expect(captureInboxItem).toHaveBeenCalledWith({
+      projectId: "p1",
+      body: "Check export shape",
+      kind: "question"
+    });
+  });
+
+  it("captures inbox items from Task Detail", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue({
+      ...emptyResumeBrief(),
+      taskId: "t1",
+      stageId: "s1",
+      nextStep: "Run repository tests"
+    });
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    captureInboxItem.mockResolvedValue({
+      id: "i1",
+      projectId: "p1",
+      taskId: null,
+      body: "Check task export shape",
+      kind: "question",
+      status: "open",
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.type(screen.getByLabelText("Capture"), "Check task export shape");
+    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+
+    expect(captureInboxItem).toHaveBeenCalledWith({
+      projectId: "p1",
+      body: "Check task export shape",
+      kind: "question"
+    });
+  });
+
+  it("creates a manual work review from Task Detail and refreshes resume context", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief
+      .mockResolvedValueOnce({
+        ...emptyResumeBrief(),
+        taskId: "t1",
+        stageId: "s1",
+        nextStep: "Old next step"
+      })
+      .mockResolvedValueOnce({
+        ...emptyResumeBrief(),
+        taskId: "t1",
+        stageId: "s1",
+        nextStep: "Run cargo test"
+      });
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    createWorkEntry.mockResolvedValue({
+      id: "w1",
+      projectId: "p1",
+      taskId: "t1",
+      source: "manual",
+      startedAt: null,
+      endedAt: null,
+      durationSeconds: null,
+      done: "Reviewed schema",
+      remains: "Run backend tests",
+      nextStep: "Run cargo test",
+      createdAt: "2026-05-20T10:01:30Z"
+    });
+    updateNextStep.mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(screen.getByRole("button", { name: "Add manual work review" }));
+    await user.type(screen.getByLabelText("What was done"), "Reviewed schema");
+    await user.type(screen.getByLabelText("What remains"), "Run backend tests");
+    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save work review" }));
+
+    expect(createWorkEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "p1",
+        taskId: "t1",
+        source: "manual",
+        durationSeconds: null,
+        done: "Reviewed schema",
+        remains: "Run backend tests",
+        nextStep: "Run cargo test"
+      })
+    );
+    expect(updateNextStep).toHaveBeenCalledWith("t1", "Run cargo test");
+    expect(getResumeBrief).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not duplicate manual work entries after refreshing Task Detail context", async () => {
+    const user = userEvent.setup();
+    const manualEntry = {
+      id: "w1",
+      projectId: "p1",
+      taskId: "t1",
+      source: "manual" as const,
+      startedAt: null,
+      endedAt: null,
+      durationSeconds: null,
+      done: "Reviewed schema",
+      remains: "Run backend tests",
+      nextStep: "Run cargo test",
+      createdAt: "2026-05-20T10:01:30Z"
+    };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief
+      .mockResolvedValueOnce({
+        ...emptyResumeBrief(),
+        taskId: "t1",
+        stageId: "s1",
+        nextStep: "Old next step"
+      })
+      .mockResolvedValueOnce({
+        ...emptyResumeBrief(),
+        taskId: "t1",
+        stageId: "s1",
+        nextStep: "Run cargo test"
+      });
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([manualEntry]);
+    createWorkEntry.mockResolvedValue(manualEntry);
+    updateNextStep.mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(screen.getByRole("button", { name: "Add manual work review" }));
+    await user.type(screen.getByLabelText("What was done"), "Reviewed schema");
+    await user.type(screen.getByLabelText("What remains"), "Run backend tests");
+    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save work review" }));
+
+    expect(await screen.findByText("1 work entries")).toBeInTheDocument();
+    expect(screen.queryByText("2 work entries")).not.toBeInTheDocument();
+  });
+
+  it("creates a manual work review from Today and returns to Task Detail for the resumable task", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief
+      .mockResolvedValueOnce({
+        ...emptyResumeBrief(),
+        taskId: "t1",
+        stageId: "s1",
+        nextStep: "Old next step"
+      })
+      .mockResolvedValueOnce({
+        ...emptyResumeBrief(),
+        taskId: "t1",
+        stageId: "s1",
+        nextStep: "Run cargo test"
+      });
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    createWorkEntry.mockResolvedValue({
+      id: "w1",
+      projectId: "p1",
+      taskId: "t1",
+      source: "manual",
+      startedAt: null,
+      endedAt: null,
+      durationSeconds: null,
+      done: "Reviewed schema",
+      remains: "Run backend tests",
+      nextStep: "Run cargo test",
+      createdAt: "2026-05-20T10:01:30Z"
+    });
+    updateNextStep.mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add manual work review" }));
+    await user.type(screen.getByLabelText("What was done"), "Reviewed schema");
+    await user.type(screen.getByLabelText("What remains"), "Run backend tests");
+    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save work review" }));
+
+    expect(createWorkEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "p1",
+        taskId: "t1",
+        source: "manual",
+        durationSeconds: null,
+        done: "Reviewed schema",
+        remains: "Run backend tests",
+        nextStep: "Run cargo test"
+      })
+    );
+    expect(updateNextStep).toHaveBeenCalledWith("t1", "Run cargo test");
+    expect(getResumeBrief).toHaveBeenCalledTimes(2);
+    expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
+    expect(await screen.findByRole("button", { name: "Start ambient focus" })).toBeInTheDocument();
   });
 
   it("persists a focus session from task detail through work review", async () => {

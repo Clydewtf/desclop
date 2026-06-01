@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from "react";
 import type {
   ChecklistItem,
   GitCommit,
+  InboxKind,
   InboxItem,
   Note,
   Task,
@@ -9,6 +10,7 @@ import type {
   WorkEntry
 } from "../../shared/domain/types";
 import type { FocusModeKind } from "../focus-mode/focusTimer";
+import { InboxCapture } from "../inbox/InboxCapture";
 
 export interface StartFocusInput {
   taskId: string;
@@ -28,6 +30,8 @@ export interface TaskDetailProps {
   onNoteAdd: (taskId: string, body: string) => void | Promise<void>;
   onNextStepSave: (taskId: string, nextStep: string) => void | Promise<void>;
   onStartFocus: (input: StartFocusInput) => void | Promise<void>;
+  onCaptureInbox?: (input: { body: string; kind: InboxKind }) => void | Promise<void>;
+  onStartManualWorkReview?: () => void;
 }
 
 const taskStatuses: TaskStatus[] = ["todo", "active", "blocked", "done"];
@@ -49,7 +53,9 @@ export function TaskDetail({
   onChecklistToggle,
   onNoteAdd,
   onNextStepSave,
-  onStartFocus
+  onStartFocus,
+  onCaptureInbox,
+  onStartManualWorkReview
 }: TaskDetailProps) {
   const [noteBody, setNoteBody] = useState("");
   const [nextStep, setNextStep] = useState(task.nextStep);
@@ -99,6 +105,11 @@ export function TaskDetail({
           <button type="button" onClick={startAmbientFocus}>
             Start ambient focus
           </button>
+          {onStartManualWorkReview ? (
+            <button type="button" onClick={onStartManualWorkReview}>
+              Add manual work review
+            </button>
+          ) : null}
           <label htmlFor={`${task.id}-timebox-minutes`}>
             Timebox minutes
             <input
@@ -190,6 +201,7 @@ export function TaskDetail({
         <p>{linkedCommits.length} linked commits</p>
         <p>{workEntries.length} work entries</p>
         <p>{inboxItems.length} inbox items</p>
+        {onCaptureInbox ? <InboxCapture onCapture={onCaptureInbox} /> : null}
       </section>
     </section>
   );

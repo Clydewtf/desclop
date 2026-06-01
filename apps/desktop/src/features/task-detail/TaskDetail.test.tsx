@@ -180,4 +180,39 @@ describe("TaskDetail", () => {
     expect(screen.getByRole("option", { name: "Blocked" })).toHaveValue("blocked");
     expect(screen.getByRole("option", { name: "Done" })).toHaveValue("done");
   });
+
+  it("renders inbox capture and starts manual work review", async () => {
+    const user = userEvent.setup();
+    const onCaptureInbox = vi.fn().mockResolvedValue(undefined);
+    const onStartManualWorkReview = vi.fn();
+
+    renderWithRouter(
+      <TaskDetail
+        task={task}
+        checklist={[]}
+        notes={[]}
+        linkedCommits={[]}
+        workEntries={[]}
+        inboxItems={[]}
+        onStatusChange={vi.fn()}
+        onChecklistToggle={vi.fn()}
+        onNoteAdd={vi.fn()}
+        onNextStepSave={vi.fn()}
+        onStartFocus={vi.fn()}
+        onCaptureInbox={onCaptureInbox}
+        onStartManualWorkReview={onStartManualWorkReview}
+      />
+    );
+
+    await user.type(screen.getByLabelText("Capture"), "Check task export shape");
+    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+    await user.click(screen.getByRole("button", { name: "Add manual work review" }));
+
+    expect(onCaptureInbox).toHaveBeenCalledWith({
+      body: "Check task export shape",
+      kind: "question"
+    });
+    expect(onStartManualWorkReview).toHaveBeenCalled();
+  });
 });
