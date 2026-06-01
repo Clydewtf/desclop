@@ -78,6 +78,15 @@ impl<'a> WorkEntryRepository<'a> {
             ],
         )?;
 
+        if let Some(task_id) = &entry.task_id {
+            if !entry.next_step.trim().is_empty() {
+                self.conn.execute(
+                    "update tasks set next_step = ?1, updated_at = ?2 where id = ?3 and project_id = ?4",
+                    params![&entry.next_step, &entry.created_at, task_id, &entry.project_id],
+                )?;
+            }
+        }
+
         Ok(entry)
     }
 
@@ -175,7 +184,7 @@ mod tests {
     use crate::repositories::projects::ProjectRepository;
     use crate::repositories::tasks::TaskRepository;
 
-    fn seed_project_with_task(conn: &mut Connection, project_name: &str) -> crate::domain::Project {
+    fn seed_project_with_plan(conn: &mut Connection, project_name: &str) -> crate::domain::Project {
         let project = ProjectRepository::new(conn)
             .create_project(
                 project_name.to_string(),
@@ -218,12 +227,22 @@ mod tests {
         }
     }
 
+    fn reload_task_next_step(conn: &Connection, project_id: &str, task_id: &str) -> String {
+        TaskRepository::new(conn)
+            .list_tasks(project_id)
+            .expect("reload tasks")
+            .into_iter()
+            .find(|candidate| candidate.id == task_id)
+            .expect("updated task")
+            .next_step
+    }
+
     #[test]
     fn create_and_list_work_entries_for_task() {
         let mut conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");
-        let project = seed_project_with_task(&mut conn, "desclop");
-        let other_project = seed_project_with_task(&mut conn, "other");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let other_project = seed_project_with_plan(&mut conn, "other");
         let task = TaskRepository::new(&conn)
             .list_tasks(&project.id)
             .expect("list tasks")
@@ -249,10 +268,107 @@ mod tests {
     }
 
     #[test]
+    fn create_work_entry_updates_task_next_step_when_present() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        let repository = WorkEntryRepository::new(&conn);
+
+        repository
+            .create_work_entry(CreateWorkEntryInput {
+                project_id: project.id.clone(),
+                task_id: Some(task.id.clone()),
+                source: "manual".to_string(),
+                started_at: None,
+                ended_at: None,
+                duration_seconds: None,
+                done: "Added persistence".to_string(),
+                remains: "Verify resume brief".to_string(),
+                next_step: "Run cargo test".to_string(),
+            })
+            .expect("create work entry");
+
+        assert_eq!(
+            reload_task_next_step(&conn, &project.id, &task.id),
+            "Run cargo test".to_string()
+        );
+    }
+
+    #[test]
+    fn create_work_entry_preserves_task_next_step_when_next_step_is_empty() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        TaskRepository::new(&conn)
+            .update_next_step(&task.id, "Keep existing step")
+            .expect("set existing next step");
+        let repository = WorkEntryRepository::new(&conn);
+
+        let mut input = valid_input(project.id.clone(), task.id.clone());
+        input.next_step = String::new();
+        repository
+            .create_work_entry(input)
+            .expect("create work entry");
+
+        assert_eq!(
+            reload_task_next_step(&conn, &project.id, &task.id),
+            "Keep existing step".to_string()
+        );
+    }
+
+    #[test]
+    fn create_work_entry_preserves_task_next_step_when_task_id_is_null() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        TaskRepository::new(&conn)
+            .update_next_step(&task.id, "Keep existing step")
+            .expect("set existing next step");
+        let repository = WorkEntryRepository::new(&conn);
+
+        repository
+            .create_work_entry(CreateWorkEntryInput {
+                project_id: project.id.clone(),
+                task_id: None,
+                source: "manual".to_string(),
+                started_at: None,
+                ended_at: None,
+                duration_seconds: None,
+                done: "Added persistence".to_string(),
+                remains: "Verify resume brief".to_string(),
+                next_step: "Run cargo test".to_string(),
+            })
+            .expect("create work entry");
+
+        assert_eq!(
+            reload_task_next_step(&conn, &project.id, &task.id),
+            "Keep existing step".to_string()
+        );
+    }
+
+    #[test]
     fn rejects_negative_duration() {
         let mut conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");
-        let project = seed_project_with_task(&mut conn, "desclop");
+        let project = seed_project_with_plan(&mut conn, "desclop");
         let task = TaskRepository::new(&conn)
             .list_tasks(&project.id)
             .expect("list tasks")
@@ -275,7 +391,7 @@ mod tests {
     fn rejects_inverted_timestamps() {
         let mut conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");
-        let project = seed_project_with_task(&mut conn, "desclop");
+        let project = seed_project_with_plan(&mut conn, "desclop");
         let task = TaskRepository::new(&conn)
             .list_tasks(&project.id)
             .expect("list tasks")
@@ -299,7 +415,7 @@ mod tests {
     fn returns_focus_interval_containing_commit() {
         let mut conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");
-        let project = seed_project_with_task(&mut conn, "desclop");
+        let project = seed_project_with_plan(&mut conn, "desclop");
         let task = TaskRepository::new(&conn)
             .list_tasks(&project.id)
             .expect("list tasks")

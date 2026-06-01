@@ -422,10 +422,6 @@ export function App() {
       nextStep: input.nextStep
     });
 
-    if (taskId && input.nextStep.trim()) {
-      await api.updateNextStep(taskId, input.nextStep.trim());
-    }
-
     await refreshProjectData(project.id);
     if (taskId) {
       await openTask(taskId);

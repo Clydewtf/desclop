@@ -244,9 +244,11 @@ fn load_latest_commit_branch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::CreateWorkEntryInput;
     use crate::db::{create_memory_connection, run_migrations};
     use crate::repositories::plans::{ImportStage, ImportTask, PlanRepository};
     use crate::repositories::projects::ProjectRepository;
+    use crate::repositories::work_entries::WorkEntryRepository;
 
     fn seed_project(conn: &mut Connection) -> (String, String, String) {
         let project = ProjectRepository::new(conn)
@@ -359,6 +361,32 @@ mod tests {
         assert!(brief.facts.contains(&"1 recent work entries".to_string()));
         assert!(brief.facts.contains(&"1 open inbox captures".to_string()));
         assert!(!brief.facts.contains(&"Latest note is ready".to_string()));
+    }
+
+    #[test]
+    fn uses_work_entry_next_step_propagated_to_active_task() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let (project_id, active_task_id, _) = seed_project(&mut conn);
+
+        WorkEntryRepository::new(&conn)
+            .create_work_entry(CreateWorkEntryInput {
+                project_id: project_id.clone(),
+                task_id: Some(active_task_id.clone()),
+                source: "manual".to_string(),
+                started_at: None,
+                ended_at: None,
+                duration_seconds: None,
+                done: "Reviewed repository propagation".to_string(),
+                remains: "Verify resume brief".to_string(),
+                next_step: "Run cargo test".to_string(),
+            })
+            .expect("create work entry");
+
+        let brief = build_resume_brief(&conn, &project_id).expect("build resume brief");
+
+        assert_eq!(brief.task_id.as_deref(), Some(active_task_id.as_str()));
+        assert_eq!(brief.next_step, "Run cargo test");
     }
 
     #[test]

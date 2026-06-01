@@ -420,8 +420,6 @@ describe("App", () => {
       nextStep: "Run cargo test",
       createdAt: "2026-05-20T10:01:30Z"
     });
-    updateNextStep.mockResolvedValue(undefined);
-
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
@@ -442,7 +440,7 @@ describe("App", () => {
         nextStep: "Run cargo test"
       })
     );
-    expect(updateNextStep).toHaveBeenCalledWith("t1", "Run cargo test");
+    expect(updateNextStep).not.toHaveBeenCalled();
     expect(getResumeBrief).toHaveBeenCalledTimes(2);
   });
 
@@ -482,8 +480,6 @@ describe("App", () => {
       .mockResolvedValueOnce([])
       .mockResolvedValueOnce([manualEntry]);
     createWorkEntry.mockResolvedValue(manualEntry);
-    updateNextStep.mockResolvedValue(undefined);
-
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
@@ -495,6 +491,7 @@ describe("App", () => {
 
     expect(await screen.findByText("1 work entries")).toBeInTheDocument();
     expect(screen.queryByText("2 work entries")).not.toBeInTheDocument();
+    expect(updateNextStep).not.toHaveBeenCalled();
   });
 
   it("creates a manual work review from Today and returns to Task Detail for the resumable task", async () => {
@@ -530,8 +527,6 @@ describe("App", () => {
       nextStep: "Run cargo test",
       createdAt: "2026-05-20T10:01:30Z"
     });
-    updateNextStep.mockResolvedValue(undefined);
-
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Add manual work review" }));
@@ -551,7 +546,7 @@ describe("App", () => {
         nextStep: "Run cargo test"
       })
     );
-    expect(updateNextStep).toHaveBeenCalledWith("t1", "Run cargo test");
+    expect(updateNextStep).not.toHaveBeenCalled();
     expect(getResumeBrief).toHaveBeenCalledTimes(2);
     expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
     expect(await screen.findByRole("button", { name: "Start ambient focus" })).toBeInTheDocument();
