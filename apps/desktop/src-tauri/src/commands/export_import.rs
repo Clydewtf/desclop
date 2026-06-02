@@ -2,7 +2,8 @@ use tauri::State;
 
 use crate::app_state::AppState;
 use crate::services::portable_bundle::{
-    export_project_bundle_to_folder, import_project_bundle_from_folder,
+    build_project_bundle, import_project_bundle as import_project_bundle_rows,
+    read_project_bundle_from_folder, write_project_bundle_to_folder,
 };
 
 #[tauri::command]
@@ -15,8 +16,11 @@ pub fn export_project_bundle(
         return Err("Destination folder is required".to_string());
     }
 
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
-    export_project_bundle_to_folder(&conn, &project_id, destination_folder)
+    let bundle = {
+        let conn = state.conn.lock().map_err(|err| err.to_string())?;
+        build_project_bundle(&conn, &project_id)?
+    };
+    write_project_bundle_to_folder(&bundle, destination_folder)
         .map(|path| path.to_string_lossy().to_string())
 }
 
@@ -30,6 +34,7 @@ pub fn import_project_bundle(
         return Err("Bundle folder is required".to_string());
     }
 
+    let bundle = read_project_bundle_from_folder(&bundle_folder)?;
     let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
-    import_project_bundle_from_folder(&mut conn, bundle_folder, &reselected_local_path)
+    import_project_bundle_rows(&mut conn, bundle, &reselected_local_path, bundle_folder)
 }

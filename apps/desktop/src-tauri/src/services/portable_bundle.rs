@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
@@ -10,12 +10,12 @@ use crate::repositories::projects::ProjectRepository;
 
 pub const PORTABLE_BUNDLE_FORMAT_VERSION: u32 = 1;
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PortableProjectBundle {
     pub format_version: u32,
     pub exported_at: String,
-    pub project: crate::domain::Project,
+    pub project: BundleProjectRow,
     pub stages: Vec<BundleStageRow>,
     pub tasks: Vec<BundleTaskRow>,
     pub checklist_items: Vec<BundleChecklistItemRow>,
@@ -27,7 +27,19 @@ pub struct PortableProjectBundle {
     pub resume_briefs: Vec<crate::domain::ResumeBrief>,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundleProjectRow {
+    pub id: String,
+    pub name: String,
+    pub git_enabled: bool,
+    pub git_remote: Option<String>,
+    pub active_task_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BundleStageRow {
     pub id: String,
@@ -40,7 +52,7 @@ pub struct BundleStageRow {
     pub updated_at: String,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BundleTaskRow {
     pub id: String,
@@ -57,7 +69,7 @@ pub struct BundleTaskRow {
     pub updated_at: String,
 }
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BundleChecklistItemRow {
     pub id: String,
@@ -69,17 +81,40 @@ pub struct BundleChecklistItemRow {
     pub updated_at: String,
 }
 
+#[allow(dead_code)]
 pub fn export_project_bundle_to_folder(
     conn: &Connection,
     project_id: &str,
     destination_folder: impl AsRef<Path>,
 ) -> Result<PathBuf, String> {
-    let bundle = load_project_bundle(conn, project_id).map_err(|err| err.to_string())?;
-    let bundle_path = destination_folder.as_ref().join(format!(
+    let bundle = build_project_bundle(conn, project_id)?;
+    write_project_bundle_to_folder(&bundle, destination_folder)
+}
+
+pub fn build_project_bundle(
+    conn: &Connection,
+    project_id: &str,
+) -> Result<PortableProjectBundle, String> {
+    load_project_bundle(conn, project_id)
+        .map_err(|err| format!("Failed to load project {project_id} for export: {err}"))
+}
+
+pub fn write_project_bundle_to_folder(
+    bundle: &PortableProjectBundle,
+    destination_folder: impl AsRef<Path>,
+) -> Result<PathBuf, String> {
+    let destination_folder = destination_folder.as_ref();
+    std::fs::create_dir_all(destination_folder).map_err(|err| {
+        format!(
+            "Failed to create destination folder {}: {err}",
+            destination_folder.display()
+        )
+    })?;
+
+    let bundle_path = destination_folder.join(format!(
         "{}.desclop",
         bundle_folder_name(&bundle.project.name)
     ));
-
     if bundle_path.exists() {
         return Err(format!(
             "Portable bundle directory already exists: {}",
@@ -87,33 +122,57 @@ pub fn export_project_bundle_to_folder(
         ));
     }
 
-    std::fs::create_dir_all(&bundle_path).map_err(|err| {
+    let temp_path = destination_folder.join(format!(
+        ".{}.tmp-{}",
+        bundle_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("bundle.desclop"),
+        Uuid::new_v4()
+    ));
+
+    let result = write_project_bundle_temp_then_rename(bundle, &temp_path, &bundle_path);
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&temp_path);
+    }
+    result
+}
+
+fn write_project_bundle_temp_then_rename(
+    bundle: &PortableProjectBundle,
+    temp_path: &Path,
+    bundle_path: &Path,
+) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(temp_path).map_err(|err| {
         format!(
             "Failed to create bundle directory {}: {err}",
-            bundle_path.display()
+            temp_path.display()
         )
     })?;
     let manifest_json = serde_json::to_string_pretty(&bundle).map_err(|err| err.to_string())?;
-    std::fs::write(bundle_path.join("manifest.json"), manifest_json).map_err(|err| {
+    std::fs::write(temp_path.join("manifest.json"), manifest_json).map_err(|err| {
         format!(
             "Failed to write {}: {err}",
-            bundle_path.join("manifest.json").display()
+            temp_path.join("manifest.json").display()
         )
     })?;
     std::fs::write(
-        bundle_path.join("README.md"),
+        temp_path.join("README.md"),
         bundle_readme(&bundle.project.name),
     )
     .map_err(|err| {
         format!(
             "Failed to write {}: {err}",
-            bundle_path.join("README.md").display()
+            temp_path.join("README.md").display()
         )
     })?;
+    std::fs::rename(temp_path, bundle_path)
+        .map_err(|err| format!("Failed to finalize bundle {}: {err}", bundle_path.display()))?;
 
-    Ok(bundle_path)
+    Ok(bundle_path.to_path_buf())
 }
 
+#[allow(dead_code)]
 pub fn import_project_bundle_from_folder(
     conn: &mut Connection,
     bundle_folder: impl AsRef<Path>,
@@ -123,7 +182,16 @@ pub fn import_project_bundle_from_folder(
         return Err("Project folder is required".to_string());
     }
 
-    let manifest_path = bundle_folder.as_ref().join("manifest.json");
+    let bundle = read_project_bundle_from_folder(bundle_folder.as_ref())?;
+
+    import_project_bundle(conn, bundle, reselected_local_path, bundle_folder.as_ref())
+}
+
+pub fn read_project_bundle_from_folder(
+    bundle_folder: impl AsRef<Path>,
+) -> Result<PortableProjectBundle, String> {
+    let bundle_folder = bundle_folder.as_ref();
+    let manifest_path = bundle_folder.join("manifest.json");
     let manifest_json = std::fs::read_to_string(&manifest_path).map_err(|err| {
         format!(
             "Failed to read bundle manifest {}: {err}",
@@ -144,6 +212,21 @@ pub fn import_project_bundle_from_folder(
         ));
     }
 
+    validate_bundle_integrity(&bundle)?;
+    Ok(bundle)
+}
+
+pub fn import_project_bundle(
+    conn: &mut Connection,
+    bundle: PortableProjectBundle,
+    reselected_local_path: &str,
+    bundle_folder: impl AsRef<Path>,
+) -> Result<String, String> {
+    if reselected_local_path.trim().is_empty() {
+        return Err("Project folder is required".to_string());
+    }
+
+    validate_bundle_integrity(&bundle)?;
     import_bundle(conn, bundle, reselected_local_path).map_err(|err| {
         format!(
             "Failed to import bundle {}: {err}",
@@ -157,6 +240,15 @@ fn load_project_bundle(
     project_id: &str,
 ) -> rusqlite::Result<PortableProjectBundle> {
     let project = ProjectRepository::new(conn).get_project(project_id)?;
+    let project = BundleProjectRow {
+        id: project.id,
+        name: project.name,
+        git_enabled: project.git_enabled,
+        git_remote: project.git_remote,
+        active_task_id: project.active_task_id,
+        created_at: project.created_at,
+        updated_at: project.updated_at,
+    };
 
     Ok(PortableProjectBundle {
         format_version: PORTABLE_BUNDLE_FORMAT_VERSION,
@@ -369,6 +461,175 @@ fn import_bundle(
 
     tx.commit()?;
     Ok(new_project_id)
+}
+
+fn validate_bundle_integrity(bundle: &PortableProjectBundle) -> Result<(), String> {
+    let project_id = &bundle.project.id;
+    let mut stage_ids = HashSet::new();
+    for stage in &bundle.stages {
+        if !stage_ids.insert(stage.id.clone()) {
+            return Err(format!("Duplicate stage id {}", stage.id));
+        }
+        if &stage.project_id != project_id {
+            return Err(format!(
+                "stage projectId does not match bundle project: {}",
+                stage.id
+            ));
+        }
+    }
+
+    let mut task_ids = HashSet::new();
+    for task in &bundle.tasks {
+        if !task_ids.insert(task.id.clone()) {
+            return Err(format!("Duplicate task id {}", task.id));
+        }
+        if &task.project_id != project_id {
+            return Err(format!(
+                "task projectId does not match bundle project: {}",
+                task.id
+            ));
+        }
+        if !stage_ids.contains(&task.stage_id) {
+            return Err(format!(
+                "Missing stage for task {}: {}",
+                task.id, task.stage_id
+            ));
+        }
+    }
+
+    if let Some(active_task_id) = &bundle.project.active_task_id {
+        if !task_ids.contains(active_task_id) {
+            return Err(format!("Missing active task: {active_task_id}"));
+        }
+    }
+
+    for item in &bundle.checklist_items {
+        if !task_ids.contains(&item.task_id) {
+            return Err(format!(
+                "Missing task for checklist item {}: {}",
+                item.id, item.task_id
+            ));
+        }
+    }
+
+    validate_optional_task_rows(
+        "note",
+        bundle.notes.iter().map(|note| {
+            (
+                note.id.as_str(),
+                note.project_id.as_str(),
+                note.task_id.as_deref(),
+            )
+        }),
+        project_id,
+        &task_ids,
+    )?;
+    validate_optional_task_rows(
+        "inbox item",
+        bundle.inbox_items.iter().map(|item| {
+            (
+                item.id.as_str(),
+                item.project_id.as_str(),
+                item.task_id.as_deref(),
+            )
+        }),
+        project_id,
+        &task_ids,
+    )?;
+    validate_optional_task_rows(
+        "work entry",
+        bundle.work_entries.iter().map(|entry| {
+            (
+                entry.id.as_str(),
+                entry.project_id.as_str(),
+                entry.task_id.as_deref(),
+            )
+        }),
+        project_id,
+        &task_ids,
+    )?;
+
+    let mut commit_shas = HashSet::new();
+    for commit in &bundle.commits {
+        if commit.project_id != *project_id {
+            return Err(format!(
+                "commit projectId does not match bundle project: {}",
+                commit.sha
+            ));
+        }
+        if !commit_shas.insert(commit.sha.clone()) {
+            return Err(format!("Duplicate commit sha {}", commit.sha));
+        }
+    }
+
+    for link in &bundle.commit_task_links {
+        if link.project_id != *project_id {
+            return Err(format!(
+                "commit task link projectId does not match bundle project: {}",
+                link.id
+            ));
+        }
+        if !task_ids.contains(&link.task_id) {
+            return Err(format!(
+                "Missing task for commit task link {}: {}",
+                link.id, link.task_id
+            ));
+        }
+        if !commit_shas.contains(&link.commit_sha) {
+            return Err(format!(
+                "Missing commit for commit task link {}: {}",
+                link.id, link.commit_sha
+            ));
+        }
+    }
+
+    for brief in &bundle.resume_briefs {
+        if brief.project_id != *project_id {
+            return Err(format!(
+                "resume brief projectId does not match bundle project: {}",
+                brief.id
+            ));
+        }
+        if let Some(task_id) = &brief.task_id {
+            if !task_ids.contains(task_id) {
+                return Err(format!(
+                    "Missing task for resume brief {}: {}",
+                    brief.id, task_id
+                ));
+            }
+        }
+        if let Some(stage_id) = &brief.stage_id {
+            if !stage_ids.contains(stage_id) {
+                return Err(format!(
+                    "Missing stage for resume brief {}: {}",
+                    brief.id, stage_id
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_optional_task_rows<'a>(
+    label: &str,
+    rows: impl Iterator<Item = (&'a str, &'a str, Option<&'a str>)>,
+    project_id: &str,
+    task_ids: &HashSet<String>,
+) -> Result<(), String> {
+    for (id, row_project_id, task_id) in rows {
+        if row_project_id != project_id {
+            return Err(format!(
+                "{label} projectId does not match bundle project: {id}"
+            ));
+        }
+        if let Some(task_id) = task_id {
+            if !task_ids.contains(task_id) {
+                return Err(format!("Missing task for {label} {id}: {task_id}"));
+            }
+        }
+    }
+    Ok(())
 }
 
 fn remap_required(
@@ -604,16 +865,17 @@ fn bundle_folder_name(project_name: &str) -> String {
     let sanitized: String = project_name
         .chars()
         .map(|character| match character {
-            '/' | '\\' | ':' => '_',
+            '/' | '\\' | ':' | '?' | '*' | '"' | '<' | '>' | '|' => '_',
             character => character,
         })
         .collect();
     let trimmed = sanitized.trim();
-    if trimmed.is_empty() {
+    let name = if trimmed.is_empty() {
         "project".to_string()
     } else {
         trimmed.to_string()
-    }
+    };
+    name.chars().take(82).collect()
 }
 
 fn bundle_readme(project_name: &str) -> String {
@@ -825,6 +1087,13 @@ mod tests {
         .expect("write manifest");
     }
 
+    fn read_bundle(bundle_path: &std::path::Path) -> PortableProjectBundle {
+        serde_json::from_str(
+            &fs::read_to_string(bundle_path.join("manifest.json")).expect("manifest text"),
+        )
+        .expect("manifest json")
+    }
+
     fn project_count(conn: &rusqlite::Connection) -> i64 {
         conn.query_row("select count(*) from projects", [], |row| row.get(0))
             .expect("project count")
@@ -867,6 +1136,35 @@ mod tests {
     }
 
     #[test]
+    fn exported_manifest_does_not_leak_original_local_path() {
+        let mut conn = create_memory_connection().expect("memory database");
+        let (project_id, _, _) = seed_full_project(&mut conn);
+        let destination = temp_bundle_destination("privacy");
+
+        let bundle_path =
+            export_project_bundle_to_folder(&conn, &project_id, &destination).expect("export");
+        let manifest_text =
+            fs::read_to_string(bundle_path.join("manifest.json")).expect("manifest text");
+
+        assert!(!manifest_text.contains("/tmp/desclop-source"));
+        assert!(!manifest_text.contains("localPath"));
+    }
+
+    #[test]
+    fn export_missing_project_reports_project_context() {
+        let conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let destination = temp_bundle_destination("missing-project");
+
+        let result = export_project_bundle_to_folder(&conn, "missing-project", &destination);
+
+        assert!(result.is_err());
+        let message = result.unwrap_err();
+        assert!(message.contains("Failed to load project missing-project for export"));
+        assert!(!message.contains("query returned no rows"));
+    }
+
+    #[test]
     fn export_rejects_existing_bundle_directory_and_leaves_stale_files_untouched() {
         let mut conn = create_memory_connection().expect("memory database");
         let (project_id, _, _) = seed_full_project(&mut conn);
@@ -887,6 +1185,47 @@ mod tests {
             "stale source"
         );
         assert!(!bundle_path.join("manifest.json").exists());
+    }
+
+    #[test]
+    fn export_uses_sanitized_capped_folder_name_and_leaves_no_temp_sibling() {
+        let conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = ProjectRepository::new(&conn)
+            .create_project(
+                format!("Bad?*\"<>|:/\\{}", "x".repeat(140)),
+                "/tmp/desclop-source".to_string(),
+                false,
+            )
+            .expect("create project");
+        let destination = temp_bundle_destination("safe-name");
+
+        let bundle_path =
+            export_project_bundle_to_folder(&conn, &project.id, &destination).expect("export");
+        let bundle_name = bundle_path
+            .file_name()
+            .expect("bundle name")
+            .to_string_lossy()
+            .to_string();
+        let sibling_names: Vec<String> = fs::read_dir(&destination)
+            .expect("destination entries")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+
+        assert!(!bundle_name.contains('?'));
+        assert!(!bundle_name.contains('*'));
+        assert!(!bundle_name.contains('"'));
+        assert!(!bundle_name.contains('<'));
+        assert!(!bundle_name.contains('>'));
+        assert!(!bundle_name.contains('|'));
+        assert!(bundle_name.len() <= 90);
+        assert!(sibling_names.iter().all(|name| !name.contains(".tmp-")));
     }
 
     #[test]
@@ -1242,7 +1581,156 @@ mod tests {
             import_project_bundle_from_folder(&mut target, &malformed_path, "/tmp/reselected");
 
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("Missing remapped task_id"));
+        assert!(result
+            .unwrap_err()
+            .contains("Missing task for checklist item"));
+        assert_eq!(project_count(&target), 0);
+    }
+
+    #[test]
+    fn duplicate_stage_ids_fail_validation_before_insert() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        let destination = temp_bundle_destination("duplicate-stage-source");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut bundle = read_bundle(&bundle_path);
+        bundle.stages.push(BundleStageRow {
+            id: bundle.stages[0].id.clone(),
+            project_id: bundle.project.id.clone(),
+            title: "Duplicate".to_string(),
+            description: "".to_string(),
+            position: 1,
+            status: "future".to_string(),
+            created_at: "2026-05-22T10:00:00Z".to_string(),
+            updated_at: "2026-05-22T10:00:00Z".to_string(),
+        });
+        let malformed_path = temp_bundle_destination("duplicate-stage").join("Bad.desclop");
+        write_manifest(&malformed_path, &bundle);
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+
+        let result =
+            import_project_bundle_from_folder(&mut target, &malformed_path, "/tmp/reselected");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Duplicate stage id"));
+        assert_eq!(project_count(&target), 0);
+    }
+
+    #[test]
+    fn duplicate_task_ids_fail_validation_before_insert() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        let destination = temp_bundle_destination("duplicate-task-source");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut bundle = read_bundle(&bundle_path);
+        let mut duplicate = bundle.tasks[0].clone();
+        duplicate.title = "Duplicate task".to_string();
+        bundle.tasks.push(duplicate);
+        let malformed_path = temp_bundle_destination("duplicate-task").join("Bad.desclop");
+        write_manifest(&malformed_path, &bundle);
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+
+        let result =
+            import_project_bundle_from_folder(&mut target, &malformed_path, "/tmp/reselected");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Duplicate task id"));
+        assert_eq!(project_count(&target), 0);
+    }
+
+    #[test]
+    fn wrong_row_project_id_fails_validation_before_insert() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        let destination = temp_bundle_destination("wrong-project-source");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut bundle = read_bundle(&bundle_path);
+        bundle.tasks[0].project_id = "other-project".to_string();
+        let malformed_path = temp_bundle_destination("wrong-project").join("Bad.desclop");
+        write_manifest(&malformed_path, &bundle);
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+
+        let result =
+            import_project_bundle_from_folder(&mut target, &malformed_path, "/tmp/reselected");
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("task projectId does not match bundle project"));
+        assert_eq!(project_count(&target), 0);
+    }
+
+    #[test]
+    fn missing_task_stage_ref_fails_validation_before_insert() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        let destination = temp_bundle_destination("missing-stage-source");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut bundle = read_bundle(&bundle_path);
+        bundle.tasks[0].stage_id = "missing-stage".to_string();
+        let malformed_path = temp_bundle_destination("missing-stage").join("Bad.desclop");
+        write_manifest(&malformed_path, &bundle);
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+
+        let result =
+            import_project_bundle_from_folder(&mut target, &malformed_path, "/tmp/reselected");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing stage for task"));
+        assert_eq!(project_count(&target), 0);
+    }
+
+    #[test]
+    fn missing_active_task_ref_fails_validation_before_insert() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        let destination = temp_bundle_destination("missing-active-source");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut bundle = read_bundle(&bundle_path);
+        bundle.project.active_task_id = Some("missing-active-task".to_string());
+        let malformed_path = temp_bundle_destination("missing-active").join("Bad.desclop");
+        write_manifest(&malformed_path, &bundle);
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+
+        let result =
+            import_project_bundle_from_folder(&mut target, &malformed_path, "/tmp/reselected");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing active task"));
+        assert_eq!(project_count(&target), 0);
+    }
+
+    #[test]
+    fn missing_commit_link_refs_fail_validation_before_insert() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        let destination = temp_bundle_destination("missing-commit-source");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut bundle = read_bundle(&bundle_path);
+        bundle.commit_task_links[0].commit_sha = "missing-sha".to_string();
+        let malformed_path = temp_bundle_destination("missing-commit").join("Bad.desclop");
+        write_manifest(&malformed_path, &bundle);
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+
+        let result =
+            import_project_bundle_from_folder(&mut target, &malformed_path, "/tmp/reselected");
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Missing commit for commit task link"));
         assert_eq!(project_count(&target), 0);
     }
 }
