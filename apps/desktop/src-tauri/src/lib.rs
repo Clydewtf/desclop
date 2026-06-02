@@ -2,7 +2,6 @@ mod app_state;
 mod commands;
 mod db;
 mod domain;
-mod errors;
 mod repositories;
 mod services;
 

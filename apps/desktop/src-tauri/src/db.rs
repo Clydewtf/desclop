@@ -1,5 +1,6 @@
 use rusqlite::Connection;
 
+#[cfg(test)]
 pub fn create_memory_connection() -> rusqlite::Result<Connection> {
     Connection::open_in_memory()
 }
