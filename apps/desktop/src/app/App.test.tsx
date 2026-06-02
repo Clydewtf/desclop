@@ -65,10 +65,10 @@ function projectFixture(overrides: Partial<Awaited<ReturnType<typeof api.listPro
   };
 }
 
-function emptyResumeBrief() {
+function emptyResumeBrief(projectId = "p1") {
   return {
     id: "rb1",
-    projectId: "p1",
+    projectId,
     taskId: null,
     stageId: null,
     latestNote: "",
@@ -299,6 +299,28 @@ describe("App", () => {
     await act(async () => {
       resolveImport();
     });
+  });
+
+  it("shows an import error when backend blocks destructive re-import", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ id: "p1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief("p1"));
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    vi.mocked(api.importPlan).mockRejectedValue(new Error("Plan already has task history"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Import plan" }));
+    fireEvent.change(screen.getByLabelText("Markdown plan"), {
+      target: { value: "## New plan\n- [ ] New task" }
+    });
+    await user.click(screen.getByRole("button", { name: "Preview import" }));
+    await user.click(screen.getByRole("button", { name: "Import plan" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not import plan without losing existing task history."
+    );
   });
 
   it("opens Planner from Today and continues a Planner task", async () => {

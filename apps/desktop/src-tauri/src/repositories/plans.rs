@@ -1,6 +1,17 @@
 use chrono::Utc;
 use rusqlite::{params, Connection};
+use thiserror::Error;
 use uuid::Uuid;
+
+pub const PLAN_HAS_TASK_HISTORY_ERROR: &str = "Plan already has task history";
+
+#[derive(Debug, Error)]
+pub enum ReplacePlanError {
+    #[error("Plan already has task history")]
+    TaskHistoryExists,
+    #[error(transparent)]
+    Database(#[from] rusqlite::Error),
+}
 
 pub struct PlanRepository<'a> {
     conn: &'a mut Connection,
@@ -15,9 +26,26 @@ impl<'a> PlanRepository<'a> {
         &mut self,
         project_id: &str,
         stages: Vec<ImportStage>,
-    ) -> rusqlite::Result<()> {
+    ) -> Result<(), ReplacePlanError> {
         let now = Utc::now().to_rfc3339();
         let tx = self.conn.transaction()?;
+        let has_history: i64 = tx.query_row(
+            "select exists(
+               select 1 from notes where project_id = ?1 and task_id is not null
+               union all
+               select 1 from work_entries where project_id = ?1 and task_id is not null
+               union all
+               select 1 from inbox_items where project_id = ?1 and task_id is not null
+               union all
+               select 1 from commit_task_links where project_id = ?1
+               limit 1
+             )",
+            params![project_id],
+            |row| row.get(0),
+        )?;
+        if has_history != 0 {
+            return Err(ReplacePlanError::TaskHistoryExists);
+        }
 
         tx.execute(
             "delete from stages where project_id = ?1",
@@ -90,7 +118,7 @@ impl<'a> PlanRepository<'a> {
             }
         }
 
-        tx.commit()
+        Ok(tx.commit()?)
     }
 }
 
@@ -125,6 +153,34 @@ mod tests {
     use super::*;
     use crate::db::{create_memory_connection, run_migrations};
     use crate::repositories::projects::ProjectRepository;
+
+    fn initial_plan() -> Vec<ImportStage> {
+        vec![ImportStage {
+            title: "Foundation".to_string(),
+            description: "".to_string(),
+            position: 0,
+            tasks: vec![ImportTask {
+                title: "Keep task".to_string(),
+                status: "todo".to_string(),
+                checklist: vec![],
+                position: 0,
+            }],
+        }]
+    }
+
+    fn replacement_plan() -> Vec<ImportStage> {
+        vec![ImportStage {
+            title: "Replacement".to_string(),
+            description: "".to_string(),
+            position: 0,
+            tasks: vec![ImportTask {
+                title: "New task".to_string(),
+                status: "todo".to_string(),
+                checklist: vec![],
+                position: 0,
+            }],
+        }]
+    }
 
     #[test]
     fn replace_plan_persists_imported_stages_tasks_and_checklist_items() {
@@ -232,5 +288,111 @@ mod tests {
         assert_eq!(old_task_count, 0);
         assert_eq!(old_checklist_count, 0);
         assert_eq!(active_task_id, None);
+    }
+
+    fn project_with_initial_plan() -> (Connection, String, String) {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = ProjectRepository::new(&conn)
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), false)
+            .expect("create project");
+        PlanRepository::new(&mut conn)
+            .replace_plan(&project.id, initial_plan())
+            .expect("initial plan");
+        let task_id: String = conn
+            .query_row("select id from tasks limit 1", [], |row| row.get(0))
+            .expect("task id");
+        (conn, project.id, task_id)
+    }
+
+    fn assert_destructive_reimport_blocked(conn: &mut Connection, project_id: &str, task_id: &str) {
+        let result = PlanRepository::new(conn).replace_plan(project_id, replacement_plan());
+
+        assert!(matches!(result, Err(ReplacePlanError::TaskHistoryExists)));
+        let old_task_count: i64 = conn
+            .query_row(
+                "select count(*) from tasks where id = ?1",
+                params![task_id],
+                |row| row.get(0),
+            )
+            .expect("task count");
+        assert_eq!(old_task_count, 1);
+    }
+
+    #[test]
+    fn replace_plan_rejects_destructive_reimport_when_notes_reference_tasks() {
+        let (mut conn, project_id, task_id) = project_with_initial_plan();
+        conn.execute(
+            "insert into notes (id, project_id, task_id, body, created_at)
+             values ('n1', ?1, ?2, 'Keep me', '2026-05-20T10:00:00Z')",
+            params![project_id, task_id],
+        )
+        .expect("note");
+
+        assert_destructive_reimport_blocked(&mut conn, &project_id, &task_id);
+    }
+
+    #[test]
+    fn replace_plan_rejects_destructive_reimport_when_work_entries_reference_tasks() {
+        let (mut conn, project_id, task_id) = project_with_initial_plan();
+        conn.execute(
+            "insert into work_entries (id, project_id, task_id, source, done, remains, next_step, created_at)
+             values ('w1', ?1, ?2, 'manual', 'Done', '', '', '2026-05-20T10:00:00Z')",
+            params![project_id, task_id],
+        )
+        .expect("work entry");
+
+        assert_destructive_reimport_blocked(&mut conn, &project_id, &task_id);
+    }
+
+    #[test]
+    fn replace_plan_rejects_destructive_reimport_when_inbox_items_reference_tasks() {
+        let (mut conn, project_id, task_id) = project_with_initial_plan();
+        conn.execute(
+            "insert into inbox_items (id, project_id, task_id, body, kind, status, created_at, updated_at)
+             values ('i1', ?1, ?2, 'Follow up', 'task_candidate', 'attached', '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z')",
+            params![project_id, task_id],
+        )
+        .expect("inbox item");
+
+        assert_destructive_reimport_blocked(&mut conn, &project_id, &task_id);
+    }
+
+    #[test]
+    fn replace_plan_rejects_destructive_reimport_when_commits_are_linked_to_tasks() {
+        let (mut conn, project_id, task_id) = project_with_initial_plan();
+        conn.execute(
+            "insert into commits (project_id, sha, branch, message, author_name, committed_at, changed_files_json)
+             values (?1, 'abc123', 'main', 'Initial', 'Clyde', '2026-05-20T10:00:00Z', '[]')",
+            params![project_id],
+        )
+        .expect("commit");
+        conn.execute(
+            "insert into commit_task_links (id, project_id, task_id, commit_sha, link_mode, created_at)
+             values ('link1', ?1, ?2, 'abc123', 'manual', '2026-05-20T10:01:00Z')",
+            params![project_id, task_id],
+        )
+        .expect("commit link");
+
+        assert_destructive_reimport_blocked(&mut conn, &project_id, &task_id);
+    }
+
+    #[test]
+    fn replace_plan_preserves_note_when_destructive_reimport_is_blocked() {
+        let (mut conn, project_id, task_id) = project_with_initial_plan();
+        conn.execute(
+            "insert into notes (id, project_id, task_id, body, created_at)
+             values ('n1', ?1, ?2, 'Keep me', '2026-05-20T10:00:00Z')",
+            params![project_id, task_id],
+        )
+        .expect("note");
+
+        assert_destructive_reimport_blocked(&mut conn, &project_id, &task_id);
+        let note_count: i64 = conn
+            .query_row("select count(*) from notes where id = 'n1'", [], |row| {
+                row.get(0)
+            })
+            .expect("note count");
+        assert_eq!(note_count, 1);
     }
 }

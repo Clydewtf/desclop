@@ -448,8 +448,13 @@ export function App() {
       setMarkdownDraft("");
       setParsedPlan(null);
       setScreen("planner");
-    } catch {
-      setImportError("Could not import plan.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("Plan already has task history")) {
+        setImportError("Could not import plan without losing existing task history.");
+      } else {
+        setImportError("Could not import plan.");
+      }
     } finally {
       setImporting(false);
     }
