@@ -266,6 +266,26 @@ mod tests {
         Ok(())
     }
 
+    fn first_stage_id(conn: &Connection, project_id: &str) -> String {
+        TaskRepository::new(conn)
+            .list_stages(project_id)
+            .expect("list stages")
+            .into_iter()
+            .next()
+            .expect("stage")
+            .id
+    }
+
+    fn first_task_id(conn: &Connection, project_id: &str) -> String {
+        TaskRepository::new(conn)
+            .list_tasks(project_id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task")
+            .id
+    }
+
     #[test]
     fn lists_project_plan_rows_by_project() {
         let mut conn = create_memory_connection().expect("memory database");
@@ -347,6 +367,131 @@ mod tests {
         assert_eq!(other_tasks[0].title, "Other task");
         assert_eq!(other_checklist_items.len(), 1);
         assert_eq!(other_checklist_items[0].title, "Other checklist item");
+    }
+
+    #[test]
+    fn direct_sql_rejects_task_with_stage_from_another_project() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let other_project = seed_project_with_plan(&mut conn, "other");
+        let other_stage_id = first_stage_id(&conn, &other_project.id);
+
+        let result = conn.execute(
+            "insert into tasks (id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at)
+             values ('cross-task', ?1, ?2, 'Bad task', '', 'todo', null, null, '', 99, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z')",
+            params![project.id, other_stage_id],
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn direct_sql_rejects_note_with_task_from_another_project() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let other_project = seed_project_with_plan(&mut conn, "other");
+        let other_task_id = first_task_id(&conn, &other_project.id);
+
+        let result = conn.execute(
+            "insert into notes (id, project_id, task_id, body, created_at)
+             values ('cross-note', ?1, ?2, 'bad', '2026-05-20T10:00:00Z')",
+            params![project.id, other_task_id],
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn direct_sql_rejects_work_entry_with_task_from_another_project() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let other_project = seed_project_with_plan(&mut conn, "other");
+        let other_task_id = first_task_id(&conn, &other_project.id);
+
+        let result = conn.execute(
+            "insert into work_entries (id, project_id, task_id, source, done, remains, next_step, created_at)
+             values ('cross-work-entry', ?1, ?2, 'manual', 'bad', '', '', '2026-05-20T10:00:00Z')",
+            params![project.id, other_task_id],
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn direct_sql_rejects_inbox_item_with_task_from_another_project() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let other_project = seed_project_with_plan(&mut conn, "other");
+        let other_task_id = first_task_id(&conn, &other_project.id);
+
+        let result = conn.execute(
+            "insert into inbox_items (id, project_id, task_id, body, kind, status, created_at, updated_at)
+             values ('cross-inbox-item', ?1, ?2, 'bad', 'task_candidate', 'attached', '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z')",
+            params![project.id, other_task_id],
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn direct_sql_rejects_commit_link_with_task_from_another_project() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let other_project = seed_project_with_plan(&mut conn, "other");
+        let other_task_id = first_task_id(&conn, &other_project.id);
+        conn.execute(
+            "insert into commits (sha, project_id, branch, message, author_name, committed_at, changed_files_json)
+             values ('cross123', ?1, 'main', 'Initial commit', 'Clyde', '2026-05-20T10:10:00Z', '[]')",
+            params![project.id],
+        )
+        .expect("commit");
+
+        let result = conn.execute(
+            "insert into commit_task_links (id, project_id, task_id, commit_sha, link_mode, created_at)
+             values ('cross-commit-link', ?1, ?2, 'cross123', 'manual', '2026-05-20T10:11:00Z')",
+            params![project.id, other_task_id],
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn direct_sql_rejects_resume_brief_with_task_from_another_project() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let other_project = seed_project_with_plan(&mut conn, "other");
+        let other_task_id = first_task_id(&conn, &other_project.id);
+
+        let result = conn.execute(
+            "insert into resume_briefs (id, project_id, task_id, stage_id, latest_note, next_step, facts_json, generated_at)
+             values ('cross-resume-task', ?1, ?2, null, '', '', '{}', '2026-05-20T10:00:00Z')",
+            params![project.id, other_task_id],
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn direct_sql_rejects_resume_brief_with_stage_from_another_project() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let other_project = seed_project_with_plan(&mut conn, "other");
+        let other_stage_id = first_stage_id(&conn, &other_project.id);
+
+        let result = conn.execute(
+            "insert into resume_briefs (id, project_id, task_id, stage_id, latest_note, next_step, facts_json, generated_at)
+             values ('cross-resume-stage', ?1, null, ?2, '', '', '{}', '2026-05-20T10:00:00Z')",
+            params![project.id, other_stage_id],
+        );
+
+        assert!(result.is_err());
     }
 
     #[test]
