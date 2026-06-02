@@ -244,8 +244,8 @@ fn load_latest_commit_branch(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::CreateWorkEntryInput;
     use crate::db::{create_memory_connection, run_migrations};
+    use crate::domain::CreateWorkEntryInput;
     use crate::repositories::plans::{ImportStage, ImportTask, PlanRepository};
     use crate::repositories::projects::ProjectRepository;
     use crate::repositories::work_entries::WorkEntryRepository;
