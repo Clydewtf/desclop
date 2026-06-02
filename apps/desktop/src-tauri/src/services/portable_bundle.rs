@@ -7,7 +7,6 @@ use uuid::Uuid;
 
 use crate::domain::{CommitTaskLink, GitCommit, InboxItem, Note, ResumeBrief, WorkEntry};
 use crate::repositories::projects::ProjectRepository;
-use crate::repositories::tasks::TaskRepository;
 
 pub const PORTABLE_BUNDLE_FORMAT_VERSION: u32 = 1;
 
@@ -17,15 +16,57 @@ pub struct PortableProjectBundle {
     pub format_version: u32,
     pub exported_at: String,
     pub project: crate::domain::Project,
-    pub stages: Vec<crate::domain::Stage>,
-    pub tasks: Vec<crate::domain::Task>,
-    pub checklist_items: Vec<crate::domain::ChecklistItem>,
+    pub stages: Vec<BundleStageRow>,
+    pub tasks: Vec<BundleTaskRow>,
+    pub checklist_items: Vec<BundleChecklistItemRow>,
     pub notes: Vec<crate::domain::Note>,
     pub inbox_items: Vec<crate::domain::InboxItem>,
     pub work_entries: Vec<crate::domain::WorkEntry>,
     pub commits: Vec<crate::domain::GitCommit>,
     pub commit_task_links: Vec<crate::domain::CommitTaskLink>,
     pub resume_briefs: Vec<crate::domain::ResumeBrief>,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundleStageRow {
+    pub id: String,
+    pub project_id: String,
+    pub title: String,
+    pub description: String,
+    pub position: i64,
+    pub status: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundleTaskRow {
+    pub id: String,
+    pub project_id: String,
+    pub stage_id: String,
+    pub title: String,
+    pub description: String,
+    pub status: String,
+    pub priority: Option<String>,
+    pub due_date: Option<String>,
+    pub next_step: String,
+    pub position: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundleChecklistItemRow {
+    pub id: String,
+    pub task_id: String,
+    pub title: String,
+    pub completed: bool,
+    pub position: i64,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 pub fn export_project_bundle_to_folder(
@@ -39,15 +80,36 @@ pub fn export_project_bundle_to_folder(
         bundle_folder_name(&bundle.project.name)
     ));
 
-    std::fs::create_dir_all(&bundle_path).map_err(|err| err.to_string())?;
+    if bundle_path.exists() {
+        return Err(format!(
+            "Portable bundle directory already exists: {}",
+            bundle_path.display()
+        ));
+    }
+
+    std::fs::create_dir_all(&bundle_path).map_err(|err| {
+        format!(
+            "Failed to create bundle directory {}: {err}",
+            bundle_path.display()
+        )
+    })?;
     let manifest_json = serde_json::to_string_pretty(&bundle).map_err(|err| err.to_string())?;
-    std::fs::write(bundle_path.join("manifest.json"), manifest_json)
-        .map_err(|err| err.to_string())?;
+    std::fs::write(bundle_path.join("manifest.json"), manifest_json).map_err(|err| {
+        format!(
+            "Failed to write {}: {err}",
+            bundle_path.join("manifest.json").display()
+        )
+    })?;
     std::fs::write(
         bundle_path.join("README.md"),
         bundle_readme(&bundle.project.name),
     )
-    .map_err(|err| err.to_string())?;
+    .map_err(|err| {
+        format!(
+            "Failed to write {}: {err}",
+            bundle_path.join("README.md").display()
+        )
+    })?;
 
     Ok(bundle_path)
 }
@@ -62,9 +124,18 @@ pub fn import_project_bundle_from_folder(
     }
 
     let manifest_path = bundle_folder.as_ref().join("manifest.json");
-    let manifest_json = std::fs::read_to_string(manifest_path).map_err(|err| err.to_string())?;
-    let bundle: PortableProjectBundle =
-        serde_json::from_str(&manifest_json).map_err(|err| err.to_string())?;
+    let manifest_json = std::fs::read_to_string(&manifest_path).map_err(|err| {
+        format!(
+            "Failed to read bundle manifest {}: {err}",
+            manifest_path.display()
+        )
+    })?;
+    let bundle: PortableProjectBundle = serde_json::from_str(&manifest_json).map_err(|err| {
+        format!(
+            "Failed to parse bundle manifest {}: {err}",
+            manifest_path.display()
+        )
+    })?;
 
     if bundle.format_version != PORTABLE_BUNDLE_FORMAT_VERSION {
         return Err(format!(
@@ -73,7 +144,12 @@ pub fn import_project_bundle_from_folder(
         ));
     }
 
-    import_bundle(conn, bundle, reselected_local_path).map_err(|err| err.to_string())
+    import_bundle(conn, bundle, reselected_local_path).map_err(|err| {
+        format!(
+            "Failed to import bundle {}: {err}",
+            bundle_folder.as_ref().display()
+        )
+    })
 }
 
 fn load_project_bundle(
@@ -81,14 +157,13 @@ fn load_project_bundle(
     project_id: &str,
 ) -> rusqlite::Result<PortableProjectBundle> {
     let project = ProjectRepository::new(conn).get_project(project_id)?;
-    let task_repository = TaskRepository::new(conn);
 
     Ok(PortableProjectBundle {
         format_version: PORTABLE_BUNDLE_FORMAT_VERSION,
         exported_at: Utc::now().to_rfc3339(),
-        stages: task_repository.list_stages(project_id)?,
-        tasks: task_repository.list_tasks(project_id)?,
-        checklist_items: task_repository.list_checklist_items(project_id)?,
+        stages: list_stage_rows(conn, project_id)?,
+        tasks: list_task_rows(conn, project_id)?,
+        checklist_items: list_checklist_item_rows(conn, project_id)?,
         notes: list_notes(conn, project_id)?,
         inbox_items: list_inbox_items(conn, project_id)?,
         work_entries: list_work_entries(conn, project_id)?,
@@ -136,8 +211,8 @@ fn import_bundle(
                 stage.description,
                 stage.position,
                 stage.status,
-                bundle.project.created_at,
-                bundle.project.updated_at
+                stage.created_at,
+                stage.updated_at
             ],
         )?;
     }
@@ -160,8 +235,8 @@ fn import_bundle(
                 task.due_date,
                 task.next_step,
                 task.position,
-                bundle.project.created_at,
-                bundle.project.updated_at
+                task.created_at,
+                task.updated_at
             ],
         )?;
     }
@@ -176,8 +251,8 @@ fn import_bundle(
                 item.title,
                 item.completed as i32,
                 item.position,
-                bundle.project.created_at,
-                bundle.project.updated_at
+                item.created_at,
+                item.updated_at
             ],
         )?;
     }
@@ -314,6 +389,81 @@ fn remap_optional(
     old_id
         .map(|old_id| remap_required(map, old_id, label))
         .transpose()
+}
+
+fn list_stage_rows(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<BundleStageRow>> {
+    let mut stmt = conn.prepare(
+        "select id, project_id, title, description, position, status, created_at, updated_at
+         from stages
+         where project_id = ?1
+         order by position asc, id asc",
+    )?;
+    let rows = stmt.query_map(params![project_id], |row| {
+        Ok(BundleStageRow {
+            id: row.get(0)?,
+            project_id: row.get(1)?,
+            title: row.get(2)?,
+            description: row.get(3)?,
+            position: row.get(4)?,
+            status: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
+        })
+    })?;
+    rows.collect()
+}
+
+fn list_task_rows(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<BundleTaskRow>> {
+    let mut stmt = conn.prepare(
+        "select id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at
+         from tasks
+         where project_id = ?1
+         order by stage_id asc, position asc, id asc",
+    )?;
+    let rows = stmt.query_map(params![project_id], |row| {
+        Ok(BundleTaskRow {
+            id: row.get(0)?,
+            project_id: row.get(1)?,
+            stage_id: row.get(2)?,
+            title: row.get(3)?,
+            description: row.get(4)?,
+            status: row.get(5)?,
+            priority: row.get(6)?,
+            due_date: row.get(7)?,
+            next_step: row.get(8)?,
+            position: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+        })
+    })?;
+    rows.collect()
+}
+
+fn list_checklist_item_rows(
+    conn: &Connection,
+    project_id: &str,
+) -> rusqlite::Result<Vec<BundleChecklistItemRow>> {
+    let mut stmt = conn.prepare(
+        "select checklist_items.id, checklist_items.task_id, checklist_items.title,
+                checklist_items.completed, checklist_items.position,
+                checklist_items.created_at, checklist_items.updated_at
+         from checklist_items
+         inner join tasks on tasks.id = checklist_items.task_id
+         where tasks.project_id = ?1
+         order by checklist_items.task_id asc, checklist_items.position asc, checklist_items.id asc",
+    )?;
+    let rows = stmt.query_map(params![project_id], |row| {
+        Ok(BundleChecklistItemRow {
+            id: row.get(0)?,
+            task_id: row.get(1)?,
+            title: row.get(2)?,
+            completed: row.get::<_, i32>(3)? == 1,
+            position: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
+        })
+    })?;
+    rows.collect()
 }
 
 fn list_notes(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<Note>> {
@@ -576,6 +726,110 @@ mod tests {
         (project.id, stage.id, task.id)
     }
 
+    fn seed_project_with_timestamped_tasks(
+        conn: &mut rusqlite::Connection,
+    ) -> (String, String, String, String) {
+        run_migrations(conn).expect("migrations");
+        let project = ProjectRepository::new(conn)
+            .create_project(
+                "Chronology".to_string(),
+                "/tmp/chronology-source".to_string(),
+                false,
+            )
+            .expect("create project");
+        PlanRepository::new(conn)
+            .replace_plan(
+                &project.id,
+                vec![ImportStage {
+                    title: "Timed stage".to_string(),
+                    description: "".to_string(),
+                    position: 0,
+                    tasks: vec![
+                        ImportTask {
+                            title: "Older open task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![ImportChecklistItem {
+                                title: "Timed checklist".to_string(),
+                                completed: false,
+                                position: 0,
+                            }],
+                            position: 0,
+                        },
+                        ImportTask {
+                            title: "Newer open task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 1,
+                        },
+                    ],
+                }],
+            )
+            .expect("plan");
+
+        let stage_id: String = conn
+            .query_row(
+                "select id from stages where project_id = ?1",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("stage");
+        let older_task_id: String = conn
+            .query_row(
+                "select id from tasks where project_id = ?1 and title = 'Older open task'",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("older task");
+        let newer_task_id: String = conn
+            .query_row(
+                "select id from tasks where project_id = ?1 and title = 'Newer open task'",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("newer task");
+        conn.execute(
+            "update projects set active_task_id = null, created_at = '2026-05-01T00:00:00Z', updated_at = '2026-05-01T00:00:00Z' where id = ?1",
+            params![project.id],
+        )
+        .expect("project timestamps");
+        conn.execute(
+            "update stages set created_at = '2026-05-02T00:00:00Z', updated_at = '2026-05-03T00:00:00Z' where id = ?1",
+            params![stage_id],
+        )
+        .expect("stage timestamps");
+        conn.execute(
+            "update tasks set next_step = 'Keep older task waiting', created_at = '2026-05-04T00:00:00Z', updated_at = '2026-05-05T00:00:00Z' where id = ?1",
+            params![older_task_id],
+        )
+        .expect("older timestamps");
+        conn.execute(
+            "update tasks set next_step = 'Resume newer task', created_at = '2026-05-06T00:00:00Z', updated_at = '2026-05-07T00:00:00Z' where id = ?1",
+            params![newer_task_id],
+        )
+        .expect("newer timestamps");
+        conn.execute(
+            "update checklist_items set created_at = '2026-05-08T00:00:00Z', updated_at = '2026-05-09T00:00:00Z' where task_id = ?1",
+            params![older_task_id],
+        )
+        .expect("checklist timestamps");
+
+        (project.id, stage_id, older_task_id, newer_task_id)
+    }
+
+    fn write_manifest(destination: &std::path::Path, bundle: &PortableProjectBundle) {
+        fs::create_dir_all(destination).expect("bundle dir");
+        fs::write(
+            destination.join("manifest.json"),
+            serde_json::to_string_pretty(bundle).expect("manifest json"),
+        )
+        .expect("write manifest");
+    }
+
+    fn project_count(conn: &rusqlite::Connection) -> i64 {
+        conn.query_row("select count(*) from projects", [], |row| row.get(0))
+            .expect("project count")
+    }
+
     #[test]
     fn export_writes_manifest_and_readme_folder_bundle() {
         let mut conn = create_memory_connection().expect("memory database");
@@ -610,6 +864,124 @@ mod tests {
         assert_eq!(manifest.resume_briefs.len(), 1);
         assert!(readme.contains("Source code is not copied"));
         assert!(readme.contains("reselect the local project folder"));
+    }
+
+    #[test]
+    fn export_rejects_existing_bundle_directory_and_leaves_stale_files_untouched() {
+        let mut conn = create_memory_connection().expect("memory database");
+        let (project_id, _, _) = seed_full_project(&mut conn);
+        let destination = temp_bundle_destination("existing");
+        let bundle_path = destination.join("Desclop.desclop");
+        fs::create_dir_all(&bundle_path).expect("existing bundle dir");
+        let stale_path = bundle_path.join("source-code.rs");
+        fs::write(&stale_path, "stale source").expect("stale file");
+
+        let result = export_project_bundle_to_folder(&conn, &project_id, &destination);
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("bundle directory already exists"));
+        assert_eq!(
+            fs::read_to_string(stale_path).expect("stale file text"),
+            "stale source"
+        );
+        assert!(!bundle_path.join("manifest.json").exists());
+    }
+
+    #[test]
+    fn export_and_import_preserve_plan_row_timestamps_and_resume_order() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _stage_id, _older_task_id, _newer_task_id) =
+            seed_project_with_timestamped_tasks(&mut source);
+        let destination = temp_bundle_destination("timestamps");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let manifest_json: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(bundle_path.join("manifest.json")).expect("manifest text"),
+        )
+        .expect("manifest json");
+
+        assert_eq!(
+            manifest_json["stages"][0]["createdAt"],
+            "2026-05-02T00:00:00Z"
+        );
+        assert_eq!(
+            manifest_json["stages"][0]["updatedAt"],
+            "2026-05-03T00:00:00Z"
+        );
+        assert_eq!(
+            manifest_json["tasks"][0]["createdAt"],
+            "2026-05-04T00:00:00Z"
+        );
+        assert_eq!(
+            manifest_json["tasks"][0]["updatedAt"],
+            "2026-05-05T00:00:00Z"
+        );
+        assert_eq!(
+            manifest_json["checklistItems"][0]["createdAt"],
+            "2026-05-08T00:00:00Z"
+        );
+        assert_eq!(
+            manifest_json["checklistItems"][0]["updatedAt"],
+            "2026-05-09T00:00:00Z"
+        );
+
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+        let imported_project_id =
+            import_project_bundle_from_folder(&mut target, &bundle_path, "/tmp/reselected")
+                .expect("import");
+
+        let stage_timestamps: (String, String) = target
+            .query_row(
+                "select created_at, updated_at from stages where project_id = ?1",
+                params![imported_project_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("stage timestamps");
+        let older_task_timestamps: (String, String) = target
+            .query_row(
+                "select created_at, updated_at from tasks where project_id = ?1 and title = 'Older open task'",
+                params![imported_project_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("older task timestamps");
+        let checklist_timestamps: (String, String) = target
+            .query_row(
+                "select checklist_items.created_at, checklist_items.updated_at
+                 from checklist_items
+                 inner join tasks on tasks.id = checklist_items.task_id
+                 where tasks.project_id = ?1",
+                params![imported_project_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("checklist timestamps");
+        let resume = crate::services::resume::build_resume_brief(&target, &imported_project_id)
+            .expect("resume");
+
+        assert_eq!(
+            stage_timestamps,
+            (
+                "2026-05-02T00:00:00Z".to_string(),
+                "2026-05-03T00:00:00Z".to_string()
+            )
+        );
+        assert_eq!(
+            older_task_timestamps,
+            (
+                "2026-05-04T00:00:00Z".to_string(),
+                "2026-05-05T00:00:00Z".to_string()
+            )
+        );
+        assert_eq!(
+            checklist_timestamps,
+            (
+                "2026-05-08T00:00:00Z".to_string(),
+                "2026-05-09T00:00:00Z".to_string()
+            )
+        );
+        assert_eq!(resume.next_step, "Resume newer task");
     }
 
     #[test]
@@ -701,5 +1073,176 @@ mod tests {
             )
         );
         assert_eq!(brief_refs, (imported_task_id, imported_stage_id));
+    }
+
+    #[test]
+    fn import_preserves_optional_null_task_and_stage_refs() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        source
+            .execute(
+                "insert into notes (id, project_id, task_id, body, created_at)
+                 values ('project-note', ?1, null, 'Project note', '2026-05-21T10:00:00Z')",
+                params![project_id],
+            )
+            .expect("project note");
+        source
+            .execute(
+                "insert into inbox_items (id, project_id, task_id, body, kind, status, created_at, updated_at)
+                 values ('project-inbox', ?1, null, 'Project inbox', 'note', 'open', '2026-05-21T10:01:00Z', '2026-05-21T10:02:00Z')",
+                params![project_id],
+            )
+            .expect("project inbox");
+        source
+            .execute(
+                "insert into work_entries (id, project_id, task_id, source, done, remains, next_step, created_at)
+                 values ('project-work', ?1, null, 'manual', 'Project done', '', '', '2026-05-21T10:03:00Z')",
+                params![project_id],
+            )
+            .expect("project work");
+        source
+            .execute(
+                "insert into resume_briefs (id, project_id, task_id, stage_id, latest_note, next_step, facts_json, generated_at)
+                 values ('project-brief', ?1, null, null, '', 'Choose a task', '[]', '2026-05-21T10:04:00Z')",
+                params![project_id],
+            )
+            .expect("project brief");
+        let destination = temp_bundle_destination("null-refs");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+
+        let imported_project_id =
+            import_project_bundle_from_folder(&mut target, &bundle_path, "/tmp/reselected")
+                .expect("import");
+
+        let null_note_refs: i64 = target
+            .query_row(
+                "select count(*) from notes where project_id = ?1 and body = 'Project note' and task_id is null",
+                params![imported_project_id],
+                |row| row.get(0),
+            )
+            .expect("note refs");
+        let null_inbox_refs: i64 = target
+            .query_row(
+                "select count(*) from inbox_items where project_id = ?1 and body = 'Project inbox' and task_id is null",
+                params![imported_project_id],
+                |row| row.get(0),
+            )
+            .expect("inbox refs");
+        let null_work_refs: i64 = target
+            .query_row(
+                "select count(*) from work_entries where project_id = ?1 and done = 'Project done' and task_id is null",
+                params![imported_project_id],
+                |row| row.get(0),
+            )
+            .expect("work refs");
+        let null_resume_refs: i64 = target
+            .query_row(
+                "select count(*) from resume_briefs where project_id = ?1 and next_step = 'Choose a task' and task_id is null and stage_id is null",
+                params![imported_project_id],
+                |row| row.get(0),
+            )
+            .expect("resume refs");
+
+        assert_eq!(null_note_refs, 1);
+        assert_eq!(null_inbox_refs, 1);
+        assert_eq!(null_work_refs, 1);
+        assert_eq!(null_resume_refs, 1);
+    }
+
+    #[test]
+    fn import_remaps_active_task_id_to_imported_task() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, task_id) = seed_full_project(&mut source);
+        source
+            .execute(
+                "update projects set active_task_id = ?1 where id = ?2",
+                params![task_id, project_id],
+            )
+            .expect("active task");
+        let destination = temp_bundle_destination("active-task");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+
+        let imported_project_id =
+            import_project_bundle_from_folder(&mut target, &bundle_path, "/tmp/reselected")
+                .expect("import");
+
+        let active_task_id: String = target
+            .query_row(
+                "select active_task_id from projects where id = ?1",
+                params![imported_project_id],
+                |row| row.get(0),
+            )
+            .expect("active task id");
+        let active_task_project_id: String = target
+            .query_row(
+                "select project_id from tasks where id = ?1",
+                params![active_task_id],
+                |row| row.get(0),
+            )
+            .expect("active task project");
+
+        assert_eq!(active_task_project_id, imported_project_id);
+        assert_ne!(active_task_id, task_id);
+    }
+
+    #[test]
+    fn import_rejects_unsupported_bundle_format_version() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        let destination = temp_bundle_destination("bad-version");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut manifest: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(bundle_path.join("manifest.json")).expect("manifest text"),
+        )
+        .expect("manifest json");
+        manifest["formatVersion"] = serde_json::json!(999);
+        fs::write(
+            bundle_path.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).expect("manifest json"),
+        )
+        .expect("write manifest");
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+
+        let result =
+            import_project_bundle_from_folder(&mut target, &bundle_path, "/tmp/reselected");
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("Unsupported bundle format version 999"));
+        assert_eq!(project_count(&target), 0);
+    }
+
+    #[test]
+    fn malformed_relationship_fails_import_and_rolls_back_partial_project() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        let destination = temp_bundle_destination("bad-relationship-source");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut bundle: PortableProjectBundle = serde_json::from_str(
+            &fs::read_to_string(bundle_path.join("manifest.json")).expect("manifest text"),
+        )
+        .expect("manifest json");
+        bundle.checklist_items[0].task_id = "missing-task".to_string();
+        let malformed_path = temp_bundle_destination("bad-relationship").join("Bad.desclop");
+        write_manifest(&malformed_path, &bundle);
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+
+        let result =
+            import_project_bundle_from_folder(&mut target, &malformed_path, "/tmp/reselected");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Missing remapped task_id"));
+        assert_eq!(project_count(&target), 0);
     }
 }
