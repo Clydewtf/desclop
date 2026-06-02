@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "./test-utils";
 import { App } from "./App";
 import { api } from "../shared/api/client";
+import type { ResumeBrief } from "../shared/domain/types";
 
 vi.mock("../shared/api/client", () => ({
   api: {
@@ -35,6 +36,7 @@ const loadProjectPlan = vi.mocked(api.loadProjectPlan);
 const importPlan = vi.mocked(api.importPlan);
 const createWorkEntry = vi.mocked(api.createWorkEntry);
 const captureInboxItem = vi.mocked(api.captureInboxItem);
+const updateChecklistItem = vi.mocked(api.updateChecklistItem);
 const updateNextStep = vi.mocked(api.updateNextStep);
 const addNote = vi.mocked(api.addNote);
 const listNotesForTask = vi.mocked(api.listNotesForTask);
@@ -65,7 +67,7 @@ function projectFixture(overrides: Partial<Awaited<ReturnType<typeof api.listPro
   };
 }
 
-function emptyResumeBrief(projectId = "p1") {
+function emptyResumeBrief(projectId = "p1"): ResumeBrief {
   return {
     id: "rb1",
     projectId,
@@ -783,6 +785,79 @@ describe("App", () => {
       done: "Added migration",
       remains: "Repository tests",
       nextStep: "Run cargo test"
+    });
+    await waitFor(() => {
+      expect(screen.getByLabelText("Next step")).toHaveValue("Run cargo test");
+    });
+  });
+
+  it("persists checklist toggles during focus mode through the API", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([
+      {
+        id: "p1",
+        name: "Desclop",
+        localPath: "/tmp/desclop",
+        gitEnabled: false,
+        gitRemote: null,
+        activeTaskId: "t1",
+        createdAt: "2026-05-20T10:00:00Z",
+        updatedAt: "2026-05-20T10:00:00Z"
+      }
+    ]);
+    getResumeBrief.mockResolvedValue({
+      id: "rb1",
+      projectId: "p1",
+      taskId: "t1",
+      stageId: "s1",
+      latestNote: "",
+      nextStep: "Run repository tests",
+      facts: [],
+      generatedAt: "2026-05-20T10:00:00Z"
+    });
+    loadProjectPlan.mockResolvedValue({
+      stages: [
+        {
+          id: "s1",
+          projectId: "p1",
+          title: "Foundation",
+          description: "",
+          position: 0,
+          status: "current"
+        }
+      ],
+      tasks: [
+        {
+          id: "t1",
+          projectId: "p1",
+          stageId: "s1",
+          title: "Create local store",
+          description: "",
+          status: "active",
+          priority: null,
+          dueDate: null,
+          nextStep: "Run repository tests",
+          position: 0
+        }
+      ],
+      checklistItems: [
+        { id: "c1", taskId: "t1", title: "Add migration", completed: false, position: 0 }
+      ]
+    });
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    updateChecklistItem.mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(screen.getByRole("button", { name: "Start ambient focus" }));
+    await user.click(screen.getByRole("checkbox", { name: "Add migration" }));
+
+    expect(updateChecklistItem).toHaveBeenCalledWith("c1", true);
+    await waitFor(() => {
+      expect(screen.getByRole("checkbox", { name: "Add migration" })).toBeChecked();
     });
   });
 

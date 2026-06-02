@@ -398,6 +398,14 @@ export function App() {
     });
 
     setSelectedWorkEntries((entries) => [...entries, workEntry]);
+    if (input.nextStep) {
+      setProjectPlan((plan) => ({
+        ...plan,
+        tasks: plan.tasks.map((task) =>
+          task.id === focusSession.taskId ? { ...task, nextStep: input.nextStep } : task
+        )
+      }));
+    }
     setScreen("task-detail");
   }
 
@@ -540,6 +548,7 @@ export function App() {
             onFinish={finishFocus}
             onCaptureInbox={captureInbox}
             onNoteAdd={(body) => addNote(focusTask.id, body)}
+            onChecklistToggle={toggleChecklistItem}
           />
         );
       }

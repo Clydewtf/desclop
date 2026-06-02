@@ -13,6 +13,7 @@ interface FocusModeProps {
   onFinish: (input: { elapsedSeconds: number }) => void;
   onCaptureInbox: (input: { body: string; kind: InboxKind }) => void;
   onNoteAdd: (body: string) => void | Promise<void>;
+  onChecklistToggle: (itemId: string, completed: boolean) => void | Promise<void>;
 }
 
 function formatSeconds(totalSeconds: number) {
@@ -57,7 +58,11 @@ export function FocusMode(props: FocusModeProps) {
       <section aria-label="Focus checklist">
         {props.checklist.map((item) => (
           <label className="inline-field" key={item.id}>
-            <input type="checkbox" defaultChecked={item.completed} />
+            <input
+              type="checkbox"
+              checked={item.completed}
+              onChange={(event) => props.onChecklistToggle(item.id, event.target.checked)}
+            />
             {item.title}
           </label>
         ))}
