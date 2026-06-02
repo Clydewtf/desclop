@@ -1,4 +1,4 @@
-import { act, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "./test-utils";
@@ -78,6 +78,13 @@ function emptyResumeBrief(projectId = "p1") {
   };
 }
 
+function resumeBriefFixture(overrides: Partial<ReturnType<typeof emptyResumeBrief>> = {}) {
+  return {
+    ...emptyResumeBrief(overrides.projectId ?? "p1"),
+    ...overrides
+  };
+}
+
 function importedPlanFixture(projectId: string) {
   return {
     stages: [
@@ -113,6 +120,54 @@ function importedPlanFixture(projectId: string) {
         position: 0
       }
     ]
+  };
+}
+
+function twoTaskPlanFixture({
+  firstStatus,
+  secondStatus
+}: {
+  firstStatus: "todo" | "active" | "done";
+  secondStatus: "todo" | "active" | "done";
+}) {
+  return {
+    stages: [
+      {
+        id: "s1",
+        projectId: "p1",
+        title: "Foundation",
+        description: "",
+        position: 0,
+        status: "current" as const
+      }
+    ],
+    tasks: [
+      {
+        id: "t1",
+        projectId: "p1",
+        stageId: "s1",
+        title: "First task",
+        description: "",
+        status: firstStatus,
+        priority: null,
+        dueDate: null,
+        nextStep: "",
+        position: 0
+      },
+      {
+        id: "t2",
+        projectId: "p1",
+        stageId: "s1",
+        title: "Second task",
+        description: "",
+        status: secondStatus,
+        priority: null,
+        dueDate: null,
+        nextStep: "",
+        position: 1
+      }
+    ],
+    checklistItems: []
   };
 }
 
@@ -339,6 +394,50 @@ describe("App", () => {
 
     expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
     expect(await screen.findByRole("button", { name: "Start ambient focus" })).toBeInTheDocument();
+  });
+
+  it("reloads the project plan after activating a task so demoted tasks do not stay active locally", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ id: "p1", activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(resumeBriefFixture({ projectId: "p1", taskId: "t1" }));
+    loadProjectPlan
+      .mockResolvedValueOnce(
+        twoTaskPlanFixture({
+          firstStatus: "active",
+          secondStatus: "todo"
+        })
+      )
+      .mockResolvedValueOnce(
+        twoTaskPlanFixture({
+          firstStatus: "todo",
+          secondStatus: "active"
+        })
+      );
+    vi.mocked(api.updateTaskStatus).mockResolvedValue(undefined);
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open planner" }));
+    await user.click(screen.getByRole("button", { name: "Continue Second task" }));
+    await user.selectOptions(screen.getByLabelText("Task status"), "active");
+    await user.click(screen.getByRole("button", { name: "Open planner" }));
+
+    expect(api.updateTaskStatus).toHaveBeenCalledWith("t2", "active");
+    await waitFor(() => {
+      expect(loadProjectPlan).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      const firstTaskRow = screen.getByText("First task").closest(".task-row");
+      const secondTaskRow = screen.getByText("Second task").closest(".task-row");
+
+      expect(firstTaskRow).not.toBeNull();
+      expect(secondTaskRow).not.toBeNull();
+      expect(within(firstTaskRow as HTMLElement).getByText("todo")).toBeInTheDocument();
+      expect(within(secondTaskRow as HTMLElement).getByText("active")).toBeInTheDocument();
+    });
   });
 
   it("captures inbox items from Today", async () => {

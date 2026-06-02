@@ -285,10 +285,12 @@ export function App() {
 
   async function changeTaskStatus(taskId: string, status: TaskStatus) {
     await api.updateTaskStatus(taskId, status);
-    setProjectPlan((plan) => ({
-      ...plan,
-      tasks: plan.tasks.map((task) => (task.id === taskId ? { ...task, status } : task))
-    }));
+    if (project) {
+      await refreshProjectData(project.id);
+    }
+    if (selectedTaskId === taskId) {
+      await loadTaskContext(taskId);
+    }
   }
 
   async function toggleChecklistItem(itemId: string, completed: boolean) {
