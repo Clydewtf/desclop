@@ -109,5 +109,9 @@ export const api = {
   moveCommitLink: (commitSha: string, fromTaskId: string, toTaskId: string) =>
     invoke<void>("move_commit_link", { commitSha, fromTaskId, toTaskId }),
   unlinkCommit: (commitSha: string, taskId: string) =>
-    invoke<void>("unlink_commit", { commitSha, taskId })
+    invoke<void>("unlink_commit", { commitSha, taskId }),
+  exportProjectBundle: (projectId: string, destinationFolder: string) =>
+    invoke<string>("export_project_bundle", { projectId, destinationFolder }),
+  importProjectBundle: (bundleFolder: string, reselectedLocalPath: string) =>
+    invoke<string>("import_project_bundle", { bundleFolder, reselectedLocalPath })
 };

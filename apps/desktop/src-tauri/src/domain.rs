@@ -148,6 +148,17 @@ pub struct GitCommit {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CommitTaskLink {
+    pub id: Id,
+    pub project_id: Id,
+    pub task_id: Id,
+    pub commit_sha: String,
+    pub link_mode: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResumeBrief {
     pub id: Id,
     pub project_id: Id,

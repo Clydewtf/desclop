@@ -40,7 +40,9 @@ pub fn run() {
             commands::git::sync_git_commits,
             commands::git::list_linked_commits_for_task,
             commands::git::move_commit_link,
-            commands::git::unlink_commit
+            commands::git::unlink_commit,
+            commands::export_import::export_project_bundle,
+            commands::export_import::import_project_bundle
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
