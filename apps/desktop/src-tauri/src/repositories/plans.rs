@@ -48,6 +48,10 @@ impl<'a> PlanRepository<'a> {
         }
 
         tx.execute(
+            "delete from resume_briefs where project_id = ?1",
+            params![project_id],
+        )?;
+        tx.execute(
             "delete from stages where project_id = ?1",
             params![project_id],
         )?;
@@ -317,6 +321,46 @@ mod tests {
             )
             .expect("task count");
         assert_eq!(old_task_count, 1);
+    }
+
+    #[test]
+    fn replace_plan_clears_resume_briefs_without_treating_them_as_task_history() {
+        let (mut conn, project_id, task_id) = project_with_initial_plan();
+        let stage_id: String = conn
+            .query_row(
+                "select stage_id from tasks where id = ?1",
+                params![task_id],
+                |row| row.get(0),
+            )
+            .expect("stage id");
+        conn.execute(
+            "insert into resume_briefs (id, project_id, task_id, stage_id, latest_note, next_step, facts_json, generated_at)
+             values ('brief1', ?1, ?2, ?3, '', '', '{}', '2026-05-20T10:00:00Z')",
+            params![project_id, task_id, stage_id],
+        )
+        .expect("resume brief");
+
+        PlanRepository::new(&mut conn)
+            .replace_plan(&project_id, replacement_plan())
+            .expect("replace plan");
+
+        let new_task_count: i64 = conn
+            .query_row(
+                "select count(*) from tasks where project_id = ?1 and title = 'New task'",
+                params![project_id],
+                |row| row.get(0),
+            )
+            .expect("new task count");
+        let resume_brief_count: i64 = conn
+            .query_row(
+                "select count(*) from resume_briefs where project_id = ?1",
+                params![project_id],
+                |row| row.get(0),
+            )
+            .expect("resume brief count");
+
+        assert_eq!(new_task_count, 1);
+        assert_eq!(resume_brief_count, 0);
     }
 
     #[test]
