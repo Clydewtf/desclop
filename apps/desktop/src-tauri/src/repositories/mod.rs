@@ -1,3 +1,4 @@
+pub mod entitlements;
 pub mod inbox;
 pub mod notes;
 pub mod plans;

@@ -169,3 +169,23 @@ pub struct ResumeBrief {
     pub facts: Vec<String>,
     pub generated_at: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Entitlement {
+    pub id: Id,
+    pub license_state: String,
+    pub email: Option<String>,
+    pub license_key_hint: Option<String>,
+    pub offline_grace_ends_at: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetEntitlementInput {
+    pub license_state: String,
+    pub email: Option<String>,
+    pub license_key_hint: Option<String>,
+    pub offline_grace_ends_at: Option<String>,
+}

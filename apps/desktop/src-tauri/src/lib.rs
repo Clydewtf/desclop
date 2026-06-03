@@ -36,6 +36,8 @@ pub fn run() {
             commands::work_entries::create_work_entry,
             commands::work_entries::list_work_entries_for_task,
             commands::resume::get_resume_brief,
+            commands::entitlements::get_entitlement,
+            commands::entitlements::set_entitlement,
             commands::git::read_git_commits,
             commands::git::sync_git_commits,
             commands::git::list_linked_commits_for_task,

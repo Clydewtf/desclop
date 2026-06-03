@@ -2,9 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ParsedStage } from "../../features/markdown-import/markdownParser";
 import type {
   ChecklistItem,
+  Entitlement,
   GitCommit,
   InboxItem,
   InboxKind,
+  LicenseState,
   Note,
   Project,
   ResumeBrief,
@@ -64,6 +66,13 @@ export interface GitCommitMetadata {
   changedFiles: string[];
 }
 
+export interface SetEntitlementInput {
+  licenseState: LicenseState;
+  email: string | null;
+  licenseKeyHint: string | null;
+  offlineGraceEndsAt: string | null;
+}
+
 export const api = {
   listProjects: () => invoke<Project[]>("list_projects"),
   createProject: (input: CreateProjectInput) =>
@@ -100,6 +109,9 @@ export const api = {
     invoke<WorkEntry[]>("list_work_entries_for_task", { projectId, taskId }),
   getResumeBrief: (projectId: string) =>
     invoke<ResumeBrief>("get_resume_brief", { projectId }),
+  getEntitlement: () => invoke<Entitlement | null>("get_entitlement"),
+  setEntitlement: (input: SetEntitlementInput) =>
+    invoke<Entitlement>("set_entitlement", { input }),
   readGitCommits: (localPath: string) =>
     invoke<GitCommitMetadata[]>("read_git_commits", { localPath }),
   syncGitCommits: (projectId: string) =>
