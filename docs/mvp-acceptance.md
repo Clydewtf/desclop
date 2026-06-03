@@ -1,0 +1,22 @@
+# Desclop MVP Acceptance Checklist
+
+- [ ] User can create a local project.
+- [ ] User can create a project without Git enabled.
+- [ ] User can import a Markdown plan through preview.
+- [ ] Imported Markdown becomes Stage Frames.
+- [ ] Completed stages collapse by default.
+- [ ] Current stage is expanded.
+- [ ] Task Detail shows description, checklist, notes, linked work entries, linked commits, inbox items, optional focus time, next step, status controls, and Focus Mode control.
+- [ ] Today answers where the user stopped and what to do next.
+- [ ] Resume Brief is non-empty when active task, notes, Git activity, or next-step data exists.
+- [ ] Inbox captures and triage work manually.
+- [ ] Work Review captures done, remains, and next step.
+- [ ] Focus Mode is optional and supports ambient and timebox modes.
+- [ ] Without Focus Mode, notes, status changes, manual entries, and active task still update context.
+- [ ] Git read failures do not block project planning.
+- [ ] Git integration never stages, commits, pushes, merges, rebases, or resolves conflicts.
+- [ ] Auto-linked commits can be moved or unlinked.
+- [ ] Markdown export is readable.
+- [ ] Portable bundle export/import transfers project workflow data without copying source code.
+- [ ] Timeline shows day/week work history.
+- [ ] License state is stored separately from project data.

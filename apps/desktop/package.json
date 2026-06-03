@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node scripts/run-vitest.mjs",
+    "test": "node scripts/run-vitest.mjs --exclude=tests/e2e/**",
     "test:e2e": "playwright test",
     "tauri": "tauri"
   },
