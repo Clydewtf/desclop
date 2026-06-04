@@ -6,6 +6,7 @@ export type InboxKind = "untyped" | "bug" | "idea" | "question" | "note" | "task
 export type InboxStatus = "open" | "attached" | "converted" | "kept_as_note" | "deleted";
 export type WorkEntrySource = "focus" | "manual" | "status_change" | "note" | "inbox" | "git_recovery";
 export type CommitLinkMode = "focus_interval" | "active_task" | "manual";
+export type LicenseState = "free_beta" | "founder" | "trial" | "expired";
 
 export interface Project {
   id: Id;
@@ -109,4 +110,13 @@ export interface ResumeBrief {
   nextStep: string;
   facts: string[];
   generatedAt: string;
+}
+
+export interface Entitlement {
+  id: Id;
+  licenseState: LicenseState;
+  email: string | null;
+  licenseKeyHint: string | null;
+  offlineGraceEndsAt: string | null;
+  updatedAt: string;
 }

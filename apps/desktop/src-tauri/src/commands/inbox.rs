@@ -7,6 +7,29 @@ use crate::domain::{
 use crate::repositories::inbox::InboxRepository;
 
 #[tauri::command]
+pub fn list_inbox_items_for_project(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<InboxItem>, String> {
+    let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
+    InboxRepository::new(&mut conn)
+        .list_items_for_project(&project_id)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn list_inbox_items_for_task(
+    project_id: String,
+    task_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<InboxItem>, String> {
+    let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
+    InboxRepository::new(&mut conn)
+        .list_items_for_task(&project_id, &task_id)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub fn capture_inbox_item(
     input: CaptureInboxItemInput,
     state: State<'_, AppState>,

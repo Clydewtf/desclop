@@ -283,6 +283,13 @@ export function TaskDetail({
         ) : null}
         <p>{workEntries.length} work entries</p>
         <p>{inboxItems.length} inbox items</p>
+        {inboxItems.length > 0 ? (
+          <ul>
+            {inboxItems.map((item) => (
+              <li key={item.id}>{item.body}</li>
+            ))}
+          </ul>
+        ) : null}
         {onCaptureInbox ? <InboxCapture onCapture={onCaptureInbox} /> : null}
       </section>
     </section>

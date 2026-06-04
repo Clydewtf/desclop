@@ -68,6 +68,27 @@ impl<'a> NoteRepository<'a> {
 
         rows.collect()
     }
+
+    pub fn list_notes_for_project(&self, project_id: &str) -> rusqlite::Result<Vec<Note>> {
+        let mut stmt = self.conn.prepare(
+            "select id, project_id, task_id, body, created_at
+             from notes
+             where project_id = ?1
+             order by created_at desc, id desc",
+        )?;
+
+        let rows = stmt.query_map(params![project_id], |row| {
+            Ok(Note {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                task_id: row.get(2)?,
+                body: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        })?;
+
+        rows.collect()
+    }
 }
 
 #[cfg(test)]
@@ -163,5 +184,40 @@ mod tests {
 
         assert_eq!(project_notes.len(), 1);
         assert_eq!(cross_project_notes.len(), 0);
+    }
+
+    #[test]
+    fn lists_all_notes_for_project_timeline() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_task(&mut conn, "desclop");
+        let other_project = seed_project_with_task(&mut conn, "other");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        let other_task = TaskRepository::new(&conn)
+            .list_tasks(&other_project.id)
+            .expect("list other tasks")
+            .into_iter()
+            .next()
+            .expect("other task");
+        let repository = NoteRepository::new(&conn);
+
+        repository
+            .add_note(&project.id, &task.id, "Project note")
+            .expect("add note");
+        repository
+            .add_note(&other_project.id, &other_task.id, "Other note")
+            .expect("add other note");
+
+        let notes = repository
+            .list_notes_for_project(&project.id)
+            .expect("list project notes");
+
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].body, "Project note");
     }
 }
