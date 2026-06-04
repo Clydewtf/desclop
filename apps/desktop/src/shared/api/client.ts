@@ -99,12 +99,20 @@ export const api = {
     invoke<Note>("keep_inbox_item_as_note", { itemId }),
   deleteInboxItem: (itemId: string) =>
     invoke<InboxItem>("delete_inbox_item", { itemId }),
+  listInboxItemsForProject: (projectId: string) =>
+    invoke<InboxItem[]>("list_inbox_items_for_project", { projectId }),
+  listInboxItemsForTask: (projectId: string, taskId: string) =>
+    invoke<InboxItem[]>("list_inbox_items_for_task", { projectId, taskId }),
   addNote: (projectId: string, taskId: string, body: string) =>
     invoke<Note>("add_note", { projectId, taskId, body }),
+  listNotesForProject: (projectId: string) =>
+    invoke<Note[]>("list_notes_for_project", { projectId }),
   listNotesForTask: (projectId: string, taskId: string) =>
     invoke<Note[]>("list_notes_for_task", { projectId, taskId }),
   createWorkEntry: (input: CreateWorkEntryInput) =>
     invoke<WorkEntry>("create_work_entry", { input }),
+  listWorkEntriesForProject: (projectId: string) =>
+    invoke<WorkEntry[]>("list_work_entries_for_project", { projectId }),
   listWorkEntriesForTask: (projectId: string, taskId: string) =>
     invoke<WorkEntry[]>("list_work_entries_for_task", { projectId, taskId }),
   getResumeBrief: (projectId: string) =>

@@ -1,22 +1,22 @@
 # Desclop MVP Acceptance Checklist
 
-- [ ] User can create a local project.
-- [ ] User can create a project without Git enabled.
-- [ ] User can import a Markdown plan through preview.
-- [ ] Imported Markdown becomes Stage Frames.
-- [ ] Completed stages collapse by default.
-- [ ] Current stage is expanded.
-- [ ] Task Detail shows description, checklist, notes, linked work entries, linked commits, inbox items, optional focus time, next step, status controls, and Focus Mode control.
-- [ ] Today answers where the user stopped and what to do next.
-- [ ] Resume Brief is non-empty when active task, notes, Git activity, or next-step data exists.
-- [ ] Inbox captures and triage work manually.
-- [ ] Work Review captures done, remains, and next step.
-- [ ] Focus Mode is optional and supports ambient and timebox modes.
-- [ ] Without Focus Mode, notes, status changes, manual entries, and active task still update context.
-- [ ] Git read failures do not block project planning.
-- [ ] Git integration never stages, commits, pushes, merges, rebases, or resolves conflicts.
-- [ ] Auto-linked commits can be moved or unlinked.
-- [ ] Markdown export is readable.
-- [ ] Portable bundle export/import transfers project workflow data without copying source code.
-- [ ] Timeline shows day/week work history.
-- [ ] License state is stored separately from project data.
+- [x] User can create a local project.
+- [x] User can create a project without Git enabled.
+- [x] User can import a Markdown plan through preview.
+- [x] Imported Markdown becomes Stage Frames.
+- [x] Completed stages collapse by default.
+- [x] Current stage is expanded.
+- [x] Task Detail shows description, checklist, notes, linked work entries, linked commits, inbox items, optional focus time, next step, status controls, and Focus Mode control.
+- [x] Today answers where the user stopped and what to do next.
+- [x] Resume Brief is non-empty when active task, notes, Git activity, or next-step data exists.
+- [x] Inbox captures and triage work manually.
+- [x] Work Review captures done, remains, and next step.
+- [x] Focus Mode is optional and supports ambient and timebox modes.
+- [x] Without Focus Mode, notes, status changes, manual entries, and active task still update context.
+- [x] Git read failures do not block project planning.
+- [x] Git integration never stages, commits, pushes, merges, rebases, or resolves conflicts.
+- [x] Auto-linked commits can be moved or unlinked.
+- [x] Markdown export is readable.
+- [x] Portable bundle export/import transfers project workflow data without copying source code.
+- [x] Timeline shows day/week work history.
+- [x] License state is stored separately from project data.

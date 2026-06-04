@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import "../styles/base.css";
+import { exportPlanMarkdown } from "../features/export-import/markdownExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
 import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImportPreview";
 import { parseMarkdownPlan, type ParsedMarkdownPlan } from "../features/markdown-import/markdownParser";
@@ -7,11 +8,12 @@ import { Planner } from "../features/planner/Planner";
 import { buildPlannerFrames } from "../features/planner/plannerEngine";
 import { ProjectSetup } from "../features/project-setup/ProjectSetup";
 import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDetail";
+import { Timeline } from "../features/timeline/Timeline";
 import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
 import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
-import { type GitCommit, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
+import { type GitCommit, type InboxItem, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
 import { AppShell } from "./shell/AppShell";
 
 function hasTauriInternals() {
@@ -35,7 +37,9 @@ type AppScreen =
   | "work-review"
   | "manual-work-review"
   | "import"
-  | "planner";
+  | "planner"
+  | "timeline"
+  | "export-import";
 
 interface FocusSession {
   taskId: string;
@@ -116,12 +120,22 @@ export function App() {
   const [selectedNotes, setSelectedNotes] = useState<Note[]>([]);
   const [selectedWorkEntries, setSelectedWorkEntries] = useState<WorkEntry[]>([]);
   const [selectedLinkedCommits, setSelectedLinkedCommits] = useState<GitCommit[]>([]);
+  const [selectedInboxItems, setSelectedInboxItems] = useState<InboxItem[]>([]);
+  const [timelineNotes, setTimelineNotes] = useState<Note[]>([]);
+  const [timelineWorkEntries, setTimelineWorkEntries] = useState<WorkEntry[]>([]);
+  const [timelineInboxItems, setTimelineInboxItems] = useState<InboxItem[]>([]);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null);
   const [manualReviewTaskId, setManualReviewTaskId] = useState<string | null>(null);
   const [markdownDraft, setMarkdownDraft] = useState("");
   const [parsedPlan, setParsedPlan] = useState<ParsedMarkdownPlan | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [bundleDestination, setBundleDestination] = useState("");
+  const [bundleFolder, setBundleFolder] = useState("");
+  const [reselectedLocalPath, setReselectedLocalPath] = useState("");
+  const [portableStatus, setPortableStatus] = useState<string | null>(null);
+  const [portableError, setPortableError] = useState<string | null>(null);
 
   const loadProjects = useCallback(async () => {
     if (!hasTauriInternals()) {
@@ -165,6 +179,10 @@ export function App() {
         setGitCommits([]);
         setGitError(null);
         setSelectedLinkedCommits([]);
+        setSelectedInboxItems([]);
+        setTimelineNotes([]);
+        setTimelineWorkEntries([]);
+        setTimelineInboxItems([]);
         setProjectPlan({ stages: [], tasks: [], checklistItems: [] });
       }
     } catch {
@@ -225,6 +243,10 @@ export function App() {
       setSelectedNotes([]);
       setSelectedWorkEntries([]);
       setSelectedLinkedCommits([]);
+      setSelectedInboxItems([]);
+      setTimelineNotes([]);
+      setTimelineWorkEntries([]);
+      setTimelineInboxItems([]);
       setFocusSession(null);
     } catch {
       setCreateError("Could not create project.");
@@ -241,22 +263,34 @@ export function App() {
     projectPlan.tasks.find((candidate) => candidate.id === project?.activeTaskId) ??
     projectPlan.tasks.find((candidate) => candidate.status !== "done") ??
     null;
+  const markdownExport = project
+    ? exportPlanMarkdown({
+        projectName: project.name,
+        stages: projectPlan.stages,
+        tasks: projectPlan.tasks,
+        checklistItems: projectPlan.checklistItems
+      })
+    : "";
 
   async function loadTaskContext(taskId: string) {
     if (!project) {
       return;
     }
 
-    const [notes, workEntries, linkedCommits] = await Promise.all([
+    const [notes, workEntries, linkedCommits, inboxItems] = await Promise.all([
       api.listNotesForTask(project.id, taskId).catch(() => []),
       api.listWorkEntriesForTask(project.id, taskId).catch(() => []),
       project.gitEnabled
         ? api.listLinkedCommitsForTask(project.id, taskId).catch(() => [])
-        : Promise.resolve([])
+        : Promise.resolve([]),
+      Promise.resolve(api.listInboxItemsForTask(project.id, taskId))
+        .then((items) => items ?? [])
+        .catch(() => [])
     ]);
     setSelectedNotes(notes);
     setSelectedWorkEntries(workEntries);
     setSelectedLinkedCommits(linkedCommits);
+    setSelectedInboxItems(inboxItems);
   }
 
   async function refreshProjectData(projectId: string) {
@@ -269,10 +303,65 @@ export function App() {
     setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
   }
 
+  async function loadProjectIntoState(activeProject: Project, loadedProjects: Project[]) {
+    const [resumeResult, gitResult, plan] = await Promise.all([
+      loadResumeBrief(activeProject.id),
+      loadGitCommits(activeProject),
+      api.loadProjectPlan(activeProject.id)
+    ]);
+    setProjects([
+      activeProject,
+      ...loadedProjects.filter((candidate) => candidate.id !== activeProject.id)
+    ]);
+    setResumeBrief(resumeResult.brief);
+    setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
+    setGitCommits(gitResult.commits);
+    setGitError(gitResult.unavailable ? "Git unavailable." : null);
+    setProjectPlan(plan);
+    setSelectedTaskId(null);
+    setSelectedNotes([]);
+    setSelectedWorkEntries([]);
+    setSelectedLinkedCommits([]);
+    setSelectedInboxItems([]);
+    setTimelineNotes([]);
+    setTimelineWorkEntries([]);
+    setTimelineInboxItems([]);
+    setFocusSession(null);
+  }
+
   async function openTask(taskId: string) {
     setSelectedTaskId(taskId);
     await loadTaskContext(taskId);
     setScreen("task-detail");
+  }
+
+  function showProjectScreen(nextScreen: AppScreen) {
+    setTimelineError(null);
+    setScreen(nextScreen);
+  }
+
+  async function openTimeline() {
+    if (!project) {
+      return;
+    }
+
+    setTimelineError(null);
+    setTimelineNotes([]);
+    setTimelineWorkEntries([]);
+    setTimelineInboxItems([]);
+    try {
+      const [notes, workEntries, inboxItems] = await Promise.all([
+        api.listNotesForProject(project.id),
+        api.listWorkEntriesForProject(project.id),
+        api.listInboxItemsForProject(project.id)
+      ]);
+      setTimelineNotes(notes);
+      setTimelineWorkEntries(workEntries);
+      setTimelineInboxItems(inboxItems);
+      setScreen("timeline");
+    } catch {
+      setTimelineError("Timeline unavailable.");
+    }
   }
 
   async function continueTask() {
@@ -470,6 +559,57 @@ export function App() {
     }
   }
 
+  async function exportPortableBundle(event: FormEvent) {
+    event.preventDefault();
+    if (!project) {
+      return;
+    }
+
+    const destination = bundleDestination.trim();
+    if (!destination) {
+      setPortableError("Bundle destination folder is required.");
+      setPortableStatus(null);
+      return;
+    }
+
+    setPortableError(null);
+    setPortableStatus(null);
+    try {
+      const exportedPath = await api.exportProjectBundle(project.id, destination);
+      setPortableStatus(`Exported portable bundle to ${exportedPath}`);
+    } catch {
+      setPortableError("Could not export portable bundle.");
+    }
+  }
+
+  async function importPortableBundle(event: FormEvent) {
+    event.preventDefault();
+    const source = bundleFolder.trim();
+    const localPath = reselectedLocalPath.trim();
+    if (!source || !localPath) {
+      setPortableError("Bundle folder and reselected local folder path are required.");
+      setPortableStatus(null);
+      return;
+    }
+
+    setPortableError(null);
+    setPortableStatus(null);
+    try {
+      const importedProjectId = await api.importProjectBundle(source, localPath);
+      const loadedProjects = await api.listProjects();
+      const importedProject = loadedProjects.find(
+        (candidate) => candidate.id === importedProjectId
+      );
+      if (!importedProject) {
+        throw new Error("Imported project was not returned by list_projects.");
+      }
+      await loadProjectIntoState(importedProject, loadedProjects);
+      setPortableStatus("Imported portable project.");
+    } catch {
+      setPortableError("Could not import portable bundle.");
+    }
+  }
+
   function renderProjectScreen() {
     if (screen === "import") {
       return (
@@ -510,6 +650,54 @@ export function App() {
       );
     }
 
+    if (screen === "timeline") {
+      return (
+        <Timeline
+          workEntries={timelineWorkEntries}
+          commits={gitCommits}
+          notes={timelineNotes}
+          inboxItems={timelineInboxItems}
+          completedTasks={projectPlan.tasks.filter((task) => task.status === "done")}
+        />
+      );
+    }
+
+    if (screen === "export-import") {
+      return (
+        <section className="stack" aria-labelledby="export-import-title">
+          <h1 id="export-import-title">Export / Import</h1>
+          {portableError ? <p role="alert">{portableError}</p> : null}
+          {portableStatus ? <p role="status">{portableStatus}</p> : null}
+          <label htmlFor="markdown-export">Markdown export</label>
+          <textarea id="markdown-export" readOnly value={markdownExport} />
+          <form className="stack" onSubmit={exportPortableBundle}>
+            <label htmlFor="bundle-destination">Bundle destination folder</label>
+            <input
+              id="bundle-destination"
+              value={bundleDestination}
+              onChange={(event) => setBundleDestination(event.target.value)}
+            />
+            <button type="submit">Export portable bundle</button>
+          </form>
+          <form className="stack" onSubmit={importPortableBundle}>
+            <label htmlFor="bundle-folder">Bundle folder</label>
+            <input
+              id="bundle-folder"
+              value={bundleFolder}
+              onChange={(event) => setBundleFolder(event.target.value)}
+            />
+            <label htmlFor="reselected-local-path">Reselected local folder path</label>
+            <input
+              id="reselected-local-path"
+              value={reselectedLocalPath}
+              onChange={(event) => setReselectedLocalPath(event.target.value)}
+            />
+            <button type="submit">Import portable bundle</button>
+          </form>
+        </section>
+      );
+    }
+
     if (screen === "task-detail" && selectedTask) {
       return (
         <TaskDetail
@@ -519,7 +707,7 @@ export function App() {
           linkedCommits={selectedLinkedCommits}
           availableTasks={projectPlan.tasks.filter((candidate) => candidate.id !== selectedTask.id)}
           workEntries={selectedWorkEntries}
-          inboxItems={[]}
+          inboxItems={selectedInboxItems}
           onStatusChange={changeTaskStatus}
           onChecklistToggle={toggleChecklistItem}
           onNoteAdd={addNote}
@@ -626,18 +814,25 @@ export function App() {
           {gitError ? <p>{gitError}</p> : null}
         </div>
       ) : null}
+      {timelineError ? <p role="alert">{timelineError}</p> : null}
       {project ? (
         <nav aria-label="Project navigation">
-          <button type="button" onClick={() => setScreen("today")}>
+          <button type="button" onClick={() => showProjectScreen("today")}>
             Today
           </button>
-          <button type="button" onClick={() => setScreen("planner")}>
+          <button type="button" onClick={() => showProjectScreen("planner")}>
             Open planner
+          </button>
+          <button type="button" onClick={() => void openTimeline()}>
+            Timeline
+          </button>
+          <button type="button" onClick={() => showProjectScreen("export-import")}>
+            Export / Import
           </button>
           <button
             type="button"
             aria-label={screen === "import" ? "Import plan navigation" : undefined}
-            onClick={() => setScreen("import")}
+            onClick={() => showProjectScreen("import")}
           >
             Import plan
           </button>

@@ -124,6 +124,37 @@ impl<'a> WorkEntryRepository<'a> {
         rows.collect()
     }
 
+    pub fn list_work_entries_for_project(
+        &self,
+        project_id: &str,
+    ) -> rusqlite::Result<Vec<WorkEntry>> {
+        let mut stmt = self.conn.prepare(
+            "select id, project_id, task_id, source, started_at, ended_at, duration_seconds,
+                    done, remains, next_step, created_at
+             from work_entries
+             where project_id = ?1
+             order by created_at desc, id desc",
+        )?;
+
+        let rows = stmt.query_map(params![project_id], |row| {
+            Ok(WorkEntry {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                task_id: row.get(2)?,
+                source: row.get(3)?,
+                started_at: row.get(4)?,
+                ended_at: row.get(5)?,
+                duration_seconds: row.get(6)?,
+                done: row.get(7)?,
+                remains: row.get(8)?,
+                next_step: row.get(9)?,
+                created_at: row.get(10)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
     pub fn focus_interval_containing_commit(
         &self,
         project_id: &str,
@@ -265,6 +296,41 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].id, entry.id);
         assert_eq!(cross_project_entries.len(), 0);
+    }
+
+    #[test]
+    fn lists_all_work_entries_for_project_timeline() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let other_project = seed_project_with_plan(&mut conn, "other");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        let other_task = TaskRepository::new(&conn)
+            .list_tasks(&other_project.id)
+            .expect("list other tasks")
+            .into_iter()
+            .next()
+            .expect("other task");
+        let repository = WorkEntryRepository::new(&conn);
+
+        repository
+            .create_work_entry(valid_input(project.id.clone(), task.id.clone()))
+            .expect("create work entry");
+        repository
+            .create_work_entry(valid_input(other_project.id.clone(), other_task.id.clone()))
+            .expect("create other work entry");
+
+        let entries = repository
+            .list_work_entries_for_project(&project.id)
+            .expect("list project work entries");
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].project_id, project.id);
     }
 
     #[test]

@@ -192,6 +192,60 @@ impl<'a> InboxRepository<'a> {
         self.get_item(item_id)
     }
 
+    pub fn list_items_for_project(&self, project_id: &str) -> rusqlite::Result<Vec<InboxItem>> {
+        let mut stmt = self.conn.prepare(
+            "select id, project_id, task_id, body, kind, status, created_at, updated_at
+             from inbox_items
+             where project_id = ?1
+             order by created_at desc, id desc",
+        )?;
+
+        let rows = stmt.query_map(params![project_id], |row| {
+            Ok(InboxItem {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                task_id: row.get(2)?,
+                body: row.get(3)?,
+                kind: row.get(4)?,
+                status: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    pub fn list_items_for_task(
+        &self,
+        project_id: &str,
+        task_id: &str,
+    ) -> rusqlite::Result<Vec<InboxItem>> {
+        let mut stmt = self.conn.prepare(
+            "select inbox_items.id, inbox_items.project_id, inbox_items.task_id, inbox_items.body,
+                    inbox_items.kind, inbox_items.status, inbox_items.created_at, inbox_items.updated_at
+             from inbox_items
+             inner join tasks on tasks.id = inbox_items.task_id
+             where inbox_items.project_id = ?1 and inbox_items.task_id = ?2 and tasks.project_id = ?1
+             order by inbox_items.created_at desc, inbox_items.id desc",
+        )?;
+
+        let rows = stmt.query_map(params![project_id, task_id], |row| {
+            Ok(InboxItem {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                task_id: row.get(2)?,
+                body: row.get(3)?,
+                kind: row.get(4)?,
+                status: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
     fn get_item(&self, item_id: &str) -> rusqlite::Result<InboxItem> {
         get_item_from_conn(self.conn, item_id)
     }
@@ -301,6 +355,62 @@ mod tests {
         assert_eq!(note.task_id, None);
         assert_eq!(deleted.status, "deleted");
         assert_eq!(converted_task.title, "Create parser tests");
+    }
+
+    #[test]
+    fn lists_all_items_for_project_timeline() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_task(&mut conn, "desclop");
+        let other_project = seed_project_with_task(&mut conn, "other");
+        let mut repository = InboxRepository::new(&mut conn);
+
+        repository
+            .capture_item(&project.id, "Project inbox", "question")
+            .expect("capture item");
+        repository
+            .capture_item(&other_project.id, "Other inbox", "question")
+            .expect("capture other item");
+
+        let items = repository
+            .list_items_for_project(&project.id)
+            .expect("list project inbox");
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].body, "Project inbox");
+    }
+
+    #[test]
+    fn lists_items_for_task_with_project_boundary() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_task(&mut conn, "desclop");
+        let other_project = seed_project_with_task(&mut conn, "other");
+        let task = TaskRepository::new(&conn)
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .next()
+            .expect("task");
+        let mut repository = InboxRepository::new(&mut conn);
+
+        let item = repository
+            .capture_item(&project.id, "Task inbox", "question")
+            .expect("capture item");
+        repository
+            .attach_to_task(&item.id, &task.id)
+            .expect("attach item");
+
+        let project_items = repository
+            .list_items_for_task(&project.id, &task.id)
+            .expect("list task inbox");
+        let cross_project_items = repository
+            .list_items_for_task(&other_project.id, &task.id)
+            .expect("list cross-project task inbox");
+
+        assert_eq!(project_items.len(), 1);
+        assert_eq!(project_items[0].body, "Task inbox");
+        assert_eq!(cross_project_items.len(), 0);
     }
 
     #[test]
