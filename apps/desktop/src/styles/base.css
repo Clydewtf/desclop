@@ -483,6 +483,148 @@ button:not(.ui-button) {
   gap: var(--space-2);
 }
 
+.today-view {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.today-view__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.today-current-task {
+  align-content: start;
+}
+
+.today-current-task__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.today-current-task__meta span {
+  border-radius: 999px;
+  background: var(--color-neutral-soft);
+  color: var(--color-neutral-text);
+  padding: 4px 10px;
+}
+
+.today-current-task__content {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.today-current-task h2,
+.today-current-task p,
+.today-next-step p,
+.today-manual-review h2,
+.today-manual-review p,
+.today-facts p,
+.today-next-up p {
+  margin: 0;
+}
+
+.today-current-task h2 {
+  font-size: 1.45rem;
+  line-height: 1.2;
+}
+
+.today-current-task__note,
+.today-next-step p,
+.today-manual-review p,
+.today-facts p,
+.today-next-up p {
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.today-next-step {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.today-next-step strong {
+  font-size: 0.9rem;
+}
+
+.today-current-task__action {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.today-quick-capture,
+.today-facts,
+.today-next-up {
+  gap: var(--space-3);
+}
+
+.today-quick-capture .inline-capture {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.today-quick-capture .inline-capture label {
+  display: grid;
+  gap: var(--space-2);
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.today-quick-capture .inline-capture input,
+.today-quick-capture .inline-capture select {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.today-quick-capture .inline-capture button {
+  justify-self: start;
+}
+
+.today-facts ul,
+.today-next-up ol {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.today-facts li,
+.today-next-up li {
+  line-height: 1.45;
+}
+
+.today-next-up li {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.today-next-up li span {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+}
+
+.today-manual-review {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.today-manual-review > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.today-manual-review h2 {
+  font-size: 1rem;
+}
+
 @media (max-width: 560px) {
   .app-root,
   .app-content {
@@ -512,5 +654,14 @@ button:not(.ui-button) {
   .ui-section-header__action,
   .ui-action-bar {
     justify-content: flex-start;
+  }
+
+  .today-view__grid {
+    grid-template-columns: 1fr;
+  }
+
+  .today-manual-review {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

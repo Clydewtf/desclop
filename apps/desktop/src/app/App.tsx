@@ -74,16 +74,18 @@ async function loadGitCommits(project: Project): Promise<GitLoadResult> {
 function buildTodayView(
   resumeBrief: ResumeBrief | null,
   plan: ProjectPlanPayload,
+  currentTask: ProjectPlanPayload["tasks"][number] | null,
   commits: GitCommit[]
 ): ResumeBriefView {
-  const task = plan.tasks.find((candidate) => candidate.id === resumeBrief?.taskId) ?? null;
+  const task = currentTask;
+  const resumeMatchesTask = task !== null && resumeBrief !== null && resumeBrief.taskId === task.id;
   const resumeTask =
-    task && resumeBrief
+    task && resumeMatchesTask
       ? { ...task, nextStep: resumeBrief.nextStep || task.nextStep }
       : task;
+  const stageId = resumeMatchesTask ? (resumeBrief?.stageId ?? resumeTask?.stageId) : resumeTask?.stageId;
   const stage =
-    plan.stages.find((candidate) => candidate.id === (resumeBrief?.stageId ?? resumeTask?.stageId)) ??
-    null;
+    plan.stages.find((candidate) => candidate.id === stageId) ?? null;
   const nextTasks = plan.tasks.filter(
     (candidate) => candidate.status !== "done" && candidate.id !== resumeTask?.id
   );
@@ -96,7 +98,8 @@ function buildTodayView(
     commits,
     workEntries: [],
     inboxItems: [],
-    nextTasks
+    nextTasks,
+    hasPlan: plan.tasks.length > 0 || plan.stages.length > 0
   });
 }
 
@@ -252,10 +255,9 @@ export function App() {
   const project = projects[0] ?? null;
   const selectedTask =
     projectPlan.tasks.find((candidate) => candidate.id === selectedTaskId) ?? null;
-  const resumableTask =
+  const todayTask =
     projectPlan.tasks.find((candidate) => candidate.id === resumeBrief?.taskId) ??
     projectPlan.tasks.find((candidate) => candidate.id === project?.activeTaskId) ??
-    projectPlan.tasks.find((candidate) => candidate.status !== "done") ??
     null;
 
   async function loadTaskContext(taskId: string) {
@@ -292,11 +294,23 @@ export function App() {
   }
 
   async function continueTask() {
-    if (!resumableTask) {
+    if (!todayTask) {
       return;
     }
 
-    await openTask(resumableTask.id);
+    await openTask(todayTask.id);
+  }
+
+  function handleTodayPrimaryAction(view: ResumeBriefView) {
+    if (view.state === "no-plan") {
+      setScreen("import");
+      return;
+    }
+    if (view.state === "no-active-task") {
+      setScreen("plan");
+      return;
+    }
+    void continueTask();
   }
 
   async function changeTaskStatus(taskId: string, status: TaskStatus) {
@@ -606,13 +620,15 @@ export function App() {
       );
     }
 
+    const todayView = buildTodayView(resumeBrief, projectPlan, todayTask, gitCommits);
+
     return (
       <Today
-        view={buildTodayView(resumeBrief, projectPlan, gitCommits)}
-        onContinue={() => void continueTask()}
+        view={todayView}
+        onPrimaryAction={() => handleTodayPrimaryAction(todayView)}
         onCaptureInbox={captureInbox}
-        onStartManualWorkReview={() => startManualWorkReview(resumableTask?.id ?? null)}
-        canContinue={Boolean(resumableTask)}
+        onStartManualWorkReview={() => startManualWorkReview(todayTask?.id ?? null)}
+        canUsePrimaryAction={todayView.state !== "ready" || Boolean(todayTask)}
       />
     );
   }

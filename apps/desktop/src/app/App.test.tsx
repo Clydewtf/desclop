@@ -327,6 +327,52 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Continue Create local store" })).toBeEnabled();
   });
 
+  it("opens Import Plan from Today when the project has no plan", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Import a plan" }));
+
+    expect(screen.getByRole("heading", { name: "Import plan" })).toBeInTheDocument();
+  });
+
+  it("opens Plan from Today when a plan has no active task", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: null })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Pick a task from Plan" }));
+
+    expect(screen.getByRole("heading", { name: "Foundation" })).toBeInTheDocument();
+  });
+
+  it("resumes the active project task from Today when the resume brief is empty", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Create local store" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Set next step" }));
+
+    expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
+    expect(await screen.findByRole("button", { name: "Start ambient focus" })).toBeInTheDocument();
+  });
+
   it("keeps primary work and project destinations in the shell", async () => {
     const user = userEvent.setup();
     enableTauriApi();
