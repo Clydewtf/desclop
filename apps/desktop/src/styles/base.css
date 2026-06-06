@@ -72,9 +72,65 @@ select {
 }
 
 .app-sidebar {
+  display: grid;
+  align-content: start;
+  gap: var(--space-5);
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
   padding: var(--space-5);
+}
+
+.app-sidebar__identity {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.app-sidebar__identity strong {
+  font-size: 1.05rem;
+}
+
+.app-sidebar__identity span {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.app-sidebar__capture {
+  width: 100%;
+}
+
+.app-nav {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.app-nav__section {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.app-nav__section h2 {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.app-nav__items {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.app-nav__button {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.app-nav__button[aria-current="page"] {
+  border-color: var(--color-accent-soft);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
 }
 
 .app-content {

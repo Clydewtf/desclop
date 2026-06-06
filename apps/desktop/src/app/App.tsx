@@ -12,7 +12,8 @@ import { buildResumeBriefView, type ResumeBriefView } from "../features/today/re
 import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
 import { type GitCommit, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
-import { AppShell } from "./shell/AppShell";
+import { InlineAlert } from "../shared/ui";
+import { AppShell, type AppDestination } from "./shell/AppShell";
 
 function hasTauriInternals() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -35,7 +36,10 @@ type AppScreen =
   | "work-review"
   | "manual-work-review"
   | "import"
-  | "planner";
+  | "plan"
+  | "timeline"
+  | "utilities"
+  | "setup";
 
 interface FocusSession {
   taskId: string;
@@ -94,6 +98,18 @@ function buildTodayView(
     inboxItems: [],
     nextTasks
   });
+}
+
+function activeDestinationForScreen(screen: AppScreen): AppDestination {
+  if (screen === "plan" || screen === "timeline" || screen === "import" || screen === "utilities") {
+    return screen;
+  }
+
+  if (screen === "setup") {
+    return "setup";
+  }
+
+  return "today";
 }
 
 export function App() {
@@ -457,7 +473,7 @@ export function App() {
       await refreshProjectData(project.id);
       setMarkdownDraft("");
       setParsedPlan(null);
-      setScreen("planner");
+      setScreen("plan");
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("Plan already has task history")) {
@@ -497,7 +513,7 @@ export function App() {
       );
     }
 
-    if (screen === "planner") {
+    if (screen === "plan") {
       return (
         <Planner
           frames={buildPlannerFrames(
@@ -507,6 +523,24 @@ export function App() {
           )}
           onContinueTask={(taskId) => void openTask(taskId)}
         />
+      );
+    }
+
+    if (screen === "timeline") {
+      return (
+        <section className="stack" aria-labelledby="timeline-title">
+          <h1 id="timeline-title">Timeline</h1>
+          <p>Recent project activity will appear here.</p>
+        </section>
+      );
+    }
+
+    if (screen === "utilities") {
+      return (
+        <section className="stack" aria-labelledby="utilities-title">
+          <h1 id="utilities-title">Export / Settings</h1>
+          <p>Project export and settings tools will appear here.</p>
+        </section>
       );
     }
 
@@ -594,7 +628,7 @@ export function App() {
 
   if (loadError) {
     return (
-      <AppShell>
+      <AppShell activeDestination="setup">
         <section className="start-flow" aria-labelledby="load-error-title">
           <h1 id="load-error-title">Project loading failed</h1>
           <p role="alert">{loadError}</p>
@@ -608,7 +642,7 @@ export function App() {
 
   if (projects.length === 0) {
     return (
-      <AppShell>
+      <AppShell activeDestination="setup">
         <ProjectSetup
           creating={creating}
           error={createError}
@@ -619,29 +653,17 @@ export function App() {
   }
 
   return (
-    <AppShell>
+    <AppShell
+      activeDestination={activeDestinationForScreen(screen)}
+      projectName={project?.name}
+      projectStatus={resumeError || gitError ? [resumeError, gitError].filter(Boolean).join(" ") : null}
+      onNavigate={(destination) => setScreen(destination)}
+      onQuickCapture={() => setScreen("today")}
+    >
       {resumeError || gitError ? (
-        <div role="status">
-          {resumeError ? <p>{resumeError}</p> : null}
-          {gitError ? <p>{gitError}</p> : null}
-        </div>
-      ) : null}
-      {project ? (
-        <nav aria-label="Project navigation">
-          <button type="button" onClick={() => setScreen("today")}>
-            Today
-          </button>
-          <button type="button" onClick={() => setScreen("planner")}>
-            Open planner
-          </button>
-          <button
-            type="button"
-            aria-label={screen === "import" ? "Import plan navigation" : undefined}
-            onClick={() => setScreen("import")}
-          >
-            Import plan
-          </button>
-        </nav>
+        <InlineAlert tone="warning">
+          {[resumeError, gitError].filter(Boolean).join(" ")}
+        </InlineAlert>
       ) : null}
       {renderProjectScreen()}
     </AppShell>

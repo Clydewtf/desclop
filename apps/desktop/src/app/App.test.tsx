@@ -301,7 +301,7 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Import plan" }));
+    await user.click(await screen.findByRole("button", { name: "Import Plan" }));
     fireEvent.change(screen.getByLabelText("Markdown plan"), {
       target: { value: "## Foundation\n- [ ] Create local store\n  - [x] Add migration" }
     });
@@ -327,6 +327,35 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Continue Create local store" })).toBeEnabled();
   });
 
+  it("keeps primary work and project destinations in the shell", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    const nav = await screen.findByRole("navigation", { name: "Primary" });
+    expect(within(nav).getByRole("heading", { name: "Work" })).toBeInTheDocument();
+    expect(within(nav).getByRole("heading", { name: "Project" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Today" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(within(nav).getByRole("button", { name: "Import Plan" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Export / Settings" })).toBeInTheDocument();
+
+    await user.click(within(nav).getByRole("button", { name: "Import Plan" }));
+
+    expect(await screen.findByRole("heading", { name: "Import plan" })).toBeInTheDocument();
+    expect(
+      within(await screen.findByRole("navigation", { name: "Primary" })).getByRole("button", {
+        name: "Import Plan"
+      })
+    ).toHaveAttribute("aria-current", "page");
+  });
+
   it("prevents duplicate markdown imports while import is pending", async () => {
     const user = userEvent.setup();
     let resolveImport: () => void = () => {};
@@ -342,7 +371,7 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Import plan" }));
+    await user.click(await screen.findByRole("button", { name: "Import Plan" }));
     fireEvent.change(screen.getByLabelText("Markdown plan"), {
       target: { value: "## Foundation\n- [ ] Create local store" }
     });
@@ -368,7 +397,7 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Import plan" }));
+    await user.click(await screen.findByRole("button", { name: "Import Plan" }));
     fireEvent.change(screen.getByLabelText("Markdown plan"), {
       target: { value: "## New plan\n- [ ] New task" }
     });
@@ -380,7 +409,7 @@ describe("App", () => {
     );
   });
 
-  it("opens Planner from Today and continues a Planner task", async () => {
+  it("opens Plan from Today and continues a Plan task", async () => {
     const user = userEvent.setup();
     enableTauriApi();
     listProjects.mockResolvedValue([projectFixture({ activeTaskId: null })]);
@@ -391,7 +420,7 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Open planner" }));
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
     await user.click(screen.getByRole("button", { name: "Continue Create local store" }));
 
     expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
@@ -422,10 +451,10 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Open planner" }));
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
     await user.click(screen.getByRole("button", { name: "Continue Second task" }));
     await user.selectOptions(screen.getByLabelText("Task status"), "active");
-    await user.click(screen.getByRole("button", { name: "Open planner" }));
+    await user.click(screen.getByRole("button", { name: "Plan" }));
 
     expect(api.updateTaskStatus).toHaveBeenCalledWith("t2", "active");
     await waitFor(() => {
@@ -461,9 +490,12 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    await user.type(await screen.findByLabelText("Capture"), "Check export shape");
+    const captureInput = await screen.findByLabelText("Capture");
+    await user.type(captureInput, "Check export shape");
     await user.selectOptions(screen.getByLabelText("Capture type"), "question");
-    await user.click(screen.getByRole("button", { name: "Capture" }));
+    await user.click(
+      within(captureInput.closest("form") as HTMLElement).getByRole("button", { name: "Capture" })
+    );
 
     expect(captureInboxItem).toHaveBeenCalledWith({
       projectId: "p1",
@@ -499,9 +531,12 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.type(screen.getByLabelText("Capture"), "Check task export shape");
+    const captureInput = screen.getByLabelText("Capture");
+    await user.type(captureInput, "Check task export shape");
     await user.selectOptions(screen.getByLabelText("Capture type"), "question");
-    await user.click(screen.getByRole("button", { name: "Capture" }));
+    await user.click(
+      within(captureInput.closest("form") as HTMLElement).getByRole("button", { name: "Capture" })
+    );
 
     expect(captureInboxItem).toHaveBeenCalledWith({
       projectId: "p1",
@@ -935,9 +970,12 @@ describe("App", () => {
 
     expect(screen.getByText("05:00 remaining")).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("Capture"), "Remember repository tests");
+    const captureInput = screen.getByLabelText("Capture");
+    await user.type(captureInput, "Remember repository tests");
     await user.selectOptions(screen.getByLabelText("Capture type"), "note");
-    await user.click(screen.getByRole("button", { name: "Capture" }));
+    await user.click(
+      within(captureInput.closest("form") as HTMLElement).getByRole("button", { name: "Capture" })
+    );
 
     expect(captureInboxItem).toHaveBeenCalledWith({
       projectId: "p1",
