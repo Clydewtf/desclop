@@ -1,4 +1,5 @@
 import { type FormEvent, useState } from "react";
+import { Button, InlineAlert, ScreenHeader, Surface, TextArea } from "../../shared/ui";
 
 interface WorkReviewProps {
   durationSeconds: number | null;
@@ -40,38 +41,41 @@ export function WorkReview({ durationSeconds, onSave }: WorkReviewProps) {
   }
 
   return (
-    <form className="stack" onSubmit={saveReview}>
-      {error ? <p role="alert">{error}</p> : null}
-      {durationSeconds !== null ? (
-        <p>{Math.round(durationSeconds / 60)} tracked minutes</p>
-      ) : null}
-      <label>
-        What was done
-        <textarea
+    <Surface ariaLabel="Work review" className="work-review">
+      <ScreenHeader
+        title="Work review"
+        description="Capture what changed and the next step before leaving this task."
+      />
+      <form className="work-review__form" onSubmit={saveReview}>
+        {error ? <InlineAlert tone="error">Could not save work review.</InlineAlert> : null}
+        {durationSeconds !== null ? (
+          <p className="work-review__duration">{Math.round(durationSeconds / 60)} tracked minutes</p>
+        ) : null}
+        <TextArea
+          id="work-review-done"
+          label="What was done"
           value={done}
           onChange={(event) => setDone(event.target.value)}
           disabled={saving}
         />
-      </label>
-      <label>
-        What remains
-        <textarea
+        <TextArea
+          id="work-review-remains"
+          label="What remains"
           value={remains}
           onChange={(event) => setRemains(event.target.value)}
           disabled={saving}
         />
-      </label>
-      <label>
-        Next step
-        <textarea
+        <TextArea
+          id="work-review-next-step"
+          label="Next step"
           value={nextStep}
           onChange={(event) => setNextStep(event.target.value)}
           disabled={saving}
         />
-      </label>
-      <button type="submit" disabled={saving}>
-        {saving ? "Saving work review" : "Save work review"}
-      </button>
-    </form>
+        <Button type="submit" disabled={saving}>
+          {saving ? "Saving work review" : "Save work review"}
+        </Button>
+      </form>
+    </Surface>
   );
 }

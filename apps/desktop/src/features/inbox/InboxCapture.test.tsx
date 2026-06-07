@@ -5,6 +5,23 @@ import { renderWithRouter } from "../../app/test-utils";
 import { InboxCapture } from "./InboxCapture";
 
 describe("InboxCapture", () => {
+  it("captures alpha capture kinds with simplified labels", async () => {
+    const user = userEvent.setup();
+    const onCapture = vi.fn().mockResolvedValue(undefined);
+
+    renderWithRouter(<InboxCapture onCapture={onCapture} />);
+
+    await user.type(screen.getByLabelText("Capture"), "Check export shape");
+    await user.selectOptions(screen.getByLabelText("Capture type"), "task_candidate");
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+
+    expect(screen.getByRole("option", { name: "Follow-up" })).toHaveValue("task_candidate");
+    expect(onCapture).toHaveBeenCalledWith({
+      body: "Check export shape",
+      kind: "task_candidate"
+    });
+  });
+
   it("captures typed and untyped items without interrupting work", async () => {
     const user = userEvent.setup();
     const onCapture = vi.fn().mockResolvedValue(undefined);

@@ -7,3 +7,4 @@ export { InlineAlert } from "./InlineAlert";
 export { ScreenHeader } from "./ScreenHeader";
 export { SectionHeader } from "./SectionHeader";
 export { ActionBar } from "./ActionBar";
+export { QuickCapture, alphaCaptureOptions } from "./QuickCapture";

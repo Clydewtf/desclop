@@ -5,6 +5,30 @@ import { renderWithRouter } from "../../app/test-utils";
 import { WorkReview } from "./WorkReview";
 
 describe("WorkReview", () => {
+  it("renders manual work review as a clear form", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+
+    renderWithRouter(<WorkReview durationSeconds={null} onSave={onSave} />);
+
+    expect(screen.getByRole("heading", { name: "Work review" })).toBeInTheDocument();
+    expect(
+      screen.getByText("Capture what changed and the next step before leaving this task.")
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("What was done"), "Reviewed schema");
+    await user.type(screen.getByLabelText("What remains"), "Run backend tests");
+    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save work review" }));
+
+    expect(onSave).toHaveBeenCalledWith({
+      done: "Reviewed schema",
+      remains: "Run backend tests",
+      nextStep: "Run cargo test",
+      durationSeconds: null
+    });
+  });
+
   it("saves compact review fields", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);
