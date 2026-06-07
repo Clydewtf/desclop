@@ -147,6 +147,52 @@ select {
   gap: var(--space-4);
 }
 
+.timeline-screen,
+.utilities-screen {
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+}
+
+.timeline-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.timeline-list li {
+  line-height: 1.5;
+}
+
+.settings-list {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+}
+
+.settings-list div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.settings-list dt {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.settings-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.utilities-note {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
 label:not(.ui-field__label) {
   display: grid;
   gap: 6px;

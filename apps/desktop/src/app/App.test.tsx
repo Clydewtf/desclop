@@ -327,6 +327,52 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Continue Create local store" })).toBeEnabled();
   });
 
+  it("navigates to Timeline and Utilities from the shell", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({ facts: ["1 recent commit on main"] })
+    );
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Timeline" }));
+    expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    expect(screen.getByText("1 recent commit on main")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Export / Settings" }));
+    expect(screen.getByRole("heading", { name: "Export / Settings" })).toBeInTheDocument();
+    expect(screen.getByText("/tmp/desclop")).toBeInTheDocument();
+  });
+
+  it("keeps Timeline empty when resume facts are unavailable even if git commits exist", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ gitEnabled: true })]);
+    getResumeBrief.mockResolvedValue(resumeBriefFixture({ facts: [] }));
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    syncGitCommits.mockResolvedValue([
+      {
+        sha: "recent1",
+        projectId: "p1",
+        branch: "main",
+        message: "Add timeline screen",
+        authorName: "Clyde",
+        committedAt: "2026-05-20T11:00:00Z",
+        changedFiles: ["apps/desktop/src/app/App.tsx"]
+      }
+    ]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Timeline" }));
+
+    expect(screen.getByRole("heading", { name: "No timeline facts yet" })).toBeInTheDocument();
+    expect(screen.queryByText("1 recent commit on main")).not.toBeInTheDocument();
+  });
+
   it("opens Import Plan from Today when the project has no plan", async () => {
     const user = userEvent.setup();
     enableTauriApi();

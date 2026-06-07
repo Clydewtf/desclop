@@ -7,8 +7,11 @@ import { Planner } from "../features/planner/Planner";
 import { buildPlannerFrames } from "../features/planner/plannerEngine";
 import { ProjectSetup } from "../features/project-setup/ProjectSetup";
 import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDetail";
+import { Timeline } from "../features/timeline/Timeline";
+import { buildTimelineView } from "../features/timeline/timelineView";
 import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
+import { Utilities } from "../features/utilities/Utilities";
 import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
 import { type GitCommit, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
@@ -541,20 +544,25 @@ export function App() {
     }
 
     if (screen === "timeline") {
+      const timelineView = buildTimelineView(resumeBrief?.facts ?? []);
+
       return (
-        <section className="stack" aria-labelledby="timeline-title">
-          <h1 id="timeline-title">Timeline</h1>
-          <p>Recent project activity will appear here.</p>
-        </section>
+        <Timeline
+          facts={timelineView.facts}
+          gitUnavailable={Boolean(gitError)}
+          resumeUnavailable={Boolean(resumeError)}
+        />
       );
     }
 
-    if (screen === "utilities") {
+    if (screen === "utilities" && project) {
       return (
-        <section className="stack" aria-labelledby="utilities-title">
-          <h1 id="utilities-title">Export / Settings</h1>
-          <p>Project export and settings tools will appear here.</p>
-        </section>
+        <Utilities
+          projectPath={project.localPath}
+          gitEnabled={project.gitEnabled}
+          gitHealth={gitError}
+          onOpenImport={() => setScreen("import")}
+        />
       );
     }
 
