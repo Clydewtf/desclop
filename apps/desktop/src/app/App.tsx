@@ -559,9 +559,13 @@ export function App() {
     }
 
     if (screen === "task-detail" && selectedTask) {
+      const selectedStage =
+        projectPlan.stages.find((stage) => stage.id === selectedTask.stageId) ?? null;
+
       return (
         <TaskDetail
           task={selectedTask}
+          stageTitle={selectedStage?.title}
           checklist={projectPlan.checklistItems.filter((item) => item.taskId === selectedTask.id)}
           notes={selectedNotes}
           linkedCommits={selectedLinkedCommits}

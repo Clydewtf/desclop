@@ -370,7 +370,8 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Set next step" }));
 
     expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
-    expect(await screen.findByRole("button", { name: "Start ambient focus" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
+    expect(screen.getByText("Foundation task")).toBeInTheDocument();
   });
 
   it("keeps primary work and project destinations in the shell", async () => {
@@ -470,7 +471,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Continue Create local store" }));
 
     expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
-    expect(await screen.findByRole("button", { name: "Start ambient focus" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
   });
 
   it("reloads the project plan after activating a task so demoted tasks do not stay active locally", async () => {
@@ -753,7 +754,7 @@ describe("App", () => {
     expect(updateNextStep).not.toHaveBeenCalled();
     expect(getResumeBrief).toHaveBeenCalledTimes(2);
     expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
-    expect(await screen.findByRole("button", { name: "Start ambient focus" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
   });
 
   it("persists a focus session from task detail through work review", async () => {
@@ -838,7 +839,7 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-20T10:00:00.000Z"));
-    fireEvent.click(screen.getByRole("button", { name: "Start ambient focus" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start focus" }));
     act(() => {
       vi.advanceTimersByTime(90000);
     });
@@ -933,7 +934,7 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.click(screen.getByRole("button", { name: "Start ambient focus" }));
+    await user.click(screen.getByRole("button", { name: "Start focus" }));
     await user.click(screen.getByRole("checkbox", { name: "Add migration" }));
 
     expect(updateChecklistItem).toHaveBeenCalledWith("c1", true);
@@ -1012,7 +1013,7 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
     await user.clear(screen.getByLabelText("Timebox minutes"));
     await user.type(screen.getByLabelText("Timebox minutes"), "5");
-    await user.click(screen.getByRole("button", { name: "Start timebox focus" }));
+    await user.click(screen.getByRole("button", { name: "Start timebox" }));
 
     expect(screen.getByText("05:00 remaining")).toBeInTheDocument();
 
@@ -1124,7 +1125,7 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Continue task" }));
 
-    expect(await screen.findByRole("button", { name: "Start ambient focus" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
     expect(screen.getByText("0 linked commits")).toBeInTheDocument();
   });
 

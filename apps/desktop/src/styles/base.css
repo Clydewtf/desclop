@@ -483,6 +483,85 @@ button:not(.ui-button) {
   gap: var(--space-2);
 }
 
+.task-detail {
+  align-content: start;
+}
+
+.task-workbench-header {
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  align-items: start;
+}
+
+.task-workbench-header__next-step,
+.task-workbench-header__controls,
+.task-note-form,
+.task-checklist,
+.task-linked-commits,
+.task-work-reviews,
+.task-inbox-items {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.task-workbench-header__next-step .ui-button,
+.task-note-form .ui-button {
+  justify-self: start;
+}
+
+.task-workbench-header__status,
+.task-workbench-header__timebox {
+  max-width: 180px;
+}
+
+.task-workbench-header__controls .ui-action-bar {
+  align-items: end;
+}
+
+.task-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.task-linked-commits,
+.task-work-reviews,
+.task-inbox-items,
+.task-notes,
+.task-linked-commit__files {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.task-linked-commit,
+.task-work-review,
+.task-inbox-items li {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.task-linked-commit p,
+.task-work-review p,
+.task-work-review span,
+.task-inbox-items p,
+.task-workbench__empty {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.task-work-review span {
+  font-size: 0.86rem;
+}
+
+.task-linked-commit .ui-action-bar {
+  justify-content: flex-start;
+}
+
+.task-linked-commit .ui-field {
+  min-width: 180px;
+}
+
 .today-view {
   display: grid;
   gap: var(--space-5);
@@ -755,6 +834,16 @@ button:not(.ui-button) {
 .task-row__next-step {
   margin: 0;
   line-height: 1.45;
+}
+
+@media (max-width: 980px) {
+  .task-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .task-workbench-header {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 560px) {

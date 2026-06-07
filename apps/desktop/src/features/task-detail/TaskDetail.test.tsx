@@ -49,6 +49,52 @@ const task: Task = taskFixture({
 });
 
 describe("TaskDetail", () => {
+  it("renders task detail as a focused workbench", () => {
+    renderWithRouter(
+      <TaskDetail
+        task={taskFixture({ title: "Create local store", status: "active", nextStep: "Run cargo test" })}
+        stageTitle="Foundation"
+        checklist={[{ id: "c1", taskId: "t1", title: "Add migration", completed: false, position: 0 }]}
+        notes={[{ id: "n1", projectId: "p1", taskId: "t1", body: "Migration passes", createdAt: "2026-05-20T10:00:00Z" }]}
+        linkedCommits={[gitCommitFixture({ sha: "abc123456", message: "Fix import" })]}
+        availableTasks={[]}
+        workEntries={[{
+          id: "w1",
+          projectId: "p1",
+          taskId: "t1",
+          source: "manual",
+          startedAt: null,
+          endedAt: null,
+          durationSeconds: null,
+          done: "Reviewed schema",
+          remains: "Run backend tests",
+          nextStep: "Run cargo test",
+          createdAt: "2026-05-20T10:01:30Z"
+        }]}
+        inboxItems={[]}
+        onStatusChange={vi.fn()}
+        onChecklistToggle={vi.fn()}
+        onNoteAdd={vi.fn()}
+        onNextStepSave={vi.fn()}
+        onStartFocus={vi.fn()}
+        onCommitUnlink={vi.fn()}
+        onCommitMove={vi.fn()}
+        onCaptureInbox={vi.fn()}
+        onStartManualWorkReview={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Create local store" })).toBeInTheDocument();
+    expect(screen.getByText("Foundation task")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start focus" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Task status")).toHaveValue("active");
+    expect(screen.getByLabelText("Next step")).toHaveValue("Run cargo test");
+    expect(screen.getByRole("heading", { name: "Checklist" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Notes" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Linked commits" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Work reviews" })).toBeInTheDocument();
+  });
+
   it("updates status, checklist, notes, and next step", async () => {
     const user = userEvent.setup();
     const onStatusChange = vi.fn();
@@ -82,7 +128,7 @@ describe("TaskDetail", () => {
     await user.click(screen.getByRole("button", { name: "Add note" }));
     await user.type(screen.getByLabelText("Next step"), "Write repository tests");
     await user.click(screen.getByRole("button", { name: "Save next step" }));
-    await user.click(screen.getByRole("button", { name: "Start ambient focus" }));
+    await user.click(screen.getByRole("button", { name: "Start focus" }));
 
     expect(onStatusChange).toHaveBeenCalledWith("t1", "active");
     expect(onChecklistToggle).toHaveBeenCalledWith("c1", true);
@@ -120,7 +166,7 @@ describe("TaskDetail", () => {
 
     await user.clear(screen.getByLabelText("Timebox minutes"));
     await user.type(screen.getByLabelText("Timebox minutes"), "25");
-    await user.click(screen.getByRole("button", { name: "Start timebox focus" }));
+    await user.click(screen.getByRole("button", { name: "Start timebox" }));
 
     expect(onStartFocus).toHaveBeenCalledWith({
       taskId: "t1",
