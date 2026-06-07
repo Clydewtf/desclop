@@ -3,6 +3,32 @@ import type { ChecklistItem, Stage, Task } from "../../shared/domain/types";
 import { buildPlannerFrames } from "./plannerEngine";
 
 describe("buildPlannerFrames", () => {
+  it("collapses completed stages and expands the current stage", () => {
+    const frames = buildPlannerFrames(
+      [
+        stageFixture({ id: "s1", title: "Done stage", status: "completed", position: 0 }),
+        stageFixture({ id: "s2", title: "Current stage", status: "current", position: 1 }),
+        stageFixture({ id: "s3", title: "Future stage", status: "future", position: 2 })
+      ],
+      [
+        taskFixture({ id: "t1", stageId: "s1", status: "done", position: 0 }),
+        taskFixture({
+          id: "t2",
+          stageId: "s2",
+          status: "active",
+          nextStep: "Run visual QA",
+          position: 0
+        })
+      ],
+      []
+    );
+
+    expect(frames[0].collapsed).toBe(true);
+    expect(frames[1].collapsed).toBe(false);
+    expect(frames[2].collapsed).toBe(false);
+    expect(frames[1].tasks[0].nextStep).toBe("Run visual QA");
+  });
+
   it("sorts stages, collapses completed stages, attaches sorted tasks and checklist, and computes progress", () => {
     const stages: Stage[] = [
       {
@@ -57,6 +83,28 @@ describe("buildPlannerFrames", () => {
     });
   });
 });
+
+function stageFixture(overrides: Pick<Stage, "id" | "title" | "status" | "position">): Stage {
+  return {
+    projectId: "project-1",
+    description: "",
+    ...overrides
+  };
+}
+
+function taskFixture(
+  overrides: Pick<Task, "id" | "stageId" | "status" | "position"> & Partial<Pick<Task, "title" | "nextStep">>
+): Task {
+  return {
+    projectId: "project-1",
+    title: "Task",
+    description: "",
+    priority: null,
+    dueDate: null,
+    nextStep: "",
+    ...overrides
+  };
+}
 
 function task(overrides: Pick<Task, "id" | "stageId" | "title" | "position" | "status">): Task {
   return {

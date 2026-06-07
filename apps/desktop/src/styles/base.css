@@ -625,6 +625,138 @@ button:not(.ui-button) {
   font-size: 1rem;
 }
 
+.stage-list {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.stage-frame {
+  display: grid;
+  gap: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: var(--space-5);
+}
+
+.stage-frame--current {
+  border-color: var(--color-accent);
+  background: var(--color-info-bg);
+  box-shadow: inset 4px 0 0 var(--color-accent);
+}
+
+.stage-frame--completed {
+  background: var(--color-surface-muted);
+}
+
+.stage-frame--future {
+  border-style: dashed;
+  background: transparent;
+}
+
+.stage-frame__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.stage-frame__header h2,
+.stage-frame__status,
+.stage-frame__summary p {
+  margin: 0;
+}
+
+.stage-frame__header h2 {
+  font-size: 1.25rem;
+  line-height: 1.25;
+}
+
+.stage-frame__status {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.stage-frame__progress {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  font-weight: 800;
+}
+
+.stage-frame__progress span {
+  border-radius: 999px;
+  background: var(--color-neutral-soft);
+  color: var(--color-neutral-text);
+  padding: 4px 10px;
+}
+
+.stage-frame__summary {
+  display: grid;
+  gap: var(--space-3);
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.task-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.task-list--collapsed {
+  gap: var(--space-2);
+}
+
+.task-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: var(--space-4);
+}
+
+.task-row--summary {
+  padding: var(--space-3) var(--space-4);
+}
+
+.task-row__content {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2);
+}
+
+.task-row__title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 800;
+}
+
+.task-row small,
+.task-row__next-step {
+  color: var(--color-muted);
+}
+
+.task-row small {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.task-row__next-step {
+  margin: 0;
+  line-height: 1.45;
+}
+
 @media (max-width: 560px) {
   .app-root,
   .app-content {
@@ -663,5 +795,15 @@ button:not(.ui-button) {
   .today-manual-review {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .stage-frame__header,
+  .task-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .stage-frame__progress {
+    justify-content: flex-start;
   }
 }

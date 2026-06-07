@@ -289,7 +289,7 @@ describe("App", () => {
     expect(screen.queryByText("Active task")).not.toBeInTheDocument();
   });
 
-  it("imports a markdown plan and opens the Planner with refreshed stages", async () => {
+  it("imports a markdown plan and opens Plan with refreshed stages", async () => {
     const user = userEvent.setup();
     enableTauriApi();
     listProjects.mockResolvedValue([projectFixture()]);
@@ -512,8 +512,8 @@ describe("App", () => {
 
       expect(firstTaskRow).not.toBeNull();
       expect(secondTaskRow).not.toBeNull();
-      expect(within(firstTaskRow as HTMLElement).getByText("todo")).toBeInTheDocument();
-      expect(within(secondTaskRow as HTMLElement).getByText("active")).toBeInTheDocument();
+      expect(within(firstTaskRow as HTMLElement).getByText("To do")).toBeInTheDocument();
+      expect(within(secondTaskRow as HTMLElement).getByText("Active")).toBeInTheDocument();
     });
   });
 
