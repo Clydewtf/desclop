@@ -440,8 +440,10 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     const nav = await screen.findByRole("navigation", { name: "Primary" });
-    expect(within(nav).getByRole("heading", { name: "Work" })).toBeInTheDocument();
-    expect(within(nav).getByRole("heading", { name: "Project" })).toBeInTheDocument();
+    expect(within(nav).getByText("Work")).toBeInTheDocument();
+    expect(within(nav).getByText("Project")).toBeInTheDocument();
+    expect(within(nav).queryByRole("heading", { name: "Work" })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("heading", { name: "Project" })).not.toBeInTheDocument();
     expect(within(nav).getByRole("button", { name: "Today" })).toHaveAttribute(
       "aria-current",
       "page"

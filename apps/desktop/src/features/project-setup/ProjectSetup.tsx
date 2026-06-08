@@ -2,6 +2,7 @@ import { type FormEvent, useState } from "react";
 import { type CreateProjectInput } from "../../shared/api/client";
 import {
   Button,
+  EmptyState,
   InlineAlert,
   ScreenHeader,
   Surface,
@@ -53,6 +54,10 @@ export function ProjectSetup({ onCreate, creating = false, error }: ProjectSetup
       <ScreenHeader
         title="Create a local project"
         description="Desclop stores project workflow data locally and works without Git."
+      />
+      <EmptyState
+        title="No project setup"
+        body="Create a local project record to connect Desclop to this folder."
       />
       {error ? <InlineAlert tone="error">{error}</InlineAlert> : null}
       <form className="stack" onSubmit={submit}>

@@ -85,11 +85,15 @@ export function AppShell({
             </Button>
             <nav className="app-nav" aria-label="Primary">
               <section className="app-nav__section" aria-labelledby="app-nav-work">
-                <h2 id="app-nav-work">Work</h2>
+                <div className="app-nav__heading" id="app-nav-work">
+                  Work
+                </div>
                 <div className="app-nav__items">{workDestinations.map(renderDestinationButton)}</div>
               </section>
               <section className="app-nav__section" aria-labelledby="app-nav-project">
-                <h2 id="app-nav-project">Project</h2>
+                <div className="app-nav__heading" id="app-nav-project">
+                  Project
+                </div>
                 <div className="app-nav__items">{projectDestinations.map(renderDestinationButton)}</div>
               </section>
             </nav>

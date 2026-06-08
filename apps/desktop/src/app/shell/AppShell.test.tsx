@@ -25,8 +25,10 @@ describe("AppShell", () => {
     expect(screen.getByText("Git unavailable")).toBeInTheDocument();
 
     const nav = screen.getByRole("navigation", { name: "Primary" });
-    expect(within(nav).getByRole("heading", { name: "Work" })).toBeInTheDocument();
-    expect(within(nav).getByRole("heading", { name: "Project" })).toBeInTheDocument();
+    expect(within(nav).getByText("Work")).toBeInTheDocument();
+    expect(within(nav).getByText("Project")).toBeInTheDocument();
+    expect(within(nav).queryByRole("heading", { name: "Work" })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("heading", { name: "Project" })).not.toBeInTheDocument();
     expect(within(nav).getByRole("button", { name: "Today" })).toHaveAttribute(
       "aria-current",
       "page"
@@ -49,6 +51,6 @@ describe("AppShell", () => {
     expect(screen.getByText("Desclop")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Create project" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Plan" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Project" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Project")).not.toBeInTheDocument();
   });
 });

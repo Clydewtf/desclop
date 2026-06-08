@@ -109,10 +109,11 @@ select {
   gap: var(--space-2);
 }
 
-.app-nav__section h2 {
+.app-nav__heading {
   margin: 0;
   color: var(--color-muted);
   font-size: 0.75rem;
+  font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
 }
