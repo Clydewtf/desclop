@@ -220,10 +220,14 @@ button:not(.ui-button) {
   cursor: pointer;
 }
 
-.inline-field {
+label.inline-field {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+label.inline-field input {
+  flex: 0 0 auto;
 }
 
 .field-error {
