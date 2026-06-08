@@ -15,7 +15,14 @@ import { Utilities } from "../features/utilities/Utilities";
 import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
 import { type GitCommit, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
-import { InlineAlert } from "../shared/ui";
+import {
+  Button,
+  EmptyState,
+  InlineAlert,
+  ScreenHeader,
+  Surface,
+  TextArea
+} from "../shared/ui";
 import { AppShell, type AppDestination } from "./shell/AppShell";
 
 function hasTauriInternals() {
@@ -506,19 +513,30 @@ export function App() {
   function renderProjectScreen() {
     if (screen === "import") {
       return (
-        <section className="stack" aria-labelledby="import-title">
-          <h1 id="import-title">Import plan</h1>
-          {importError ? <p role="alert">{importError}</p> : null}
-          <label htmlFor="markdown-plan">Markdown plan</label>
-          <textarea
-            id="markdown-plan"
-            value={markdownDraft}
-            disabled={importing}
-            onChange={(event) => setMarkdownDraft(event.target.value)}
+        <section className="stack">
+          <ScreenHeader
+            eyebrow="Project"
+            title="Import plan"
+            description="Preview a Markdown task plan before writing it to the local project."
           />
-          <button type="button" disabled={importing} onClick={previewImport}>
-            Preview import
-          </button>
+          {importError ? <InlineAlert tone="error">{importError}</InlineAlert> : null}
+          <Surface ariaLabel="Markdown import" className="markdown-import">
+            <TextArea
+              id="markdown-plan"
+              label="Markdown plan"
+              value={markdownDraft}
+              disabled={importing}
+              onChange={(event) => setMarkdownDraft(event.target.value)}
+            />
+            <Button
+              type="button"
+              className="markdown-import__action"
+              disabled={importing}
+              onClick={previewImport}
+            >
+              Preview import
+            </Button>
+          </Surface>
           {parsedPlan ? (
             <MarkdownImportPreview
               parsed={parsedPlan}
@@ -634,6 +652,25 @@ export function App() {
 
     const todayView = buildTodayView(resumeBrief, projectPlan, todayTask, gitCommits);
 
+    if (todayView.state === "no-plan") {
+      return (
+        <section className="today-view">
+          <ScreenHeader eyebrow="Today" title={todayView.heading} />
+          <Surface ariaLabel="Plan required">
+            <EmptyState
+              title={todayView.primaryTaskTitle}
+              body={todayView.nextStep}
+              action={
+                <Button onClick={() => handleTodayPrimaryAction(todayView)}>
+                  {todayView.primaryActionLabel}
+                </Button>
+              }
+            />
+          </Surface>
+        </section>
+      );
+    }
+
     return (
       <Today
         view={todayView}
@@ -647,23 +684,27 @@ export function App() {
 
   if (loading) {
     return (
-      <main className="app-root">
-        <h1>Desclop</h1>
-        <p>Loading Desclop</p>
-      </main>
+      <AppShell activeDestination="setup">
+        <Surface ariaLabel="Loading">
+          <ScreenHeader title="Opening Desclop" description="Loading local project context." />
+        </Surface>
+      </AppShell>
     );
   }
 
   if (loadError) {
     return (
       <AppShell activeDestination="setup">
-        <section className="start-flow" aria-labelledby="load-error-title">
-          <h1 id="load-error-title">Project loading failed</h1>
-          <p role="alert">{loadError}</p>
-          <button type="button" onClick={loadProjects}>
+        <Surface ariaLabel="Project loading failed" className="start-flow">
+          <ScreenHeader
+            title="Project loading failed"
+            description="Desclop could not open the local project context."
+          />
+          <InlineAlert tone="error">{loadError}</InlineAlert>
+          <Button type="button" onClick={loadProjects}>
             Retry
-          </button>
-        </section>
+          </Button>
+        </Surface>
       </AppShell>
     );
   }

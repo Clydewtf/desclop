@@ -407,6 +407,14 @@ button:not(.ui-button) {
   line-height: 1.5;
 }
 
+.ui-inline-alert p {
+  margin: 0;
+}
+
+.ui-inline-alert p + p {
+  margin-top: var(--space-2);
+}
+
 .ui-inline-alert--info {
   border-color: var(--color-info-border);
   background: var(--color-info-bg);
@@ -740,6 +748,11 @@ button:not(.ui-button) {
 .stage-list {
   display: grid;
   gap: var(--space-4);
+}
+
+.markdown-import__action,
+.markdown-preview__action {
+  justify-self: start;
 }
 
 .stage-frame {

@@ -185,6 +185,16 @@ describe("App", () => {
     expect(screen.getByText("Desclop")).toBeInTheDocument();
   });
 
+  it("renders a calm loading state inside the shell", () => {
+    enableTauriApi();
+    listProjects.mockReturnValue(new Promise(() => {}));
+
+    renderWithRouter(<App />);
+
+    expect(screen.getByRole("heading", { name: "Opening Desclop" })).toBeInTheDocument();
+    expect(screen.getByText("Loading local project context.")).toBeInTheDocument();
+  });
+
   it("shows a recoverable error when project loading fails", async () => {
     enableTauriApi();
     listProjects.mockRejectedValue(new Error("database unavailable"));
@@ -192,7 +202,7 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not load projects.");
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Create project" })).not.toBeInTheDocument();
   });
 
@@ -480,13 +490,13 @@ describe("App", () => {
     });
   });
 
-  it("shows an import error when backend blocks destructive re-import", async () => {
+  it("shows destructive re-import errors inline without clearing the draft", async () => {
     const user = userEvent.setup();
     enableTauriApi();
     listProjects.mockResolvedValue([projectFixture({ id: "p1" })]);
     getResumeBrief.mockResolvedValue(emptyResumeBrief("p1"));
     loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
-    vi.mocked(api.importPlan).mockRejectedValue(new Error("Plan already has task history"));
+    importPlan.mockRejectedValue(new Error("Plan already has task history"));
 
     renderWithRouter(<App />);
 
@@ -500,6 +510,7 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Could not import plan without losing existing task history."
     );
+    expect(screen.getByLabelText("Markdown plan")).toHaveValue("## New plan\n- [ ] New task");
   });
 
   it("opens Plan from Today and continues a Plan task", async () => {
