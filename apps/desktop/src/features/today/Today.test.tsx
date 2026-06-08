@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
@@ -72,7 +72,15 @@ describe("Today", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Import a plan" }));
+    const emptyState = screen.getByRole("article", { name: "Plan required" });
+    expect(
+      within(emptyState).getByRole("heading", { name: "No plan imported", level: 2 })
+    ).toBeInTheDocument();
+    expect(
+      within(emptyState).getByText("Import a Markdown plan to start using Today.")
+    ).toBeInTheDocument();
+
+    await user.click(within(emptyState).getByRole("button", { name: "Import a plan" }));
     expect(onPrimaryAction).toHaveBeenCalledTimes(1);
   });
 

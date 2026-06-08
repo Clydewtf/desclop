@@ -17,7 +17,6 @@ import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared
 import { type GitCommit, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
 import {
   Button,
-  EmptyState,
   InlineAlert,
   ScreenHeader,
   Surface,
@@ -651,25 +650,6 @@ export function App() {
     }
 
     const todayView = buildTodayView(resumeBrief, projectPlan, todayTask, gitCommits);
-
-    if (todayView.state === "no-plan") {
-      return (
-        <section className="today-view">
-          <ScreenHeader eyebrow="Today" title={todayView.heading} />
-          <Surface ariaLabel="Plan required">
-            <EmptyState
-              title={todayView.primaryTaskTitle}
-              body={todayView.nextStep}
-              action={
-                <Button onClick={() => handleTodayPrimaryAction(todayView)}>
-                  {todayView.primaryActionLabel}
-                </Button>
-              }
-            />
-          </Surface>
-        </section>
-      );
-    }
 
     return (
       <Today

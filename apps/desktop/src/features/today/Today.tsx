@@ -1,6 +1,13 @@
 import type { ResumeBriefView } from "./resumeEngine";
 import type { InboxKind } from "../../shared/domain/types";
-import { Button, InlineAlert, ScreenHeader, SectionHeader, Surface } from "../../shared/ui";
+import {
+  Button,
+  EmptyState,
+  InlineAlert,
+  ScreenHeader,
+  SectionHeader,
+  Surface
+} from "../../shared/ui";
 import { InboxCapture } from "../inbox/InboxCapture";
 
 interface TodayProps {
@@ -25,6 +32,25 @@ export function Today({
     "no-active-task": "No active task",
     "missing-next-step": "Next step needed"
   }[view.state];
+
+  if (view.state === "no-plan") {
+    return (
+      <section className="today-view">
+        <ScreenHeader eyebrow="Today" title={view.heading} />
+        <Surface ariaLabel="Plan required">
+          <EmptyState
+            title={view.primaryTaskTitle}
+            body={view.nextStep}
+            action={
+              <Button onClick={onPrimaryAction} disabled={!canUsePrimaryAction}>
+                {view.primaryActionLabel}
+              </Button>
+            }
+          />
+        </Surface>
+      </section>
+    );
+  }
 
   return (
     <section className="today-view">
