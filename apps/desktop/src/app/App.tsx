@@ -14,7 +14,7 @@ import { buildResumeBriefView, type ResumeBriefView } from "../features/today/re
 import { Utilities } from "../features/utilities/Utilities";
 import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
-import { type GitCommit, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
+import { type GitCommit, type InboxItem, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
 import {
   Button,
   InlineAlert,
@@ -90,7 +90,7 @@ function buildTodayView(
   const resumeMatchesTask = task !== null && resumeBrief !== null && resumeBrief.taskId === task.id;
   const resumeTask =
     task && resumeMatchesTask
-      ? { ...task, nextStep: resumeBrief.nextStep || task.nextStep }
+      ? { ...task, nextStep: task.nextStep || resumeBrief.nextStep }
       : task;
   const stageId = resumeMatchesTask ? (resumeBrief?.stageId ?? resumeTask?.stageId) : resumeTask?.stageId;
   const stage =
@@ -144,6 +144,7 @@ export function App() {
   const [selectedNotes, setSelectedNotes] = useState<Note[]>([]);
   const [selectedWorkEntries, setSelectedWorkEntries] = useState<WorkEntry[]>([]);
   const [selectedLinkedCommits, setSelectedLinkedCommits] = useState<GitCommit[]>([]);
+  const [openInboxItems, setOpenInboxItems] = useState<InboxItem[]>([]);
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null);
   const [manualReviewTaskId, setManualReviewTaskId] = useState<string | null>(null);
   const [markdownDraft, setMarkdownDraft] = useState("");
@@ -186,6 +187,7 @@ export function App() {
         setGitCommits(gitResult.commits);
         setGitError(gitResult.unavailable ? "Git unavailable." : null);
         setProjectPlan(plan);
+        setOpenInboxItems([]);
       } else {
         setProjects(loadedProjects);
         setResumeBrief(null);
@@ -194,6 +196,7 @@ export function App() {
         setGitError(null);
         setSelectedLinkedCommits([]);
         setProjectPlan({ stages: [], tasks: [], checklistItems: [] });
+        setOpenInboxItems([]);
       }
     } catch {
       setLoadError("Could not load projects.");
@@ -253,6 +256,7 @@ export function App() {
       setSelectedNotes([]);
       setSelectedWorkEntries([]);
       setSelectedLinkedCommits([]);
+      setOpenInboxItems([]);
       setFocusSession(null);
     } catch {
       setCreateError("Could not create project.");
@@ -296,7 +300,47 @@ export function App() {
     setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
   }
 
-  async function openTask(taskId: string) {
+  async function activateTask(taskId: string) {
+    if (!project) {
+      return;
+    }
+
+    await api.setActiveTask(project.id, taskId);
+    const activatedTask = projectPlan.tasks.find((candidate) => candidate.id === taskId) ?? null;
+
+    setProjects((currentProjects) =>
+      currentProjects.map((candidate) =>
+        candidate.id === project.id ? { ...candidate, activeTaskId: taskId } : candidate
+      )
+    );
+    setProjectPlan((plan) => ({
+      ...plan,
+      tasks: plan.tasks.map((task) => {
+        if (task.projectId !== project.id) {
+          return task;
+        }
+        if (task.id === taskId) {
+          return { ...task, status: "active" };
+        }
+        return task.status === "active" ? { ...task, status: "todo" } : task;
+      })
+    }));
+    setResumeBrief((brief) =>
+      brief && brief.projectId === project.id
+        ? {
+            ...brief,
+            taskId,
+            stageId: activatedTask?.stageId ?? brief.stageId,
+            nextStep: activatedTask?.nextStep ?? ""
+          }
+        : brief
+    );
+  }
+
+  async function openTask(taskId: string, options: { activate?: boolean } = {}) {
+    if (options.activate) {
+      await activateTask(taskId);
+    }
     setSelectedTaskId(taskId);
     await loadTaskContext(taskId);
     setScreen("task-detail");
@@ -357,6 +401,9 @@ export function App() {
       ...plan,
       tasks: plan.tasks.map((task) => (task.id === taskId ? { ...task, nextStep } : task))
     }));
+    setResumeBrief((brief) =>
+      brief?.taskId === taskId ? { ...brief, nextStep } : brief
+    );
   }
 
   async function unlinkCommit(commitSha: string, taskId: string) {
@@ -406,10 +453,14 @@ export function App() {
       return;
     }
 
-    await api.captureInboxItem({
+    const item = await api.captureInboxItem({
       projectId: project.id,
       body: input.body,
       kind: input.kind
+    });
+    setOpenInboxItems((items) => {
+      const nextItems = items.filter((candidate) => candidate.id !== item.id);
+      return item.status === "open" ? [...nextItems, item] : nextItems;
     });
   }
 
@@ -444,6 +495,9 @@ export function App() {
           task.id === focusSession.taskId ? { ...task, nextStep: input.nextStep } : task
         )
       }));
+      setResumeBrief((brief) =>
+        brief?.taskId === focusSession.taskId ? { ...brief, nextStep: input.nextStep } : brief
+      );
     }
     setScreen("task-detail");
   }
@@ -555,7 +609,7 @@ export function App() {
             projectPlan.tasks,
             projectPlan.checklistItems
           )}
-          onContinueTask={(taskId) => void openTask(taskId)}
+          onContinueTask={(taskId) => void openTask(taskId, { activate: true })}
         />
       );
     }
@@ -586,6 +640,12 @@ export function App() {
     if (screen === "task-detail" && selectedTask) {
       const selectedStage =
         projectPlan.stages.find((stage) => stage.id === selectedTask.stageId) ?? null;
+      const selectedInboxItems = openInboxItems.filter(
+        (item) =>
+          item.projectId === selectedTask.projectId &&
+          item.status === "open" &&
+          (item.taskId === selectedTask.id || item.taskId === null)
+      );
 
       return (
         <TaskDetail
@@ -596,7 +656,7 @@ export function App() {
           linkedCommits={selectedLinkedCommits}
           availableTasks={projectPlan.tasks.filter((candidate) => candidate.id !== selectedTask.id)}
           workEntries={selectedWorkEntries}
-          inboxItems={[]}
+          inboxItems={selectedInboxItems}
           onStatusChange={changeTaskStatus}
           onChecklistToggle={toggleChecklistItem}
           onNoteAdd={addNote}

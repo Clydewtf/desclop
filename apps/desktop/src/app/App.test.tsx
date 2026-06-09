@@ -14,6 +14,7 @@ vi.mock("../shared/api/client", () => ({
     loadProjectPlan: vi.fn(),
     importPlan: vi.fn(),
     updateTaskStatus: vi.fn(),
+    setActiveTask: vi.fn(),
     updateChecklistItem: vi.fn(),
     addNote: vi.fn(),
     updateNextStep: vi.fn(),
@@ -38,6 +39,7 @@ const createWorkEntry = vi.mocked(api.createWorkEntry);
 const captureInboxItem = vi.mocked(api.captureInboxItem);
 const updateChecklistItem = vi.mocked(api.updateChecklistItem);
 const updateNextStep = vi.mocked(api.updateNextStep);
+const setActiveTask = vi.mocked(api.setActiveTask);
 const addNote = vi.mocked(api.addNote);
 const listNotesForTask = vi.mocked(api.listNotesForTask);
 const listWorkEntriesForTask = vi.mocked(api.listWorkEntriesForTask);
@@ -533,6 +535,66 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
   });
 
+  it("activates a Plan task so Today can resume it", async () => {
+    const user = userEvent.setup();
+    const plan = importedPlanFixture("p1");
+    plan.tasks[0] = { ...plan.tasks[0], nextStep: "Run visual QA" };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: null })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(plan);
+    setActiveTask.mockResolvedValue(undefined);
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Continue Create local store" }));
+    await user.click(await screen.findByRole("button", { name: "Today" }));
+
+    expect(setActiveTask).toHaveBeenCalledWith("p1", "t1");
+    expect(await screen.findByRole("heading", { name: "Create local store" })).toBeInTheDocument();
+    expect(screen.getByText("Run visual QA")).toBeInTheDocument();
+  });
+
+  it("shows a saved Task Detail next step on Today instead of stale resume context", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue({
+      ...emptyResumeBrief(),
+      taskId: "t1",
+      stageId: "s1",
+      nextStep: "Old next step"
+    });
+    loadProjectPlan.mockResolvedValue({
+      ...importedPlanFixture("p1"),
+      tasks: [
+        {
+          ...importedPlanFixture("p1").tasks[0],
+          status: "active",
+          nextStep: "Old next step"
+        }
+      ]
+    });
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    updateNextStep.mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.clear(screen.getByLabelText("Next step"));
+    await user.type(screen.getByLabelText("Next step"), "Review updated spec");
+    await user.click(screen.getByRole("button", { name: "Save next step" }));
+    await user.click(screen.getByRole("button", { name: "Today" }));
+
+    expect(updateNextStep).toHaveBeenCalledWith("t1", "Review updated spec");
+    expect(await screen.findByText("Review updated spec")).toBeInTheDocument();
+    expect(screen.queryByText("Old next step")).not.toBeInTheDocument();
+  });
+
   it("reloads the project plan after activating a task so demoted tasks do not stay active locally", async () => {
     const user = userEvent.setup();
     enableTauriApi();
@@ -608,6 +670,44 @@ describe("App", () => {
       body: "Check export shape",
       kind: "question"
     });
+  });
+
+  it("shows open project inbox captures in the Task Detail rail", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue({
+      ...emptyResumeBrief(),
+      taskId: "t1",
+      stageId: "s1",
+      nextStep: "Run repository tests"
+    });
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    captureInboxItem.mockResolvedValue({
+      id: "i1",
+      projectId: "p1",
+      taskId: null,
+      body: "Check narrow desktop layout",
+      kind: "question",
+      status: "open",
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    });
+
+    renderWithRouter(<App />);
+
+    const captureInput = await screen.findByLabelText("Capture");
+    await user.type(captureInput, "Check narrow desktop layout");
+    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
+    await user.click(
+      within(captureInput.closest("form") as HTMLElement).getByRole("button", { name: "Capture" })
+    );
+    await user.click(screen.getByRole("button", { name: "Continue task" }));
+
+    expect(await screen.findByText("1 inbox items")).toBeInTheDocument();
+    expect(screen.getByText("Check narrow desktop layout")).toBeInTheDocument();
   });
 
   it("captures inbox items from Task Detail", async () => {
@@ -814,6 +914,57 @@ describe("App", () => {
     expect(getResumeBrief).toHaveBeenCalledTimes(2);
     expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
     expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
+  });
+
+  it("shows a focus review next step on Today instead of stale resume context", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue({
+      ...emptyResumeBrief(),
+      taskId: "t1",
+      stageId: "s1",
+      nextStep: "Old next step"
+    });
+    loadProjectPlan.mockResolvedValue({
+      ...importedPlanFixture("p1"),
+      tasks: [
+        {
+          ...importedPlanFixture("p1").tasks[0],
+          status: "active",
+          nextStep: "Old next step"
+        }
+      ]
+    });
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    createWorkEntry.mockResolvedValue({
+      id: "w1",
+      projectId: "p1",
+      taskId: "t1",
+      source: "focus",
+      startedAt: "2026-05-20T10:00:00Z",
+      endedAt: "2026-05-20T10:01:30Z",
+      durationSeconds: 90,
+      done: "Reviewed alpha flow",
+      remains: "Run browser screenshots",
+      nextStep: "Capture final screenshots",
+      createdAt: "2026-05-20T10:01:30Z"
+    });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(screen.getByRole("button", { name: "Start focus" }));
+    await user.click(screen.getByRole("button", { name: "Finish focus session" }));
+    await user.type(screen.getByLabelText("What was done"), "Reviewed alpha flow");
+    await user.type(screen.getByLabelText("What remains"), "Run browser screenshots");
+    await user.type(screen.getByLabelText("Next step"), "Capture final screenshots");
+    await user.click(screen.getByRole("button", { name: "Save work review" }));
+    await user.click(screen.getByRole("button", { name: "Today" }));
+
+    expect(await screen.findByText("Capture final screenshots")).toBeInTheDocument();
+    expect(screen.queryByText("Old next step")).not.toBeInTheDocument();
   });
 
   it("persists a focus session from task detail through work review", async () => {
