@@ -23,6 +23,17 @@ pub fn add_note(
 }
 
 #[tauri::command]
+pub fn list_notes_for_project(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<Note>, String> {
+    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    NoteRepository::new(&conn)
+        .list_notes_for_project(&project_id)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub fn list_notes_for_task(
     project_id: String,
     task_id: String,

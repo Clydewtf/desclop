@@ -1,3 +1,5 @@
+pub mod entitlements;
+pub mod export_import;
 pub mod git;
 pub mod inbox;
 pub mod notes;

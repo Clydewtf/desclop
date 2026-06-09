@@ -1,28 +1,46 @@
-import { EmptyState, InlineAlert, ScreenHeader, Surface } from "../../shared/ui";
+import type { GitCommit, InboxItem, Note, WorkEntry } from "../../shared/domain/types";
+import { EmptyState, ScreenHeader, Surface } from "../../shared/ui";
+import { buildTimeline, type TimelineCompletedTask } from "./timelineEngine";
 
 interface TimelineProps {
-  facts: string[];
-  gitUnavailable: boolean;
-  resumeUnavailable: boolean;
+  workEntries: WorkEntry[];
+  commits: GitCommit[];
+  notes: Note[];
+  inboxItems: InboxItem[];
+  completedTasks: TimelineCompletedTask[];
 }
 
-export function Timeline({ facts, gitUnavailable, resumeUnavailable }: TimelineProps) {
+export function Timeline({
+  workEntries,
+  commits,
+  notes,
+  inboxItems,
+  completedTasks
+}: TimelineProps) {
+  const timeline = buildTimeline({
+    workEntries,
+    commits,
+    notes,
+    inboxItems,
+    completedTasks
+  });
+
   return (
     <section className="timeline-screen">
       <ScreenHeader
         eyebrow="Review"
         title="Timeline"
-        description="Recent project memory from work reviews, notes, inbox facts, and Git context."
+        description={timeline.summary}
       />
-      {gitUnavailable ? <InlineAlert tone="warning">Git unavailable.</InlineAlert> : null}
-      {resumeUnavailable ? (
-        <InlineAlert tone="warning">Resume context unavailable.</InlineAlert>
-      ) : null}
       <Surface ariaLabel="Timeline facts">
-        {facts.length > 0 ? (
+        {timeline.items.length > 0 ? (
           <ol className="timeline-list">
-            {facts.map((fact) => (
-              <li key={fact}>{fact}</li>
+            {timeline.items.map((item) => (
+              <li key={`${item.kind}-${item.id}`}>
+                <strong>{item.title}</strong>
+                <span>{item.kind}</span>
+                {item.timestamp ? <time dateTime={item.timestamp}>{item.timestamp}</time> : null}
+              </li>
             ))}
           </ol>
         ) : (

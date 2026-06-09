@@ -35,7 +35,7 @@ const workDestinations: ShellDestination[] = [
 
 const projectDestinations: ShellDestination[] = [
   { destination: "import", label: "Import Plan", icon: Upload },
-  { destination: "utilities", label: "Export / Settings", icon: Download }
+  { destination: "utilities", label: "Export / Import", icon: Download }
 ];
 
 export function AppShell({
@@ -68,7 +68,7 @@ export function AppShell({
 
   return (
     <main className="app-shell">
-      <aside className="app-sidebar">
+      <aside className="app-sidebar" aria-label="Application">
         <div className="app-sidebar__identity">
           <strong>{projectName ?? "Desclop"}</strong>
           {projectStatus ? <span>{projectStatus}</span> : null}

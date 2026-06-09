@@ -30,6 +30,17 @@ pub fn create_work_entry(
 }
 
 #[tauri::command]
+pub fn list_work_entries_for_project(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<WorkEntry>, String> {
+    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    WorkEntryRepository::new(&conn)
+        .list_work_entries_for_project(&project_id)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub fn list_work_entries_for_task(
     project_id: String,
     task_id: String,

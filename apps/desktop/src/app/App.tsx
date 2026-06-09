@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import "../styles/base.css";
+import { exportPlanMarkdown } from "../features/export-import/markdownExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
 import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImportPreview";
 import { parseMarkdownPlan, type ParsedMarkdownPlan } from "../features/markdown-import/markdownParser";
@@ -8,10 +9,8 @@ import { buildPlannerFrames } from "../features/planner/plannerEngine";
 import { ProjectSetup } from "../features/project-setup/ProjectSetup";
 import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDetail";
 import { Timeline } from "../features/timeline/Timeline";
-import { buildTimelineView } from "../features/timeline/timelineView";
 import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
-import { Utilities } from "../features/utilities/Utilities";
 import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
 import { type GitCommit, type InboxItem, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
@@ -80,6 +79,14 @@ async function loadGitCommits(project: Project): Promise<GitLoadResult> {
   }
 }
 
+async function loadListOrEmpty<T>(load: () => Promise<T[]>): Promise<T[]> {
+  try {
+    return (await Promise.resolve(load())) ?? [];
+  } catch {
+    return [];
+  }
+}
+
 function buildTodayView(
   resumeBrief: ResumeBrief | null,
   plan: ProjectPlanPayload,
@@ -144,13 +151,22 @@ export function App() {
   const [selectedNotes, setSelectedNotes] = useState<Note[]>([]);
   const [selectedWorkEntries, setSelectedWorkEntries] = useState<WorkEntry[]>([]);
   const [selectedLinkedCommits, setSelectedLinkedCommits] = useState<GitCommit[]>([]);
-  const [openInboxItems, setOpenInboxItems] = useState<InboxItem[]>([]);
+  const [selectedInboxItems, setSelectedInboxItems] = useState<InboxItem[]>([]);
+  const [timelineNotes, setTimelineNotes] = useState<Note[]>([]);
+  const [timelineWorkEntries, setTimelineWorkEntries] = useState<WorkEntry[]>([]);
+  const [timelineInboxItems, setTimelineInboxItems] = useState<InboxItem[]>([]);
+  const [timelineError, setTimelineError] = useState<string | null>(null);
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null);
   const [manualReviewTaskId, setManualReviewTaskId] = useState<string | null>(null);
   const [markdownDraft, setMarkdownDraft] = useState("");
   const [parsedPlan, setParsedPlan] = useState<ParsedMarkdownPlan | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [bundleDestination, setBundleDestination] = useState("");
+  const [bundleFolder, setBundleFolder] = useState("");
+  const [reselectedLocalPath, setReselectedLocalPath] = useState("");
+  const [portableStatus, setPortableStatus] = useState<string | null>(null);
+  const [portableError, setPortableError] = useState<string | null>(null);
 
   const loadProjects = useCallback(async () => {
     if (!hasTauriInternals()) {
@@ -187,7 +203,10 @@ export function App() {
         setGitCommits(gitResult.commits);
         setGitError(gitResult.unavailable ? "Git unavailable." : null);
         setProjectPlan(plan);
-        setOpenInboxItems([]);
+        setSelectedInboxItems([]);
+        setTimelineNotes([]);
+        setTimelineWorkEntries([]);
+        setTimelineInboxItems([]);
       } else {
         setProjects(loadedProjects);
         setResumeBrief(null);
@@ -195,8 +214,11 @@ export function App() {
         setGitCommits([]);
         setGitError(null);
         setSelectedLinkedCommits([]);
+        setSelectedInboxItems([]);
+        setTimelineNotes([]);
+        setTimelineWorkEntries([]);
+        setTimelineInboxItems([]);
         setProjectPlan({ stages: [], tasks: [], checklistItems: [] });
-        setOpenInboxItems([]);
       }
     } catch {
       setLoadError("Could not load projects.");
@@ -256,7 +278,10 @@ export function App() {
       setSelectedNotes([]);
       setSelectedWorkEntries([]);
       setSelectedLinkedCommits([]);
-      setOpenInboxItems([]);
+      setSelectedInboxItems([]);
+      setTimelineNotes([]);
+      setTimelineWorkEntries([]);
+      setTimelineInboxItems([]);
       setFocusSession(null);
     } catch {
       setCreateError("Could not create project.");
@@ -272,22 +297,36 @@ export function App() {
     projectPlan.tasks.find((candidate) => candidate.id === resumeBrief?.taskId) ??
     projectPlan.tasks.find((candidate) => candidate.id === project?.activeTaskId) ??
     null;
+  const markdownExport = project
+    ? exportPlanMarkdown({
+        projectName: project.name,
+        stages: projectPlan.stages,
+        tasks: projectPlan.tasks,
+        checklistItems: projectPlan.checklistItems
+      })
+    : "";
 
   async function loadTaskContext(taskId: string) {
     if (!project) {
       return;
     }
 
-    const [notes, workEntries, linkedCommits] = await Promise.all([
-      api.listNotesForTask(project.id, taskId).catch(() => []),
-      api.listWorkEntriesForTask(project.id, taskId).catch(() => []),
+    const [notes, workEntries, linkedCommits, taskInboxItems, projectInboxItems] = await Promise.all([
+      loadListOrEmpty(() => api.listNotesForTask(project.id, taskId)),
+      loadListOrEmpty(() => api.listWorkEntriesForTask(project.id, taskId)),
       project.gitEnabled
-        ? api.listLinkedCommitsForTask(project.id, taskId).catch(() => [])
-        : Promise.resolve([])
+        ? loadListOrEmpty(() => api.listLinkedCommitsForTask(project.id, taskId))
+        : Promise.resolve([]),
+      loadListOrEmpty(() => api.listInboxItemsForTask(project.id, taskId)),
+      loadListOrEmpty(() => api.listInboxItemsForProject(project.id))
     ]);
     setSelectedNotes(notes);
     setSelectedWorkEntries(workEntries);
     setSelectedLinkedCommits(linkedCommits);
+    setSelectedInboxItems([
+      ...taskInboxItems,
+      ...projectInboxItems.filter((item) => item.status === "open" && item.taskId === null)
+    ]);
   }
 
   async function refreshProjectData(projectId: string) {
@@ -298,6 +337,32 @@ export function App() {
     setProjectPlan(plan);
     setResumeBrief(resumeResult.brief);
     setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
+  }
+
+  async function loadProjectIntoState(activeProject: Project, loadedProjects: Project[]) {
+    const [resumeResult, gitResult, plan] = await Promise.all([
+      loadResumeBrief(activeProject.id),
+      loadGitCommits(activeProject),
+      api.loadProjectPlan(activeProject.id)
+    ]);
+    setProjects([
+      activeProject,
+      ...loadedProjects.filter((candidate) => candidate.id !== activeProject.id)
+    ]);
+    setResumeBrief(resumeResult.brief);
+    setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
+    setGitCommits(gitResult.commits);
+    setGitError(gitResult.unavailable ? "Git unavailable." : null);
+    setProjectPlan(plan);
+    setSelectedTaskId(null);
+    setSelectedNotes([]);
+    setSelectedWorkEntries([]);
+    setSelectedLinkedCommits([]);
+    setSelectedInboxItems([]);
+    setTimelineNotes([]);
+    setTimelineWorkEntries([]);
+    setTimelineInboxItems([]);
+    setFocusSession(null);
   }
 
   async function activateTask(taskId: string) {
@@ -344,6 +409,45 @@ export function App() {
     setSelectedTaskId(taskId);
     await loadTaskContext(taskId);
     setScreen("task-detail");
+  }
+
+  function showProjectScreen(nextScreen: AppScreen) {
+    setTimelineError(null);
+    setPortableError(null);
+    setScreen(nextScreen);
+  }
+
+  async function openTimeline() {
+    if (!project) {
+      return;
+    }
+
+    setTimelineError(null);
+    setTimelineNotes([]);
+    setTimelineWorkEntries([]);
+    setTimelineInboxItems([]);
+    try {
+      const [notes, workEntries, inboxItems] = await Promise.all([
+        loadListOrEmpty(() => api.listNotesForProject(project.id)),
+        loadListOrEmpty(() => api.listWorkEntriesForProject(project.id)),
+        loadListOrEmpty(() => api.listInboxItemsForProject(project.id))
+      ]);
+      setTimelineNotes(notes);
+      setTimelineWorkEntries(workEntries);
+      setTimelineInboxItems(inboxItems);
+      setScreen("timeline");
+    } catch {
+      setTimelineError("Timeline unavailable.");
+    }
+  }
+
+  function handleNavigate(destination: AppDestination) {
+    if (destination === "timeline") {
+      void openTimeline();
+      return;
+    }
+
+    showProjectScreen(destination);
   }
 
   async function continueTask() {
@@ -458,10 +562,15 @@ export function App() {
       body: input.body,
       kind: input.kind
     });
-    setOpenInboxItems((items) => {
-      const nextItems = items.filter((candidate) => candidate.id !== item.id);
-      return item.status === "open" ? [...nextItems, item] : nextItems;
-    });
+    if (screen === "task-detail" && selectedTask) {
+      setSelectedInboxItems((items) => {
+        const nextItems = items.filter((candidate) => candidate.id !== item.id);
+        const belongsInRail =
+          item.projectId === selectedTask.projectId &&
+          (item.taskId === selectedTask.id || item.taskId === null);
+        return belongsInRail ? [...nextItems, item] : nextItems;
+      });
+    }
   }
 
   async function saveFocusReview(input: {
@@ -563,6 +672,57 @@ export function App() {
     }
   }
 
+  async function exportPortableBundle(event: FormEvent) {
+    event.preventDefault();
+    if (!project) {
+      return;
+    }
+
+    const destination = bundleDestination.trim();
+    if (!destination) {
+      setPortableError("Bundle destination folder is required.");
+      setPortableStatus(null);
+      return;
+    }
+
+    setPortableError(null);
+    setPortableStatus(null);
+    try {
+      const exportedPath = await api.exportProjectBundle(project.id, destination);
+      setPortableStatus(`Exported portable bundle to ${exportedPath}`);
+    } catch {
+      setPortableError("Could not export portable bundle.");
+    }
+  }
+
+  async function importPortableBundle(event: FormEvent) {
+    event.preventDefault();
+    const source = bundleFolder.trim();
+    const localPath = reselectedLocalPath.trim();
+    if (!source || !localPath) {
+      setPortableError("Bundle folder and reselected local folder path are required.");
+      setPortableStatus(null);
+      return;
+    }
+
+    setPortableError(null);
+    setPortableStatus(null);
+    try {
+      const importedProjectId = await api.importProjectBundle(source, localPath);
+      const loadedProjects = await api.listProjects();
+      const importedProject = loadedProjects.find(
+        (candidate) => candidate.id === importedProjectId
+      );
+      if (!importedProject) {
+        throw new Error("Imported project was not returned by list_projects.");
+      }
+      await loadProjectIntoState(importedProject, loadedProjects);
+      setPortableStatus("Imported portable project.");
+    } catch {
+      setPortableError("Could not import portable bundle.");
+    }
+  }
+
   function renderProjectScreen() {
     if (screen === "import") {
       return (
@@ -615,38 +775,84 @@ export function App() {
     }
 
     if (screen === "timeline") {
-      const timelineView = buildTimelineView(resumeBrief?.facts ?? []);
-
       return (
         <Timeline
-          facts={timelineView.facts}
-          gitUnavailable={Boolean(gitError)}
-          resumeUnavailable={Boolean(resumeError)}
+          workEntries={timelineWorkEntries}
+          commits={gitCommits}
+          notes={timelineNotes}
+          inboxItems={timelineInboxItems}
+          completedTasks={projectPlan.tasks.filter((task) => task.status === "done")}
         />
       );
     }
 
     if (screen === "utilities" && project) {
       return (
-        <Utilities
-          projectPath={project.localPath}
-          gitEnabled={project.gitEnabled}
-          gitHealth={gitError}
-          onOpenImport={() => setScreen("import")}
-        />
+        <section className="utilities-screen">
+          <ScreenHeader
+            eyebrow="Project"
+            title="Export / Import"
+            description="Markdown export, portable bundles, local boundaries, and maintenance actions."
+          />
+          {portableError ? <InlineAlert tone="error">{portableError}</InlineAlert> : null}
+          {portableStatus ? <InlineAlert tone="info">{portableStatus}</InlineAlert> : null}
+          <Surface ariaLabel="Project settings">
+            <dl className="settings-list">
+              <div>
+                <dt>Project path</dt>
+                <dd>{project.localPath}</dd>
+              </div>
+              <div>
+                <dt>Git</dt>
+                <dd>{project.gitEnabled ? "Enabled" : "Disabled"}</dd>
+              </div>
+            </dl>
+            {gitError ? <InlineAlert tone="warning">{gitError}</InlineAlert> : null}
+          </Surface>
+          <Surface ariaLabel="Markdown export panel">
+            <TextArea
+              id="markdown-export"
+              label="Markdown export"
+              readOnly
+              value={markdownExport}
+              onChange={() => {}}
+            />
+          </Surface>
+          <Surface ariaLabel="Portable bundle export">
+            <form className="stack" onSubmit={exportPortableBundle}>
+              <label htmlFor="bundle-destination">Bundle destination folder</label>
+              <input
+                id="bundle-destination"
+                value={bundleDestination}
+                onChange={(event) => setBundleDestination(event.target.value)}
+              />
+              <Button type="submit">Export portable bundle</Button>
+            </form>
+          </Surface>
+          <Surface ariaLabel="Portable bundle import">
+            <form className="stack" onSubmit={importPortableBundle}>
+              <label htmlFor="bundle-folder">Bundle folder</label>
+              <input
+                id="bundle-folder"
+                value={bundleFolder}
+                onChange={(event) => setBundleFolder(event.target.value)}
+              />
+              <label htmlFor="reselected-local-path">Reselected local folder path</label>
+              <input
+                id="reselected-local-path"
+                value={reselectedLocalPath}
+                onChange={(event) => setReselectedLocalPath(event.target.value)}
+              />
+              <Button type="submit">Import portable bundle</Button>
+            </form>
+          </Surface>
+        </section>
       );
     }
 
     if (screen === "task-detail" && selectedTask) {
       const selectedStage =
         projectPlan.stages.find((stage) => stage.id === selectedTask.stageId) ?? null;
-      const selectedInboxItems = openInboxItems.filter(
-        (item) =>
-          item.projectId === selectedTask.projectId &&
-          item.status === "open" &&
-          (item.taskId === selectedTask.id || item.taskId === null)
-      );
-
       return (
         <TaskDetail
           task={selectedTask}
@@ -766,7 +972,7 @@ export function App() {
       activeDestination={activeDestinationForScreen(screen)}
       projectName={project?.name}
       projectStatus={resumeError || gitError ? [resumeError, gitError].filter(Boolean).join(" ") : null}
-      onNavigate={(destination) => setScreen(destination)}
+      onNavigate={handleNavigate}
       onQuickCapture={() => setScreen("today")}
     >
       {resumeError || gitError ? (
@@ -774,6 +980,7 @@ export function App() {
           {[resumeError, gitError].filter(Boolean).join(" ")}
         </InlineAlert>
       ) : null}
+      {timelineError ? <InlineAlert tone="error">{timelineError}</InlineAlert> : null}
       {renderProjectScreen()}
     </AppShell>
   );

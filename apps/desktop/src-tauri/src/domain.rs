@@ -148,6 +148,17 @@ pub struct GitCommit {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CommitTaskLink {
+    pub id: Id,
+    pub project_id: Id,
+    pub task_id: Id,
+    pub commit_sha: String,
+    pub link_mode: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResumeBrief {
     pub id: Id,
     pub project_id: Id,
@@ -157,4 +168,24 @@ pub struct ResumeBrief {
     pub next_step: String,
     pub facts: Vec<String>,
     pub generated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Entitlement {
+    pub id: Id,
+    pub license_state: String,
+    pub email: Option<String>,
+    pub license_key_hint: Option<String>,
+    pub offline_grace_ends_at: Option<String>,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetEntitlementInput {
+    pub license_state: String,
+    pub email: Option<String>,
+    pub license_key_hint: Option<String>,
+    pub offline_grace_ends_at: Option<String>,
 }

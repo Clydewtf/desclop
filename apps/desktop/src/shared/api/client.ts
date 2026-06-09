@@ -2,9 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ParsedStage } from "../../features/markdown-import/markdownParser";
 import type {
   ChecklistItem,
+  Entitlement,
   GitCommit,
   InboxItem,
   InboxKind,
+  LicenseState,
   Note,
   Project,
   ResumeBrief,
@@ -64,6 +66,13 @@ export interface GitCommitMetadata {
   changedFiles: string[];
 }
 
+export interface SetEntitlementInput {
+  licenseState: LicenseState;
+  email: string | null;
+  licenseKeyHint: string | null;
+  offlineGraceEndsAt: string | null;
+}
+
 export const api = {
   listProjects: () => invoke<Project[]>("list_projects"),
   createProject: (input: CreateProjectInput) =>
@@ -90,16 +99,27 @@ export const api = {
     invoke<Note>("keep_inbox_item_as_note", { itemId }),
   deleteInboxItem: (itemId: string) =>
     invoke<InboxItem>("delete_inbox_item", { itemId }),
+  listInboxItemsForProject: (projectId: string) =>
+    invoke<InboxItem[]>("list_inbox_items_for_project", { projectId }),
+  listInboxItemsForTask: (projectId: string, taskId: string) =>
+    invoke<InboxItem[]>("list_inbox_items_for_task", { projectId, taskId }),
   addNote: (projectId: string, taskId: string, body: string) =>
     invoke<Note>("add_note", { projectId, taskId, body }),
+  listNotesForProject: (projectId: string) =>
+    invoke<Note[]>("list_notes_for_project", { projectId }),
   listNotesForTask: (projectId: string, taskId: string) =>
     invoke<Note[]>("list_notes_for_task", { projectId, taskId }),
   createWorkEntry: (input: CreateWorkEntryInput) =>
     invoke<WorkEntry>("create_work_entry", { input }),
+  listWorkEntriesForProject: (projectId: string) =>
+    invoke<WorkEntry[]>("list_work_entries_for_project", { projectId }),
   listWorkEntriesForTask: (projectId: string, taskId: string) =>
     invoke<WorkEntry[]>("list_work_entries_for_task", { projectId, taskId }),
   getResumeBrief: (projectId: string) =>
     invoke<ResumeBrief>("get_resume_brief", { projectId }),
+  getEntitlement: () => invoke<Entitlement | null>("get_entitlement"),
+  setEntitlement: (input: SetEntitlementInput) =>
+    invoke<Entitlement>("set_entitlement", { input }),
   readGitCommits: (localPath: string) =>
     invoke<GitCommitMetadata[]>("read_git_commits", { localPath }),
   syncGitCommits: (projectId: string) =>
@@ -109,5 +129,9 @@ export const api = {
   moveCommitLink: (commitSha: string, fromTaskId: string, toTaskId: string) =>
     invoke<void>("move_commit_link", { commitSha, fromTaskId, toTaskId }),
   unlinkCommit: (commitSha: string, taskId: string) =>
-    invoke<void>("unlink_commit", { commitSha, taskId })
+    invoke<void>("unlink_commit", { commitSha, taskId }),
+  exportProjectBundle: (projectId: string, destinationFolder: string) =>
+    invoke<string>("export_project_bundle", { projectId, destinationFolder }),
+  importProjectBundle: (bundleFolder: string, reselectedLocalPath: string) =>
+    invoke<string>("import_project_bundle", { bundleFolder, reselectedLocalPath })
 };

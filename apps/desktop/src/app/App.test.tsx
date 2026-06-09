@@ -20,13 +20,19 @@ vi.mock("../shared/api/client", () => ({
     updateNextStep: vi.fn(),
     createWorkEntry: vi.fn(),
     captureInboxItem: vi.fn(),
+    listInboxItemsForProject: vi.fn(),
+    listInboxItemsForTask: vi.fn(),
+    listNotesForProject: vi.fn(),
     listNotesForTask: vi.fn(),
+    listWorkEntriesForProject: vi.fn(),
     listWorkEntriesForTask: vi.fn(),
     readGitCommits: vi.fn(),
     syncGitCommits: vi.fn(),
     listLinkedCommitsForTask: vi.fn(),
     moveCommitLink: vi.fn(),
-    unlinkCommit: vi.fn()
+    unlinkCommit: vi.fn(),
+    exportProjectBundle: vi.fn(),
+    importProjectBundle: vi.fn()
   }
 }));
 
@@ -37,16 +43,22 @@ const loadProjectPlan = vi.mocked(api.loadProjectPlan);
 const importPlan = vi.mocked(api.importPlan);
 const createWorkEntry = vi.mocked(api.createWorkEntry);
 const captureInboxItem = vi.mocked(api.captureInboxItem);
+const listInboxItemsForProject = vi.mocked(api.listInboxItemsForProject);
+const listInboxItemsForTask = vi.mocked(api.listInboxItemsForTask);
 const updateChecklistItem = vi.mocked(api.updateChecklistItem);
 const updateNextStep = vi.mocked(api.updateNextStep);
 const setActiveTask = vi.mocked(api.setActiveTask);
 const addNote = vi.mocked(api.addNote);
+const listNotesForProject = vi.mocked(api.listNotesForProject);
 const listNotesForTask = vi.mocked(api.listNotesForTask);
+const listWorkEntriesForProject = vi.mocked(api.listWorkEntriesForProject);
 const listWorkEntriesForTask = vi.mocked(api.listWorkEntriesForTask);
 const syncGitCommits = vi.mocked(api.syncGitCommits);
 const listLinkedCommitsForTask = vi.mocked(api.listLinkedCommitsForTask);
 const moveCommitLink = vi.mocked(api.moveCommitLink);
 const unlinkCommit = vi.mocked(api.unlinkCommit);
+const exportProjectBundle = vi.mocked(api.exportProjectBundle);
+const importProjectBundle = vi.mocked(api.importProjectBundle);
 
 function enableTauriApi() {
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -352,14 +364,14 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Timeline" }));
     expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
-    expect(screen.getByText("1 recent commit on main")).toBeInTheDocument();
+    expect(screen.getByText("0 work entries, 0 commits, 0 notes")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Export / Settings" }));
-    expect(screen.getByRole("heading", { name: "Export / Settings" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Export / Import" }));
+    expect(screen.getByRole("heading", { name: "Export / Import" })).toBeInTheDocument();
     expect(screen.getByText("/tmp/desclop")).toBeInTheDocument();
   });
 
-  it("keeps Timeline empty when resume facts are unavailable even if git commits exist", async () => {
+  it("shows Timeline git events even when resume facts are unavailable", async () => {
     const user = userEvent.setup();
     enableTauriApi();
     listProjects.mockResolvedValue([projectFixture({ gitEnabled: true })]);
@@ -381,8 +393,9 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Timeline" }));
 
-    expect(screen.getByRole("heading", { name: "No timeline facts yet" })).toBeInTheDocument();
-    expect(screen.queryByText("1 recent commit on main")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    expect(screen.getByText("0 work entries, 1 commit, 0 notes")).toBeInTheDocument();
+    expect(screen.getByText("Add timeline screen")).toBeInTheDocument();
   });
 
   it("opens Import Plan from Today when the project has no plan", async () => {
@@ -451,7 +464,7 @@ describe("App", () => {
       "page"
     );
     expect(within(nav).getByRole("button", { name: "Import Plan" })).toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: "Export / Settings" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Export / Import" })).toBeInTheDocument();
 
     await user.click(within(nav).getByRole("button", { name: "Import Plan" }));
 
@@ -685,7 +698,7 @@ describe("App", () => {
     loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
     listNotesForTask.mockResolvedValue([]);
     listWorkEntriesForTask.mockResolvedValue([]);
-    captureInboxItem.mockResolvedValue({
+    const inboxItem = {
       id: "i1",
       projectId: "p1",
       taskId: null,
@@ -694,7 +707,9 @@ describe("App", () => {
       status: "open",
       createdAt: "2026-05-20T10:00:00Z",
       updatedAt: "2026-05-20T10:00:00Z"
-    });
+    } as const;
+    captureInboxItem.mockResolvedValue(inboxItem);
+    listInboxItemsForProject.mockResolvedValue([inboxItem]);
 
     renderWithRouter(<App />);
 
@@ -723,6 +738,18 @@ describe("App", () => {
     loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
     listNotesForTask.mockResolvedValue([]);
     listWorkEntriesForTask.mockResolvedValue([]);
+    listInboxItemsForTask.mockResolvedValue([
+      {
+        id: "i-attached",
+        projectId: "p1",
+        taskId: "t1",
+        body: "Attached inbox context",
+        kind: "question",
+        status: "attached",
+        createdAt: "2026-05-20T10:00:00Z",
+        updatedAt: "2026-05-20T10:00:00Z"
+      }
+    ]);
     captureInboxItem.mockResolvedValue({
       id: "i1",
       projectId: "p1",
@@ -737,6 +764,7 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    expect(await screen.findByText("Attached inbox context")).toBeInTheDocument();
     const captureInput = screen.getByLabelText("Capture");
     await user.type(captureInput, "Check task export shape");
     await user.selectOptions(screen.getByLabelText("Capture type"), "question");
@@ -775,7 +803,7 @@ describe("App", () => {
       id: "w1",
       projectId: "p1",
       taskId: "t1",
-      source: "manual",
+      source: "manual" as const,
       startedAt: null,
       endedAt: null,
       durationSeconds: null,
@@ -797,7 +825,7 @@ describe("App", () => {
       expect.objectContaining({
         projectId: "p1",
         taskId: "t1",
-        source: "manual",
+        source: "manual" as const,
         durationSeconds: null,
         done: "Reviewed schema",
         remains: "Run backend tests",
@@ -882,7 +910,7 @@ describe("App", () => {
       id: "w1",
       projectId: "p1",
       taskId: "t1",
-      source: "manual",
+      source: "manual" as const,
       startedAt: null,
       endedAt: null,
       durationSeconds: null,
@@ -903,7 +931,7 @@ describe("App", () => {
       expect.objectContaining({
         projectId: "p1",
         taskId: "t1",
-        source: "manual",
+        source: "manual" as const,
         durationSeconds: null,
         done: "Reviewed schema",
         remains: "Run backend tests",
@@ -1534,6 +1562,186 @@ describe("App", () => {
     await waitFor(() => {
       expect(listLinkedCommitsForTask).toHaveBeenLastCalledWith("p1", "t1");
     });
+  });
+
+  it("opens readable markdown export and runs portable bundle export/import commands", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    const importedProject = projectFixture({ id: "p2", name: "Imported Project" });
+    listProjects
+      .mockResolvedValueOnce([projectFixture({ id: "p1", name: "Desclop" })])
+      .mockResolvedValueOnce([projectFixture({ id: "p1", name: "Desclop" }), importedProject]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief("p1"));
+    loadProjectPlan
+      .mockResolvedValueOnce(importedPlanFixture("p1"))
+      .mockResolvedValueOnce({
+        stages: [
+          {
+            id: "s2",
+            projectId: "p2",
+            title: "Imported stage",
+            description: "",
+            position: 0,
+            status: "current"
+          }
+        ],
+        tasks: [],
+        checklistItems: []
+      });
+    exportProjectBundle.mockResolvedValue("/tmp/desclop-bundle/Desclop.desclop");
+    importProjectBundle.mockResolvedValue("p2");
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Export / Import" }));
+
+    expect(screen.getByRole("heading", { name: "Export / Import" })).toBeInTheDocument();
+    const markdownExport = screen.getByLabelText("Markdown export") as HTMLTextAreaElement;
+    expect(markdownExport.value).toContain("## Foundation");
+    expect(markdownExport.value).toContain("  - [x] Add migration");
+
+    await user.type(screen.getByLabelText("Bundle destination folder"), "/tmp/desclop-bundle");
+    await user.click(screen.getByRole("button", { name: "Export portable bundle" }));
+
+    expect(exportProjectBundle).toHaveBeenCalledWith("p1", "/tmp/desclop-bundle");
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Exported portable bundle to /tmp/desclop-bundle/Desclop.desclop"
+    );
+
+    await user.type(screen.getByLabelText("Bundle folder"), "/tmp/desclop-bundle/Desclop.desclop");
+    await user.type(screen.getByLabelText("Reselected local folder path"), "/tmp/desclop-imported");
+    await user.click(screen.getByRole("button", { name: "Import portable bundle" }));
+
+    expect(importProjectBundle).toHaveBeenCalledWith(
+      "/tmp/desclop-bundle/Desclop.desclop",
+      "/tmp/desclop-imported"
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Imported portable project.");
+    await waitFor(() => {
+      expect(loadProjectPlan).toHaveBeenLastCalledWith("p2");
+    });
+    await waitFor(() => {
+      expect((screen.getByLabelText("Markdown export") as HTMLTextAreaElement).value).toContain(
+        "# Imported Project Plan"
+      );
+    });
+  });
+
+  it("opens Timeline with task notes and work facts", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue({
+      ...emptyResumeBrief(),
+      taskId: "t1",
+      stageId: "s1",
+      latestNote: "Schema note",
+      nextStep: "Run cargo test"
+    });
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    const notes = [
+      {
+        id: "n1",
+        projectId: "p1",
+        taskId: "t1",
+        body: "Schema note",
+        createdAt: "2026-05-20T10:00:00Z"
+      }
+    ];
+    const workEntries = [
+      {
+        id: "w1",
+        projectId: "p1",
+        taskId: "t1",
+        source: "manual" as const,
+        startedAt: null,
+        endedAt: null,
+        durationSeconds: null,
+        done: "Reviewed schema",
+        remains: "Run backend tests",
+        nextStep: "Run cargo test",
+        createdAt: "2026-05-20T10:01:30Z"
+      }
+    ];
+    listNotesForTask.mockResolvedValue(notes);
+    listWorkEntriesForTask.mockResolvedValue(workEntries);
+    listNotesForProject.mockResolvedValue(notes);
+    listWorkEntriesForProject.mockResolvedValue(workEntries);
+    listInboxItemsForProject.mockResolvedValue([]);
+    listLinkedCommitsForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(screen.getByRole("button", { name: "Timeline" }));
+
+    expect(await screen.findByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    expect(screen.getByText("1 work entry, 0 commits, 1 note")).toBeInTheDocument();
+    expect(screen.getByText("Reviewed schema")).toBeInTheDocument();
+    expect(screen.getByText("Schema note")).toBeInTheDocument();
+  });
+
+  it("opens Timeline directly from Today with project history", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue({
+      ...emptyResumeBrief(),
+      taskId: "t1",
+      stageId: "s1",
+      latestNote: "Schema note",
+      nextStep: "Run cargo test"
+    });
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForProject.mockResolvedValue([
+      {
+        id: "n1",
+        projectId: "p1",
+        taskId: "t1",
+        body: "Schema note",
+        createdAt: "2026-05-20T10:00:00Z"
+      }
+    ]);
+    listWorkEntriesForProject.mockResolvedValue([
+      {
+        id: "w1",
+        projectId: "p1",
+        taskId: "t1",
+        source: "manual" as const,
+        startedAt: null,
+        endedAt: null,
+        durationSeconds: null,
+        done: "Reviewed schema",
+        remains: "Run backend tests",
+        nextStep: "Run cargo test",
+        createdAt: "2026-05-20T10:01:30Z"
+      }
+    ]);
+    listInboxItemsForProject.mockResolvedValue([
+      {
+        id: "i1",
+        projectId: "p1",
+        taskId: null,
+        body: "Check export path",
+        kind: "question",
+        status: "open",
+        createdAt: "2026-05-20T10:02:00Z",
+        updatedAt: "2026-05-20T10:02:00Z"
+      }
+    ]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Timeline" }));
+
+    expect(listNotesForProject).toHaveBeenCalledWith("p1");
+    expect(listWorkEntriesForProject).toHaveBeenCalledWith("p1");
+    expect(listInboxItemsForProject).toHaveBeenCalledWith("p1");
+    expect(await screen.findByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    expect(screen.getByText("1 work entry, 0 commits, 1 note")).toBeInTheDocument();
+    expect(screen.getByText("Reviewed schema")).toBeInTheDocument();
+    expect(screen.getByText("Schema note")).toBeInTheDocument();
+    expect(screen.getByText("Check export path")).toBeInTheDocument();
   });
 
   it("shows create errors without leaving the setup flow", async () => {

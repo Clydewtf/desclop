@@ -26,21 +26,29 @@ pub fn run() {
             commands::tasks::set_active_task,
             commands::tasks::update_checklist_item,
             commands::tasks::update_next_step,
+            commands::inbox::list_inbox_items_for_project,
+            commands::inbox::list_inbox_items_for_task,
             commands::inbox::capture_inbox_item,
             commands::inbox::attach_inbox_item_to_task,
             commands::inbox::convert_inbox_item_to_task,
             commands::inbox::keep_inbox_item_as_note,
             commands::inbox::delete_inbox_item,
             commands::notes::add_note,
+            commands::notes::list_notes_for_project,
             commands::notes::list_notes_for_task,
             commands::work_entries::create_work_entry,
+            commands::work_entries::list_work_entries_for_project,
             commands::work_entries::list_work_entries_for_task,
             commands::resume::get_resume_brief,
+            commands::entitlements::get_entitlement,
+            commands::entitlements::set_entitlement,
             commands::git::read_git_commits,
             commands::git::sync_git_commits,
             commands::git::list_linked_commits_for_task,
             commands::git::move_commit_link,
-            commands::git::unlink_commit
+            commands::git::unlink_commit,
+            commands::export_import::export_project_bundle,
+            commands::export_import::import_project_bundle
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
