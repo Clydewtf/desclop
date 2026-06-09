@@ -1,5 +1,13 @@
 import { type FormEvent, useState } from "react";
 import { type CreateProjectInput } from "../../shared/api/client";
+import {
+  Button,
+  EmptyState,
+  InlineAlert,
+  ScreenHeader,
+  Surface,
+  TextField
+} from "../../shared/ui";
 
 interface ProjectSetupProps {
   onCreate: (input: CreateProjectInput) => void | Promise<void>;
@@ -42,39 +50,43 @@ export function ProjectSetup({ onCreate, creating = false, error }: ProjectSetup
   }
 
   return (
-    <section className="start-flow" aria-labelledby="start-title">
-      <h1 id="start-title">Create a local project</h1>
-      <p>Desclop stores project workflow data locally and works without Git.</p>
-      {error ? <p role="alert">{error}</p> : null}
+    <Surface ariaLabel="Create a local project" className="start-flow">
+      <ScreenHeader
+        title="Create a local project"
+        description="Desclop stores project workflow data locally and works without Git."
+      />
+      <EmptyState
+        title="No project setup"
+        body="Create a local project record to connect Desclop to this folder."
+      />
+      {error ? <InlineAlert tone="error">{error}</InlineAlert> : null}
       <form className="stack" onSubmit={submit}>
-        <label htmlFor="project-name">
-          Project name
-          <input
-            id="project-name"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            aria-describedby={validationErrors.name ? "project-name-error" : undefined}
-            aria-invalid={validationErrors.name ? "true" : undefined}
-            required
-          />
-        </label>
+        <TextField
+          id="project-name"
+          label="Project name"
+          value={name}
+          disabled={creating}
+          onChange={(event) => setName(event.target.value)}
+          aria-describedby={validationErrors.name ? "project-name-error" : undefined}
+          aria-invalid={validationErrors.name ? "true" : undefined}
+          required
+        />
         {validationErrors.name ? (
           <span className="field-error" id="project-name-error">
             {validationErrors.name}
           </span>
         ) : null}
-        <label htmlFor="project-path">
-          Local folder path
-          <input
-            id="project-path"
-            value={localPath}
-            onChange={(event) => setLocalPath(event.target.value)}
-            placeholder="/Users/clyde/projects/desclop"
-            aria-describedby={validationErrors.localPath ? "project-path-error" : undefined}
-            aria-invalid={validationErrors.localPath ? "true" : undefined}
-            required
-          />
-        </label>
+        <TextField
+          id="project-path"
+          label="Local folder path"
+          value={localPath}
+          disabled={creating}
+          onChange={(event) => setLocalPath(event.target.value)}
+          placeholder="/Users/clyde/projects/desclop"
+          aria-describedby={validationErrors.localPath ? "project-path-error" : undefined}
+          aria-invalid={validationErrors.localPath ? "true" : undefined}
+          required
+        />
         {validationErrors.localPath ? (
           <span className="field-error" id="project-path-error">
             {validationErrors.localPath}
@@ -89,10 +101,10 @@ export function ProjectSetup({ onCreate, creating = false, error }: ProjectSetup
           />
           Connect local Git repository
         </label>
-        <button type="submit" disabled={creating}>
+        <Button type="submit" disabled={creating}>
           {creating ? "Creating project" : "Create project"}
-        </button>
+        </Button>
       </form>
-    </section>
+    </Surface>
   );
 }

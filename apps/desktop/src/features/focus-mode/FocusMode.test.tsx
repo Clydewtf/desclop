@@ -33,6 +33,29 @@ function checklistFixture(overrides: Partial<ChecklistItem> = {}): ChecklistItem
 }
 
 describe("FocusMode", () => {
+  it("shows current task, next step, checklist, quick note, capture, and finish action", () => {
+    renderWithRouter(
+      <FocusMode
+        task={taskFixture({ title: "Create local store", nextStep: "Run cargo test" })}
+        checklist={[{ id: "c1", taskId: "t1", title: "Add migration", completed: false, position: 0 }]}
+        mode="ambient"
+        startedAtMs={0}
+        nowMs={60_000}
+        timeboxMinutes={null}
+        onFinish={vi.fn()}
+        onCaptureInbox={vi.fn()}
+        onNoteAdd={vi.fn()}
+        onChecklistToggle={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Create local store" })).toBeInTheDocument();
+    expect(screen.getByText("Run cargo test")).toBeInTheDocument();
+    expect(screen.getByLabelText("Quick note")).toBeInTheDocument();
+    expect(screen.getByLabelText("Capture")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Finish focus session" })).toBeInTheDocument();
+  });
+
   it("shows task, checklist, quick note, inbox capture, and finish control", async () => {
     const user = userEvent.setup();
     const onFinish = vi.fn();

@@ -5,6 +5,16 @@ import { renderWithRouter } from "../../app/test-utils";
 import { ProjectSetup } from "./ProjectSetup";
 
 describe("ProjectSetup", () => {
+  it("shows a no-project empty state while keeping setup fields available", () => {
+    renderWithRouter(<ProjectSetup onCreate={vi.fn()} />);
+
+    expect(screen.getByRole("heading", { name: "Create a local project", level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No project setup", level: 2 })).toBeInTheDocument();
+    expect(screen.getByLabelText("Project name")).toBeInTheDocument();
+    expect(screen.getByLabelText("Local folder path")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create project" })).toBeEnabled();
+  });
+
   it("creates a project with a local folder path", async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn();

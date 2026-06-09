@@ -9,6 +9,16 @@ import type {
   TaskStatus,
   WorkEntry
 } from "../../shared/domain/types";
+import {
+  ActionBar,
+  Button,
+  ScreenHeader,
+  SectionHeader,
+  SelectField,
+  Surface,
+  TextArea,
+  TextField
+} from "../../shared/ui";
 import type { FocusModeKind } from "../focus-mode/focusTimer";
 import { InboxCapture } from "../inbox/InboxCapture";
 
@@ -20,6 +30,7 @@ export interface StartFocusInput {
 
 export interface TaskDetailProps {
   task: Task;
+  stageTitle?: string;
   checklist: ChecklistItem[];
   notes: Note[];
   linkedCommits: GitCommit[];
@@ -47,6 +58,7 @@ const taskStatusLabels: Record<TaskStatus, string> = {
 
 export function TaskDetail({
   task,
+  stageTitle,
   checklist,
   notes,
   linkedCommits,
@@ -119,179 +131,223 @@ export function TaskDetail({
   }
 
   return (
-    <section className="stack" aria-labelledby={`${task.id}-detail-title`}>
-      <header className="stack">
-        <div>
-          <h2 id={`${task.id}-detail-title`}>{task.title}</h2>
-          {task.description ? <p>{task.description}</p> : null}
-        </div>
-        <div className="stack">
-          <button type="button" onClick={startAmbientFocus}>
-            Start ambient focus
-          </button>
-          {onStartManualWorkReview ? (
-            <button type="button" onClick={onStartManualWorkReview}>
-              Add manual work review
-            </button>
-          ) : null}
-          <label htmlFor={`${task.id}-timebox-minutes`}>
-            Timebox minutes
-            <input
+    <section className="task-detail stack">
+      <ScreenHeader
+        eyebrow={stageTitle ? `${stageTitle} task` : "Task detail"}
+        title={task.title}
+        description={task.description || undefined}
+        actions={<Button onClick={startAmbientFocus}>Start focus</Button>}
+      />
+
+      <Surface className="task-workbench-header">
+        <form className="task-workbench-header__next-step" onSubmit={saveNextStep}>
+          <TextArea
+            id={`${task.id}-next-step`}
+            label="Next step"
+            value={nextStep}
+            onChange={(event) => setNextStep(event.target.value)}
+          />
+          <Button type="submit" variant="secondary">
+            Save next step
+          </Button>
+        </form>
+
+        <div className="task-workbench-header__controls">
+          <SelectField
+            className="task-workbench-header__status"
+            id={`${task.id}-status`}
+            label="Task status"
+            value={task.status}
+            onChange={(event) => onStatusChange(task.id, event.target.value as TaskStatus)}
+          >
+            {taskStatuses.map((status) => (
+              <option key={status} value={status}>
+                {taskStatusLabels[status]}
+              </option>
+            ))}
+          </SelectField>
+
+          <ActionBar>
+            {onStartManualWorkReview ? (
+              <Button variant="secondary" onClick={onStartManualWorkReview}>
+                Add manual work review
+              </Button>
+            ) : null}
+            <TextField
+              className="task-workbench-header__timebox"
               id={`${task.id}-timebox-minutes`}
+              label="Timebox minutes"
               min={1}
               type="number"
               value={timeboxMinutes}
               onChange={(event) => setTimeboxMinutes(Number(event.target.value))}
             />
-          </label>
-          <button type="button" onClick={startTimeboxFocus}>
-            Start timebox focus
-          </button>
+            <Button variant="secondary" onClick={startTimeboxFocus}>
+              Start timebox
+            </Button>
+          </ActionBar>
         </div>
-      </header>
+      </Surface>
 
-      <label htmlFor={`${task.id}-status`}>
-        Task status
-        <select
-          id={`${task.id}-status`}
-          value={task.status}
-          onChange={(event) => onStatusChange(task.id, event.target.value as TaskStatus)}
-        >
-          {taskStatuses.map((status) => (
-            <option key={status} value={status}>
-              {taskStatusLabels[status]}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <section className="stack" aria-labelledby={`${task.id}-checklist-title`}>
-        <h3 id={`${task.id}-checklist-title`}>Checklist</h3>
-        {checklist.length > 0 ? (
-          checklist.map((item) => (
-            <label className="inline-field" key={item.id}>
-              <input
-                type="checkbox"
-                checked={item.completed}
-                onChange={(event) => onChecklistToggle(item.id, event.target.checked)}
-              />
-              {item.title}
-            </label>
-          ))
-        ) : (
-          <p>No checklist items.</p>
-        )}
-      </section>
-
-      <form className="stack" onSubmit={addNote}>
-        <label htmlFor={`${task.id}-quick-note`}>
-          Quick note
-          <textarea
-            id={`${task.id}-quick-note`}
-            value={noteBody}
-            onChange={(event) => setNoteBody(event.target.value)}
-          />
-        </label>
-        <button type="submit">Add note</button>
-      </form>
-
-      <form className="stack" onSubmit={saveNextStep}>
-        <label htmlFor={`${task.id}-next-step`}>
-          Next step
-          <textarea
-            id={`${task.id}-next-step`}
-            value={nextStep}
-            onChange={(event) => setNextStep(event.target.value)}
-          />
-        </label>
-        <button type="submit">Save next step</button>
-      </form>
-
-      <section className="stack" aria-labelledby={`${task.id}-notes-title`}>
-        <h3 id={`${task.id}-notes-title`}>Notes</h3>
-        {notes.length > 0 ? (
-          <ul>
-            {notes.map((note) => (
-              <li key={note.id}>{note.body}</li>
-            ))}
-          </ul>
-        ) : (
-          <p>No notes yet.</p>
-        )}
-      </section>
-
-      <section className="stack" aria-labelledby={`${task.id}-context-title`}>
-        <h3 id={`${task.id}-context-title`}>Context</h3>
-        <p>{linkedCommits.length} linked commits</p>
-        {linkedCommits.length > 0 ? (
-          <ul>
-            {linkedCommits.map((commit) => {
-              const displaySha = shortSha(commit.sha);
-              const moveTarget = selectedMoveTarget(commit.sha);
-
-              return (
-                <li className="stack" key={commit.sha}>
-                  <div>
-                    <strong>{commit.message}</strong>
-                    <p>
-                      {displaySha} on {commit.branch} at {commit.committedAt}
-                    </p>
-                  </div>
-                  {commit.changedFiles.length > 0 ? (
-                    <ul>
-                      {commit.changedFiles.map((changedFile) => (
-                        <li key={changedFile}>{changedFile}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => void onCommitUnlink(commit.sha, task.id)}
-                  >
-                    Unlink {displaySha}
-                  </button>
-                  <label htmlFor={`${task.id}-${commit.sha}-move-target`}>
-                    Move {displaySha} to task
-                    <select
-                      id={`${task.id}-${commit.sha}-move-target`}
-                      value={moveTarget}
-                      onChange={(event) =>
-                        setMoveTargets((targets) => ({
-                          ...targets,
-                          [commit.sha]: event.target.value
-                        }))
-                      }
-                    >
-                      {availableTasks.map((availableTask) => (
-                        <option key={availableTask.id} value={availableTask.id}>
-                          {availableTask.title}
-                        </option>
-                      ))}
-                    </select>
+      <div className="task-workbench">
+        <main className="task-workbench__main stack">
+          <Surface ariaLabel="Checklist">
+            <SectionHeader title="Checklist" />
+            {checklist.length > 0 ? (
+              <div className="task-checklist">
+                {checklist.map((item) => (
+                  <label className="inline-field" key={item.id}>
+                    <input
+                      type="checkbox"
+                      checked={item.completed}
+                      onChange={(event) => onChecklistToggle(item.id, event.target.checked)}
+                    />
+                    {item.title}
                   </label>
-                  <button
-                    type="button"
-                    disabled={!moveTarget}
-                    onClick={() => void moveCommit(commit.sha)}
-                  >
-                    Move {displaySha}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        ) : null}
-        <p>{workEntries.length} work entries</p>
-        <p>{inboxItems.length} inbox items</p>
-        {inboxItems.length > 0 ? (
-          <ul>
-            {inboxItems.map((item) => (
-              <li key={item.id}>{item.body}</li>
-            ))}
-          </ul>
-        ) : null}
-        {onCaptureInbox ? <InboxCapture onCapture={onCaptureInbox} /> : null}
-      </section>
+                ))}
+              </div>
+            ) : (
+              <p className="task-workbench__empty">No checklist items.</p>
+            )}
+          </Surface>
+
+          <Surface ariaLabel="Notes">
+            <SectionHeader title="Notes" />
+            <form className="task-note-form" onSubmit={addNote}>
+              <TextArea
+                id={`${task.id}-quick-note`}
+                label="Quick note"
+                value={noteBody}
+                onChange={(event) => setNoteBody(event.target.value)}
+              />
+              <Button type="submit" variant="secondary">
+                Add note
+              </Button>
+            </form>
+            {notes.length > 0 ? (
+              <ul className="task-notes">
+                {notes.map((note) => (
+                  <li key={note.id}>{note.body}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="task-workbench__empty">No notes yet.</p>
+            )}
+          </Surface>
+
+          <Surface ariaLabel="Work reviews">
+            <SectionHeader title="Work reviews" />
+            <p className="task-workbench__empty">{workEntries.length} work entries</p>
+            {workEntries.length > 0 ? (
+              <ul className="task-work-reviews">
+                {workEntries.map((entry) => (
+                  <li className="task-work-review" key={entry.id}>
+                    <strong>{entry.done || "Work reviewed"}</strong>
+                    {entry.remains ? <p>Remains: {entry.remains}</p> : null}
+                    {entry.nextStep ? <p>Next: {entry.nextStep}</p> : null}
+                    <span>{entry.createdAt}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="task-workbench__empty">No work reviews yet.</p>
+            )}
+          </Surface>
+        </main>
+
+        <aside className="task-workbench__rail stack">
+          <Surface ariaLabel="Quick capture">
+            <SectionHeader title="Quick capture" />
+            {onCaptureInbox ? (
+              <InboxCapture onCapture={onCaptureInbox} />
+            ) : (
+              <p className="task-workbench__empty">Capture is unavailable.</p>
+            )}
+          </Surface>
+
+          <Surface ariaLabel="Linked commits">
+            <SectionHeader title="Linked commits" />
+            <p className="task-workbench__empty">{linkedCommits.length} linked commits</p>
+            {linkedCommits.length > 0 ? (
+              <ul className="task-linked-commits">
+                {linkedCommits.map((commit) => {
+                  const displaySha = shortSha(commit.sha);
+                  const moveTarget = selectedMoveTarget(commit.sha);
+
+                  return (
+                    <li className="task-linked-commit" key={commit.sha}>
+                      <div>
+                        <strong>{commit.message}</strong>
+                        <p>
+                          {displaySha} on {commit.branch} at {commit.committedAt}
+                        </p>
+                      </div>
+                      {commit.changedFiles.length > 0 ? (
+                        <ul className="task-linked-commit__files">
+                          {commit.changedFiles.map((changedFile) => (
+                            <li key={changedFile}>{changedFile}</li>
+                          ))}
+                        </ul>
+                      ) : null}
+                      <ActionBar>
+                        <Button
+                          variant="secondary"
+                          onClick={() => void onCommitUnlink(commit.sha, task.id)}
+                        >
+                          Unlink {displaySha}
+                        </Button>
+                        <SelectField
+                          id={`${task.id}-${commit.sha}-move-target`}
+                          label={`Move ${displaySha} to task`}
+                          value={moveTarget}
+                          onChange={(event) =>
+                            setMoveTargets((targets) => ({
+                              ...targets,
+                              [commit.sha]: event.target.value
+                            }))
+                          }
+                        >
+                          {availableTasks.map((availableTask) => (
+                            <option key={availableTask.id} value={availableTask.id}>
+                              {availableTask.title}
+                            </option>
+                          ))}
+                        </SelectField>
+                        <Button
+                          variant="secondary"
+                          disabled={!moveTarget}
+                          onClick={() => void moveCommit(commit.sha)}
+                        >
+                          Move {displaySha}
+                        </Button>
+                      </ActionBar>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="task-workbench__empty">No linked commits.</p>
+            )}
+          </Surface>
+
+          <Surface ariaLabel="Inbox items">
+            <SectionHeader title="Inbox items" />
+            <p className="task-workbench__empty">{inboxItems.length} inbox items</p>
+            {inboxItems.length > 0 ? (
+              <ul className="task-inbox-items">
+                {inboxItems.map((item) => (
+                  <li key={item.id}>
+                    <strong>{item.kind}</strong>
+                    <p>{item.body}</p>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="task-workbench__empty">No inbox items.</p>
+            )}
+          </Surface>
+        </aside>
+      </div>
     </section>
   );
 }

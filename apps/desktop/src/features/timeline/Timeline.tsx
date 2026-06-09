@@ -1,4 +1,5 @@
 import type { GitCommit, InboxItem, Note, WorkEntry } from "../../shared/domain/types";
+import { EmptyState, ScreenHeader, Surface } from "../../shared/ui";
 import { buildTimeline, type TimelineCompletedTask } from "./timelineEngine";
 
 interface TimelineProps {
@@ -25,22 +26,30 @@ export function Timeline({
   });
 
   return (
-    <section className="stack" aria-labelledby="timeline-title">
-      <header>
-        <h1 id="timeline-title">Timeline</h1>
-        <p>{timeline.summary}</p>
-      </header>
-      <div className="stage-list">
-        {timeline.items.map((item) => (
-          <article className="stage-frame" key={`${item.kind}-${item.id}`}>
-            <header>
-              <h3>{item.title}</h3>
-              <p>{item.kind}</p>
-              {item.timestamp ? <time dateTime={item.timestamp}>{item.timestamp}</time> : null}
-            </header>
-          </article>
-        ))}
-      </div>
+    <section className="timeline-screen">
+      <ScreenHeader
+        eyebrow="Review"
+        title="Timeline"
+        description={timeline.summary}
+      />
+      <Surface ariaLabel="Timeline facts">
+        {timeline.items.length > 0 ? (
+          <ol className="timeline-list">
+            {timeline.items.map((item) => (
+              <li key={`${item.kind}-${item.id}`}>
+                <strong>{item.title}</strong>
+                <span>{item.kind}</span>
+                {item.timestamp ? <time dateTime={item.timestamp}>{item.timestamp}</time> : null}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <EmptyState
+            title="No timeline facts yet"
+            body="Capture notes or save a work review to build project memory."
+          />
+        )}
+      </Surface>
     </section>
   );
 }

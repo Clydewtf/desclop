@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ChecklistItem, InboxKind, Task } from "../../shared/domain/types";
+import { Button, InlineAlert, SectionHeader, Surface, TextArea } from "../../shared/ui";
 import { InboxCapture } from "../inbox/InboxCapture";
 import { getFocusTimerState, type FocusModeKind } from "./focusTimer";
 
@@ -11,7 +12,7 @@ interface FocusModeProps {
   nowMs: number;
   timeboxMinutes: number | null;
   onFinish: (input: { elapsedSeconds: number }) => void;
-  onCaptureInbox: (input: { body: string; kind: InboxKind }) => void;
+  onCaptureInbox: (input: { body: string; kind: InboxKind }) => void | Promise<void>;
   onNoteAdd: (body: string) => void | Promise<void>;
   onChecklistToggle: (itemId: string, completed: boolean) => void | Promise<void>;
 }
@@ -51,35 +52,56 @@ export function FocusMode(props: FocusModeProps) {
 
   return (
     <section className="focus-mode" aria-labelledby="focus-title">
-      <div className="focus-animation" aria-hidden="true" />
-      <h1 id="focus-title">{props.task.title}</h1>
-      <p>{formatSeconds(timer.elapsedSeconds)}</p>
-      {timer.remainingSeconds !== null ? <p>{formatSeconds(timer.remainingSeconds)} remaining</p> : null}
-      <section aria-label="Focus checklist">
-        {props.checklist.map((item) => (
-          <label className="inline-field" key={item.id}>
-            <input
-              type="checkbox"
-              checked={item.completed}
-              onChange={(event) => props.onChecklistToggle(item.id, event.target.checked)}
-            />
-            {item.title}
-          </label>
-        ))}
-      </section>
-      {noteError ? <p role="alert">{noteError}</p> : null}
-      <label>
-        Quick note
-        <textarea
-          value={quickNote}
-          onChange={(event) => setQuickNote(event.target.value)}
-          disabled={finishing}
-        />
-      </label>
-      <InboxCapture onCapture={props.onCaptureInbox} />
-      <button type="button" onClick={finishSession} disabled={finishing}>
-        {finishing ? "Finishing focus session" : "Finish focus session"}
-      </button>
+      <header className="focus-mode__header">
+        <div className="focus-mode__task">
+          <h1 id="focus-title">{props.task.title}</h1>
+          {props.task.nextStep ? <p>{props.task.nextStep}</p> : null}
+        </div>
+        <div className="focus-mode__timer" aria-label="Focus timer">
+          <span>{formatSeconds(timer.elapsedSeconds)}</span>
+          {timer.remainingSeconds !== null ? (
+            <small>{formatSeconds(timer.remainingSeconds)} remaining</small>
+          ) : null}
+        </div>
+      </header>
+
+      <div className="focus-mode__grid">
+        <Surface ariaLabel="Focus checklist" className="focus-mode__checklist">
+          <SectionHeader title="Checklist" />
+          {props.checklist.length > 0 ? (
+            <div className="focus-mode__checklist-items">
+              {props.checklist.map((item) => (
+                <label className="inline-field" key={item.id}>
+                  <input
+                    type="checkbox"
+                    checked={item.completed}
+                    onChange={(event) => props.onChecklistToggle(item.id, event.target.checked)}
+                  />
+                  {item.title}
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="focus-mode__empty">No checklist items.</p>
+          )}
+        </Surface>
+
+        <Surface ariaLabel="Focus notes and capture" className="focus-mode__notes">
+          <SectionHeader title="Notes and capture" />
+          {noteError ? <InlineAlert tone="error">Could not save quick note.</InlineAlert> : null}
+          <TextArea
+            id="focus-quick-note"
+            label="Quick note"
+            value={quickNote}
+            onChange={(event) => setQuickNote(event.target.value)}
+            disabled={finishing}
+          />
+          <InboxCapture onCapture={props.onCaptureInbox} />
+          <Button type="button" onClick={finishSession} disabled={finishing}>
+            {finishing ? "Finishing focus session" : "Finish focus session"}
+          </Button>
+        </Surface>
+      </div>
     </section>
   );
 }

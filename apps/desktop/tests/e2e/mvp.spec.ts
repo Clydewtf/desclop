@@ -154,20 +154,38 @@ test("resume-first MVP flow works without Git or Focus Mode", async ({ page }) =
             });
             return null;
           }
-          case "update_task_status": {
-            tasks = tasks.map((task) =>
-              task.id === args?.taskId ? { ...task, status: args.status } : task
-            );
-            if (project && args?.status === "active") {
-              project = { ...project, activeTaskId: args.taskId, updatedAt: now() };
-            }
-            return null;
-          }
-          case "update_next_step":
-            tasks = tasks.map((task) =>
-              task.id === args?.taskId ? { ...task, nextStep: args.nextStep } : task
-            );
-            return null;
+	          case "update_task_status": {
+	            tasks = tasks.map((task) =>
+	              task.id === args?.taskId ? { ...task, status: args.status } : task
+	            );
+	            if (project && args?.status === "active") {
+	              project = { ...project, activeTaskId: args.taskId, updatedAt: now() };
+	            }
+	            return null;
+	          }
+	          case "set_active_task":
+	            if (project) {
+	              project = { ...project, activeTaskId: args?.taskId, updatedAt: now() };
+	            }
+	            tasks = tasks.map((task) =>
+	              task.projectId === args?.projectId
+	                ? {
+	                    ...task,
+	                    status:
+	                      task.id === args?.taskId
+	                        ? "active"
+	                        : task.status === "active"
+	                          ? "todo"
+	                          : task.status
+	                  }
+	                : task
+	            );
+	            return null;
+	          case "update_next_step":
+	            tasks = tasks.map((task) =>
+	              task.id === args?.taskId ? { ...task, nextStep: args.nextStep } : task
+	            );
+	            return null;
           case "add_note": {
             const note = {
               id: nextId("note"),
@@ -179,14 +197,19 @@ test("resume-first MVP flow works without Git or Focus Mode", async ({ page }) =
             notes = [...notes, note];
             return clone(note);
           }
-          case "list_notes_for_task":
-            return clone(notes.filter((note) => note.taskId === args?.taskId));
-          case "list_work_entries_for_task":
-          case "list_linked_commits_for_task":
-            return [];
-          default:
-            throw new Error(`Unhandled test invoke: ${command}`);
-        }
+	          case "list_notes_for_task":
+	            return clone(notes.filter((note) => note.taskId === args?.taskId));
+	          case "list_notes_for_project":
+	            return clone(notes.filter((note) => note.projectId === args?.projectId));
+	          case "list_work_entries_for_task":
+	          case "list_work_entries_for_project":
+	          case "list_linked_commits_for_task":
+	          case "list_inbox_items_for_project":
+	          case "list_inbox_items_for_task":
+	            return [];
+	          default:
+	            throw new Error(`Unhandled test invoke: ${command}`);
+	        }
       }
     };
   });
@@ -196,7 +219,7 @@ test("resume-first MVP flow works without Git or Focus Mode", async ({ page }) =
   await page.getByLabel("Local folder path").fill("/tmp/desclop-no-git");
   await page.getByRole("button", { name: "Create project" }).click();
 
-  await page.getByRole("button", { name: "Import plan", exact: true }).click();
+	  await page.getByRole("button", { name: /Import (a )?plan/i }).first().click();
   await page.getByLabel("Markdown plan").fill([
     "## Foundation",
     "- [ ] Create local store",
