@@ -77,6 +77,8 @@ export const api = {
   listProjects: () => invoke<Project[]>("list_projects"),
   createProject: (input: CreateProjectInput) =>
     invoke<Project>("create_project", { input }),
+  deleteProject: (projectId: string) =>
+    invoke<void>("delete_project", { projectId }),
   loadProjectPlan: (projectId: string) =>
     invoke<ProjectPlanPayload>("load_project_plan", { projectId }),
   importPlan: (projectId: string, stages: ParsedStage[]) =>
