@@ -1229,7 +1229,7 @@ mod tests {
     }
 
     #[test]
-    fn export_and_import_preserve_plan_row_timestamps_and_resume_order() {
+    fn export_and_import_preserve_plan_row_timestamps_and_resume_plan_order() {
         let mut source = create_memory_connection().expect("source database");
         let (project_id, _stage_id, _older_task_id, _newer_task_id) =
             seed_project_with_timestamped_tasks(&mut source);
@@ -1320,7 +1320,7 @@ mod tests {
                 "2026-05-09T00:00:00Z".to_string()
             )
         );
-        assert_eq!(resume.next_step, "Resume newer task");
+        assert_eq!(resume.next_step, "Keep older task waiting");
     }
 
     #[test]

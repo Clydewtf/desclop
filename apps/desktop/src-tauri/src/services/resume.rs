@@ -13,7 +13,7 @@ struct TaskSummary {
 pub fn build_resume_brief(conn: &Connection, project_id: &str) -> rusqlite::Result<ResumeBrief> {
     let task = match load_active_task(conn, project_id)? {
         Some(task) => Some(task),
-        None => load_last_updated_open_task(conn, project_id)?,
+        None => load_first_open_task_in_plan_order(conn, project_id)?,
     };
     let current_stage_id = load_current_stage_id(conn, project_id)?;
     let latest_note = load_latest_note(conn, project_id)?;
@@ -102,15 +102,16 @@ fn load_active_task(conn: &Connection, project_id: &str) -> rusqlite::Result<Opt
     .optional()
 }
 
-fn load_last_updated_open_task(
+fn load_first_open_task_in_plan_order(
     conn: &Connection,
     project_id: &str,
 ) -> rusqlite::Result<Option<TaskSummary>> {
     conn.query_row(
-        "select id, stage_id, next_step
+        "select tasks.id, tasks.stage_id, tasks.next_step
          from tasks
-         where project_id = ?1 and status != 'done'
-         order by updated_at desc, position asc, id asc
+         inner join stages on stages.id = tasks.stage_id and stages.project_id = tasks.project_id
+         where tasks.project_id = ?1 and tasks.status != 'done'
+         order by stages.position asc, tasks.position asc, stages.id asc, tasks.id asc
          limit 1",
         params![project_id],
         |row| {
@@ -390,7 +391,88 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_last_updated_non_done_task() {
+    fn active_task_has_priority_over_earlier_newer_task() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let (project_id, active_task_id, later_task_id) = seed_project(&mut conn);
+        conn.execute(
+            "update tasks set updated_at = '2026-05-21T10:00:00Z' where id = ?1",
+            params![active_task_id],
+        )
+        .expect("make earlier task newer");
+        conn.execute(
+            "update projects set active_task_id = ?1 where id = ?2",
+            params![later_task_id, project_id],
+        )
+        .expect("select later task");
+
+        let brief = build_resume_brief(&conn, &project_id).expect("build resume brief");
+
+        assert_eq!(brief.task_id.as_deref(), Some(later_task_id.as_str()));
+    }
+
+    #[test]
+    fn falls_back_to_first_unfinished_task_in_plan_order_across_stages() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = ProjectRepository::new(&conn)
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), false)
+            .expect("create project");
+
+        PlanRepository::new(&mut conn)
+            .replace_plan(
+                &project.id,
+                vec![
+                    ImportStage {
+                        title: "Foundation".to_string(),
+                        description: "".to_string(),
+                        position: 0,
+                        tasks: vec![ImportTask {
+                            title: "First planned task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 5,
+                        }],
+                    },
+                    ImportStage {
+                        title: "Delivery".to_string(),
+                        description: "".to_string(),
+                        position: 1,
+                        tasks: vec![ImportTask {
+                            title: "Later stage task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                ],
+            )
+            .expect("replace plan");
+
+        let first_task_id: String = conn
+            .query_row(
+                "select id from tasks where project_id = ?1 and title = 'First planned task'",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("first planned task id");
+        conn.execute(
+            "update tasks set updated_at = case title
+               when 'First planned task' then '2026-05-19T10:00:00Z'
+               else '2026-05-20T10:00:00Z'
+             end
+             where project_id = ?1",
+            params![project.id],
+        )
+        .expect("set task update order");
+
+        let brief = build_resume_brief(&conn, &project.id).expect("build resume brief");
+
+        assert_eq!(brief.task_id.as_deref(), Some(first_task_id.as_str()));
+    }
+
+    #[test]
+    fn completed_task_is_not_selected_for_today() {
         let mut conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");
         let (project_id, active_task_id, later_task_id) = seed_project(&mut conn);
@@ -408,6 +490,7 @@ mod tests {
         let brief = build_resume_brief(&conn, &project_id).expect("build resume brief");
 
         assert_eq!(brief.task_id.as_deref(), Some(later_task_id.as_str()));
+        assert_ne!(brief.task_id.as_deref(), Some(active_task_id.as_str()));
     }
 
     #[test]
