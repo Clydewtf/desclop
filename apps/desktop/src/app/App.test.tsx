@@ -10,6 +10,7 @@ vi.mock("../shared/api/client", () => ({
   api: {
     listProjects: vi.fn(),
     createProject: vi.fn(),
+    deleteProject: vi.fn(),
     getResumeBrief: vi.fn(),
     loadProjectPlan: vi.fn(),
     importPlan: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("../shared/api/client", () => ({
 
 const listProjects = vi.mocked(api.listProjects);
 const createProject = vi.mocked(api.createProject);
+const deleteProject = vi.mocked(api.deleteProject);
 const getResumeBrief = vi.mocked(api.getResumeBrief);
 const loadProjectPlan = vi.mocked(api.loadProjectPlan);
 const importPlan = vi.mocked(api.importPlan);
@@ -662,6 +664,222 @@ describe("App", () => {
 
     expect(await screen.findByText("Second project commit")).toBeInTheDocument();
     expect(screen.queryByText("First project commit")).not.toBeInTheDocument();
+  });
+
+  it("requires confirmation before deleting a saved project", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project"
+    });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject, secondProject]);
+    getResumeBrief.mockImplementation(async (projectId) => emptyResumeBrief(projectId));
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Delete First Project" }));
+
+    expect(deleteProject).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Delete project" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Delete project" }));
+
+    await waitFor(() => {
+      expect(deleteProject).toHaveBeenCalledWith("p1");
+    });
+  });
+
+  it("cancels project deletion without calling the API", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Delete First Project" }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(deleteProject).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog", { name: "Delete project" })).not.toBeInTheDocument();
+  });
+
+  it("removes a deleted project from the saved-project list after opening the fallback", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project"
+    });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject, secondProject]);
+    deleteProject.mockResolvedValue(undefined);
+    getResumeBrief.mockImplementation(async (projectId) => emptyResumeBrief(projectId));
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Delete First Project" }));
+    await user.click(screen.getByRole("button", { name: "Delete project" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("complementary", { name: "Application" })).toHaveTextContent(
+        "Second Project"
+      );
+    });
+    await user.click(screen.getByRole("button", { name: "Switch project" }));
+
+    expect(screen.queryByRole("button", { name: "First Project" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Second Project" })).toBeInTheDocument();
+  });
+
+  it("clears deleted project context and opens the fallback with its own context", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({
+      id: "p1",
+      name: "First Project",
+      activeTaskId: "p1-task",
+      gitEnabled: true
+    });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project",
+      activeTaskId: "p2-task",
+      gitEnabled: true
+    });
+    const plans = {
+      p1: activeProjectPlanFixture({
+        projectId: "p1",
+        stageTitle: "First stage",
+        taskTitle: "First project task",
+        nextStep: "Continue first project"
+      }),
+      p2: activeProjectPlanFixture({
+        projectId: "p2",
+        stageTitle: "Second stage",
+        taskTitle: "Second project task",
+        nextStep: "Continue second project"
+      })
+    };
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject, secondProject]);
+    deleteProject.mockResolvedValue(undefined);
+    getResumeBrief.mockImplementation(async (projectId) =>
+      resumeBriefFixture({
+        id: `${projectId}-resume`,
+        projectId,
+        taskId: `${projectId}-task`,
+        stageId: `${projectId}-stage`,
+        latestNote: projectId === "p1" ? "First project resume" : "Second project resume",
+        nextStep: projectId === "p1" ? "Continue first project" : "Continue second project"
+      })
+    );
+    loadProjectPlan.mockImplementation(async (projectId) => plans[projectId as keyof typeof plans]);
+    syncGitCommits.mockImplementation(async (projectId) => [
+      {
+        sha: projectId === "p1" ? "first123" : "second456",
+        projectId,
+        branch: "main",
+        message: projectId === "p1" ? "First project commit" : "Second project commit",
+        authorName: "Clyde",
+        committedAt: "2026-05-20T11:00:00Z",
+        changedFiles: [projectId === "p1" ? "first.ts" : "second.ts"]
+      }
+    ]);
+
+    renderWithRouter(<App />);
+
+    expect(await screen.findByRole("heading", { name: "First project task" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Delete First Project" }));
+    await user.click(screen.getByRole("button", { name: "Delete project" }));
+
+    expect(await screen.findByRole("heading", { name: "Second project task" })).toBeInTheDocument();
+    expect(screen.getByText("Second stage")).toBeInTheDocument();
+    expect(screen.getByText("Second project resume")).toBeInTheDocument();
+    expect(screen.queryByText("First project task")).not.toBeInTheDocument();
+    expect(screen.queryByText("First project resume")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Timeline" }));
+
+    expect(await screen.findByText("Second project commit")).toBeInTheDocument();
+    expect(screen.queryByText("First project commit")).not.toBeInTheDocument();
+  });
+
+  it("shows project creation after deleting the last saved project", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject]);
+    deleteProject.mockResolvedValue(undefined);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Delete First Project" }));
+    await user.click(screen.getByRole("button", { name: "Delete project" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Create a local project" })
+    ).toBeInTheDocument();
+  });
+
+  it("keeps a project visible and shows its deletion error when deletion fails", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject]);
+    deleteProject.mockRejectedValue(new Error("database unavailable"));
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Delete First Project" }));
+    await user.click(screen.getByRole("button", { name: "Delete project" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not delete project.");
+    expect(screen.getByRole("dialog", { name: "Delete project" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "First Project" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete project" })).toBeEnabled();
+  });
+
+  it("prevents duplicate project deletion requests while deletion is pending", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject]);
+    deleteProject.mockReturnValue(new Promise(() => undefined));
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Delete First Project" }));
+    const confirmButton = screen.getByRole("button", { name: "Delete project" });
+
+    act(() => {
+      confirmButton.click();
+      confirmButton.click();
+    });
+
+    expect(deleteProject).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Delete project" })).toBeDisabled();
   });
 
   it("opens the existing project creation form from the saved-project list", async () => {

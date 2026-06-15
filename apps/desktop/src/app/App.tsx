@@ -6,7 +6,10 @@ import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImpor
 import { parseMarkdownPlan, type ParsedMarkdownPlan } from "../features/markdown-import/markdownParser";
 import { Planner } from "../features/planner/Planner";
 import { buildPlannerFrames } from "../features/planner/plannerEngine";
-import { ProjectPicker } from "../features/project-setup/ProjectPicker";
+import {
+  ProjectPicker,
+  type ProjectDeleteError
+} from "../features/project-setup/ProjectPicker";
 import { ProjectSetup } from "../features/project-setup/ProjectSetup";
 import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDetail";
 import { Timeline } from "../features/timeline/Timeline";
@@ -147,8 +150,11 @@ function activeDestinationForScreen(screen: AppScreen): AppDestination {
 
 export function App() {
   const projectContextRevision = useRef(0);
+  const deleteProjectInFlight = useRef(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<ProjectDeleteError | null>(null);
   const [setupMode, setSetupMode] = useState<"picker" | "create">("picker");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -430,6 +436,45 @@ export function App() {
     } catch {
       setSelectedProjectId(null);
       setLoadError("Could not load project plan.");
+    }
+  }
+
+  async function deleteSavedProject(projectToDelete: Project) {
+    if (deleteProjectInFlight.current) {
+      return;
+    }
+
+    deleteProjectInFlight.current = true;
+    setDeleteError(null);
+    setDeletingProjectId(projectToDelete.id);
+    try {
+      await api.deleteProject(projectToDelete.id);
+      const nextProjects = projects.filter(
+        (candidate) => candidate.id !== projectToDelete.id
+      );
+      const revision = beginProjectLoad();
+      setProjects(nextProjects);
+
+      const fallbackProject = nextProjects[0];
+      if (!fallbackProject) {
+        setSetupMode("create");
+        return;
+      }
+
+      try {
+        await loadProjectIntoState(fallbackProject, nextProjects, revision);
+      } catch {
+        setProjects(nextProjects);
+        setLoadError("Could not load project plan.");
+      }
+    } catch {
+      setDeleteError({
+        projectId: projectToDelete.id,
+        message: "Could not delete project."
+      });
+    } finally {
+      deleteProjectInFlight.current = false;
+      setDeletingProjectId(null);
     }
   }
 
@@ -1164,6 +1209,9 @@ export function App() {
           <ProjectPicker
             projects={projects}
             onOpenProject={openSavedProject}
+            onDeleteProject={deleteSavedProject}
+            deletingProjectId={deletingProjectId}
+            deleteError={deleteError}
             onCreateProject={() => {
               setCreateError(null);
               setSetupMode("create");
