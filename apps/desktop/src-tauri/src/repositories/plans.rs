@@ -255,6 +255,36 @@ mod tests {
     }
 
     #[test]
+    fn replace_plan_marks_empty_stage_completed() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = ProjectRepository::new(&conn)
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), false)
+            .expect("create project");
+
+        PlanRepository::new(&mut conn)
+            .replace_plan(
+                &project.id,
+                vec![ImportStage {
+                    title: "Empty".to_string(),
+                    description: "".to_string(),
+                    position: 0,
+                    tasks: vec![],
+                }],
+            )
+            .expect("replace plan");
+
+        let status: String = conn
+            .query_row(
+                "select status from stages where project_id = ?1",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("stage status");
+        assert_eq!(status, "completed");
+    }
+
+    #[test]
     fn replace_plan_persists_imported_stages_tasks_and_checklist_items() {
         let mut conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");

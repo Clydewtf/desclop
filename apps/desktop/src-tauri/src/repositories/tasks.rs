@@ -126,24 +126,26 @@ impl<'a> TaskRepository<'a> {
             return self.set_active_task(&project_id, task_id);
         }
 
-        let updated_rows = self.conn.execute(
+        let tx = self.conn.unchecked_transaction()?;
+        let updated_rows = tx.execute(
             "update tasks set status = ?1, updated_at = ?2 where id = ?3",
             rusqlite::params![status, chrono::Utc::now().to_rfc3339(), task_id],
         )?;
         if updated_rows == 0 {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
-        self.conn.execute(
+        tx.execute(
             "update projects set active_task_id = null, updated_at = ?1 where active_task_id = ?2",
             rusqlite::params![chrono::Utc::now().to_rfc3339(), task_id],
         )?;
-        recalculate_stage_statuses(self.conn, &project_id)?;
-        Ok(())
+        recalculate_stage_statuses(&tx, &project_id)?;
+        tx.commit()
     }
 
     pub fn set_active_task(&self, project_id: &str, task_id: &str) -> rusqlite::Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
-        self.conn.query_row(
+        let tx = self.conn.unchecked_transaction()?;
+        tx.query_row(
             "select tasks.id
              from tasks
              inner join projects on projects.id = tasks.project_id
@@ -152,14 +154,14 @@ impl<'a> TaskRepository<'a> {
             |_| Ok(()),
         )?;
 
-        self.conn.execute(
+        tx.execute(
             "update tasks
              set status = 'todo', updated_at = ?1
              where project_id = ?2 and id != ?3 and status = 'active'",
             rusqlite::params![now, project_id, task_id],
         )?;
 
-        let updated_tasks = self.conn.execute(
+        let updated_tasks = tx.execute(
             "update tasks
              set status = 'active', updated_at = ?1
              where id = ?2 and project_id = ?3 and status != 'done'",
@@ -169,15 +171,15 @@ impl<'a> TaskRepository<'a> {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
 
-        let updated_projects = self.conn.execute(
+        let updated_projects = tx.execute(
             "update projects set active_task_id = ?1, updated_at = ?2 where id = ?3",
             rusqlite::params![task_id, chrono::Utc::now().to_rfc3339(), project_id],
         )?;
         if updated_projects == 0 {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
-        recalculate_stage_statuses(self.conn, project_id)?;
-        Ok(())
+        recalculate_stage_statuses(&tx, project_id)?;
+        tx.commit()
     }
 
     pub fn update_checklist_item(&self, item_id: &str, completed: bool) -> rusqlite::Result<()> {
@@ -879,5 +881,111 @@ mod tests {
         assert_eq!(stages[0].status, "current");
         assert_eq!(stages[1].id, "stage-b");
         assert_eq!(stages[1].status, "future");
+    }
+
+    #[test]
+    fn update_task_status_rolls_back_when_stage_recalculation_fails() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let repository = TaskRepository::new(&conn);
+        let task = repository
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .find(|task| task.title == "Create local store")
+            .expect("task");
+        repository
+            .set_active_task(&project.id, &task.id)
+            .expect("set active task");
+        conn.execute_batch(
+            "create temp trigger reject_stage_recalculation
+             before update on stages
+             begin
+               select raise(abort, 'stage recalculation failed');
+             end;",
+        )
+        .expect("create trigger");
+
+        assert!(repository.update_task_status(&task.id, "done").is_err());
+
+        let task_status: String = conn
+            .query_row(
+                "select status from tasks where id = ?1",
+                params![task.id],
+                |row| row.get(0),
+            )
+            .expect("task status");
+        let active_task_id: Option<String> = conn
+            .query_row(
+                "select active_task_id from projects where id = ?1",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("active task id");
+
+        assert_eq!(task_status, "active");
+        assert_eq!(active_task_id, Some(task.id));
+    }
+
+    #[test]
+    fn set_active_task_rolls_back_when_stage_recalculation_fails() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let repository = TaskRepository::new(&conn);
+        let tasks = repository.list_tasks(&project.id).expect("list tasks");
+        let first_task = tasks
+            .iter()
+            .find(|task| task.title == "Create local store")
+            .expect("first task");
+        let second_task = tasks
+            .iter()
+            .find(|task| task.title == "Finished task")
+            .expect("second task");
+        repository
+            .update_task_status(&second_task.id, "todo")
+            .expect("make second task eligible");
+        repository
+            .set_active_task(&project.id, &first_task.id)
+            .expect("set first active");
+        conn.execute_batch(
+            "create temp trigger reject_stage_recalculation
+             before update on stages
+             begin
+               select raise(abort, 'stage recalculation failed');
+             end;",
+        )
+        .expect("create trigger");
+
+        assert!(repository
+            .set_active_task(&project.id, &second_task.id)
+            .is_err());
+
+        let first_status: String = conn
+            .query_row(
+                "select status from tasks where id = ?1",
+                params![first_task.id],
+                |row| row.get(0),
+            )
+            .expect("first status");
+        let second_status: String = conn
+            .query_row(
+                "select status from tasks where id = ?1",
+                params![second_task.id],
+                |row| row.get(0),
+            )
+            .expect("second status");
+        let active_task_id: Option<String> = conn
+            .query_row(
+                "select active_task_id from projects where id = ?1",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("active task id");
+
+        assert_eq!(first_status, "active");
+        assert_eq!(second_status, "todo");
+        assert_eq!(active_task_id, Some(first_task.id.clone()));
     }
 }

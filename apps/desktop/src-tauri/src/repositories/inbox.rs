@@ -3,6 +3,7 @@ use rusqlite::{params, Connection};
 use uuid::Uuid;
 
 use crate::domain::{InboxItem, Note, Task};
+use crate::repositories::tasks::recalculate_stage_statuses;
 
 pub struct InboxRepository<'a> {
     conn: &'a mut Connection,
@@ -133,6 +134,7 @@ impl<'a> InboxRepository<'a> {
         if updated_rows == 0 {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
+        recalculate_stage_statuses(&tx, &task.project_id)?;
         tx.commit()?;
 
         Ok(task)
@@ -548,5 +550,65 @@ mod tests {
         assert!(repository.delete_item(&converted.id).is_err());
         assert!(repository.delete_item(&kept.id).is_err());
         assert!(repository.attach_to_task(&kept.id, &task.id).is_err());
+    }
+
+    #[test]
+    fn converting_item_into_completed_stage_recalculates_plan_order() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = ProjectRepository::new(&conn)
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), false)
+            .expect("create project");
+        PlanRepository::new(&mut conn)
+            .replace_plan(
+                &project.id,
+                vec![
+                    ImportStage {
+                        title: "Completed first".to_string(),
+                        description: "".to_string(),
+                        position: 0,
+                        tasks: vec![ImportTask {
+                            title: "Done task".to_string(),
+                            status: "done".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                    ImportStage {
+                        title: "Current second".to_string(),
+                        description: "".to_string(),
+                        position: 1,
+                        tasks: vec![ImportTask {
+                            title: "Todo task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                ],
+            )
+            .expect("replace plan");
+        let completed_stage = TaskRepository::new(&conn)
+            .list_stages(&project.id)
+            .expect("list stages")
+            .into_iter()
+            .find(|stage| stage.title == "Completed first")
+            .expect("completed stage");
+        let mut repository = InboxRepository::new(&mut conn);
+        let item = repository
+            .capture_item(&project.id, "Reopened work", "task_candidate")
+            .expect("capture item");
+
+        repository
+            .convert_to_task(&item.id, &completed_stage.id)
+            .expect("convert item");
+
+        let stages = TaskRepository::new(&conn)
+            .list_stages(&project.id)
+            .expect("list stages");
+        assert_eq!(stages[0].title, "Completed first");
+        assert_eq!(stages[0].status, "current");
+        assert_eq!(stages[1].title, "Current second");
+        assert_eq!(stages[1].status, "future");
     }
 }
