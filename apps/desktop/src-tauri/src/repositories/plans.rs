@@ -3,6 +3,8 @@ use rusqlite::{params, Connection};
 use thiserror::Error;
 use uuid::Uuid;
 
+use super::tasks::recalculate_stage_statuses;
+
 pub const PLAN_HAS_TASK_HISTORY_ERROR: &str = "Plan already has task history";
 
 #[derive(Debug, Error)]
@@ -62,11 +64,6 @@ impl<'a> PlanRepository<'a> {
 
         for stage in stages {
             let stage_id = Uuid::new_v4().to_string();
-            let status = if stage.position == 0 {
-                "current"
-            } else {
-                "future"
-            };
             tx.execute(
                 "insert into stages (id, project_id, title, description, position, status, created_at, updated_at)
                  values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -76,7 +73,7 @@ impl<'a> PlanRepository<'a> {
                     stage.title,
                     stage.description,
                     stage.position,
-                    status,
+                    "future",
                     now,
                     now
                 ],
@@ -121,6 +118,8 @@ impl<'a> PlanRepository<'a> {
                 }
             }
         }
+
+        recalculate_stage_statuses(&tx, project_id)?;
 
         Ok(tx.commit()?)
     }
@@ -184,6 +183,75 @@ mod tests {
                 position: 0,
             }],
         }]
+    }
+
+    #[test]
+    fn replace_plan_recalculates_imported_stage_statuses() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = ProjectRepository::new(&conn)
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), false)
+            .expect("create project");
+
+        PlanRepository::new(&mut conn)
+            .replace_plan(
+                &project.id,
+                vec![
+                    ImportStage {
+                        title: "Finished".to_string(),
+                        description: "".to_string(),
+                        position: 0,
+                        tasks: vec![ImportTask {
+                            title: "Done task".to_string(),
+                            status: "done".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                    ImportStage {
+                        title: "Next".to_string(),
+                        description: "".to_string(),
+                        position: 1,
+                        tasks: vec![ImportTask {
+                            title: "Next task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                    ImportStage {
+                        title: "Later".to_string(),
+                        description: "".to_string(),
+                        position: 2,
+                        tasks: vec![ImportTask {
+                            title: "Later task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                ],
+            )
+            .expect("replace plan");
+
+        let statuses: Vec<(String, String)> = {
+            let mut stmt = conn
+                .prepare("select title, status from stages order by position asc, id asc")
+                .expect("prepare stages");
+            stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("query stages")
+                .collect::<rusqlite::Result<_>>()
+                .expect("collect stages")
+        };
+
+        assert_eq!(
+            statuses,
+            vec![
+                ("Finished".to_string(), "completed".to_string()),
+                ("Next".to_string(), "current".to_string()),
+                ("Later".to_string(), "future".to_string()),
+            ]
+        );
     }
 
     #[test]

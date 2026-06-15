@@ -2,6 +2,41 @@ use rusqlite::{params, Connection};
 
 use crate::domain::{ChecklistItem, Stage, Task};
 
+pub(crate) fn recalculate_stage_statuses(
+    conn: &Connection,
+    project_id: &str,
+) -> rusqlite::Result<()> {
+    conn.execute(
+        "update stages
+         set status = case
+           when not exists (
+             select 1 from tasks
+             where tasks.project_id = stages.project_id
+               and tasks.stage_id = stages.id
+               and tasks.status != 'done'
+           ) then 'completed'
+           when stages.id = (
+             select candidate.id
+             from stages candidate
+             where candidate.project_id = ?1
+               and exists (
+                 select 1 from tasks
+                 where tasks.project_id = candidate.project_id
+                   and tasks.stage_id = candidate.id
+                   and tasks.status != 'done'
+               )
+             order by candidate.position asc, candidate.id asc
+             limit 1
+           ) then 'current'
+           else 'future'
+         end,
+         updated_at = ?2
+         where project_id = ?1",
+        params![project_id, chrono::Utc::now().to_rfc3339()],
+    )?;
+    Ok(())
+}
+
 pub struct TaskRepository<'a> {
     conn: &'a Connection,
 }
@@ -82,12 +117,12 @@ impl<'a> TaskRepository<'a> {
     }
 
     pub fn update_task_status(&self, task_id: &str, status: &str) -> rusqlite::Result<()> {
+        let project_id: String = self.conn.query_row(
+            "select project_id from tasks where id = ?1",
+            rusqlite::params![task_id],
+            |row| row.get(0),
+        )?;
         if status == "active" {
-            let project_id: String = self.conn.query_row(
-                "select project_id from tasks where id = ?1",
-                rusqlite::params![task_id],
-                |row| row.get(0),
-            )?;
             return self.set_active_task(&project_id, task_id);
         }
 
@@ -102,6 +137,7 @@ impl<'a> TaskRepository<'a> {
             "update projects set active_task_id = null, updated_at = ?1 where active_task_id = ?2",
             rusqlite::params![chrono::Utc::now().to_rfc3339(), task_id],
         )?;
+        recalculate_stage_statuses(self.conn, &project_id)?;
         Ok(())
     }
 
@@ -140,6 +176,7 @@ impl<'a> TaskRepository<'a> {
         if updated_projects == 0 {
             return Err(rusqlite::Error::QueryReturnedNoRows);
         }
+        recalculate_stage_statuses(self.conn, project_id)?;
         Ok(())
     }
 
@@ -755,5 +792,92 @@ mod tests {
         assert_eq!(first_status, "todo");
         assert_eq!(second_status, "active");
         assert_eq!(active_status_count, 1);
+    }
+
+    #[test]
+    fn completing_current_stage_advances_to_next_unfinished_stage() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = ProjectRepository::new(&conn)
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), false)
+            .expect("create project");
+        PlanRepository::new(&mut conn)
+            .replace_plan(
+                &project.id,
+                vec![
+                    ImportStage {
+                        title: "Current".to_string(),
+                        description: "".to_string(),
+                        position: 0,
+                        tasks: vec![ImportTask {
+                            title: "Final task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                    ImportStage {
+                        title: "Next".to_string(),
+                        description: "".to_string(),
+                        position: 1,
+                        tasks: vec![ImportTask {
+                            title: "Next task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                ],
+            )
+            .expect("replace plan");
+        let repository = TaskRepository::new(&conn);
+        let final_task = repository
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .find(|task| task.title == "Final task")
+            .expect("final task");
+
+        repository
+            .update_task_status(&final_task.id, "done")
+            .expect("complete task");
+
+        let stages = repository.list_stages(&project.id).expect("list stages");
+        assert_eq!(stages[0].status, "completed");
+        assert_eq!(stages[1].status, "current");
+    }
+
+    #[test]
+    fn setting_active_task_recalculates_tied_stage_positions_by_id() {
+        let conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = ProjectRepository::new(&conn)
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), false)
+            .expect("create project");
+        for (stage_id, task_id) in [("stage-b", "task-b"), ("stage-a", "task-a")] {
+            conn.execute(
+                "insert into stages (id, project_id, title, description, position, status, created_at, updated_at)
+                 values (?1, ?2, ?1, '', 0, 'future', '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z')",
+                params![stage_id, project.id],
+            )
+            .expect("insert stage");
+            conn.execute(
+                "insert into tasks (id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at)
+                 values (?1, ?2, ?3, ?1, '', 'todo', null, null, '', 0, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z')",
+                params![task_id, project.id, stage_id],
+            )
+            .expect("insert task");
+        }
+        let repository = TaskRepository::new(&conn);
+
+        repository
+            .set_active_task(&project.id, "task-b")
+            .expect("set active task");
+
+        let stages = repository.list_stages(&project.id).expect("list stages");
+        assert_eq!(stages[0].id, "stage-a");
+        assert_eq!(stages[0].status, "current");
+        assert_eq!(stages[1].id, "stage-b");
+        assert_eq!(stages[1].status, "future");
     }
 }
