@@ -353,6 +353,144 @@ describe("App", () => {
     expect(screen.queryByText("Active task")).not.toBeInTheDocument();
   });
 
+  it("does not keep a completed stale resume or active task on Today", async () => {
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(resumeBriefFixture({ taskId: "t1", stageId: "s1" }));
+    const plan = importedPlanFixture("p1");
+    loadProjectPlan.mockResolvedValue({
+      ...plan,
+      tasks: [{ ...plan.tasks[0], title: "Completed stale task", status: "done" }]
+    });
+
+    renderWithRouter(<App />);
+
+    const currentTask = await screen.findByLabelText("Current task");
+    expect(within(currentTask).getByRole("heading", { name: "No active task" })).toBeInTheDocument();
+    expect(within(currentTask).queryByText("Completed stale task")).not.toBeInTheDocument();
+  });
+
+  it("uses a non-done project active task when the resume task is done", async () => {
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t2" })]);
+    getResumeBrief.mockResolvedValue(resumeBriefFixture({ taskId: "t1", stageId: "s1" }));
+    const plan = twoTaskPlanFixture({ firstStatus: "done", secondStatus: "active" });
+    loadProjectPlan.mockResolvedValue({
+      ...plan,
+      tasks: plan.tasks.map((task) => ({
+        ...task,
+        title: task.id === "t1" ? "Completed resume task" : "Valid active task",
+        nextStep: task.id === "t2" ? "Continue valid work" : ""
+      }))
+    });
+
+    renderWithRouter(<App />);
+
+    const currentTask = await screen.findByLabelText("Current task");
+    expect(within(currentTask).getByRole("heading", { name: "Valid active task" })).toBeInTheDocument();
+    expect(within(currentTask).queryByText("Completed resume task")).not.toBeInTheDocument();
+  });
+
+  it("orders Next up by stage and task position while excluding current and done tasks", async () => {
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "current" })]);
+    getResumeBrief.mockResolvedValue(resumeBriefFixture({ taskId: "current", stageId: "stage-b" }));
+    loadProjectPlan.mockResolvedValue({
+      stages: [
+        {
+          id: "stage-b",
+          projectId: "p1",
+          title: "Second stage",
+          description: "",
+          position: 1,
+          status: "current"
+        },
+        {
+          id: "stage-a",
+          projectId: "p1",
+          title: "First stage",
+          description: "",
+          position: 0,
+          status: "todo"
+        }
+      ],
+      tasks: [
+        {
+          id: "stage-b-later",
+          projectId: "p1",
+          stageId: "stage-b",
+          title: "Second stage later",
+          description: "",
+          status: "todo",
+          priority: null,
+          dueDate: null,
+          nextStep: "",
+          position: 2
+        },
+        {
+          id: "done",
+          projectId: "p1",
+          stageId: "stage-a",
+          title: "Completed task",
+          description: "",
+          status: "done",
+          priority: null,
+          dueDate: null,
+          nextStep: "",
+          position: 0
+        },
+        {
+          id: "stage-a-later",
+          projectId: "p1",
+          stageId: "stage-a",
+          title: "First stage later",
+          description: "",
+          status: "todo",
+          priority: null,
+          dueDate: null,
+          nextStep: "",
+          position: 2
+        },
+        {
+          id: "current",
+          projectId: "p1",
+          stageId: "stage-b",
+          title: "Current task",
+          description: "",
+          status: "active",
+          priority: null,
+          dueDate: null,
+          nextStep: "Continue current work",
+          position: 0
+        },
+        {
+          id: "stage-a-first",
+          projectId: "p1",
+          stageId: "stage-a",
+          title: "First stage first",
+          description: "",
+          status: "todo",
+          priority: null,
+          dueDate: null,
+          nextStep: "",
+          position: 1
+        }
+      ],
+      checklistItems: []
+    });
+
+    renderWithRouter(<App />);
+
+    const nextUp = await screen.findByLabelText("Next up");
+    expect(within(nextUp).getAllByRole("strong").map((item) => item.textContent)).toEqual([
+      "First stage first",
+      "First stage later",
+      "Second stage later"
+    ]);
+    expect(within(nextUp).queryByText("Current task")).not.toBeInTheDocument();
+    expect(within(nextUp).queryByText("Completed task")).not.toBeInTheDocument();
+  });
+
   it("shows saved projects after closing and can reopen the same project", async () => {
     const user = userEvent.setup();
     const firstProject = projectFixture({

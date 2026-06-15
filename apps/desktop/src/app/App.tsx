@@ -103,9 +103,22 @@ function buildTodayView(
   const stageId = resumeMatchesTask ? (resumeBrief?.stageId ?? resumeTask?.stageId) : resumeTask?.stageId;
   const stage =
     plan.stages.find((candidate) => candidate.id === stageId) ?? null;
-  const nextTasks = plan.tasks.filter(
-    (candidate) => candidate.status !== "done" && candidate.id !== resumeTask?.id
-  );
+  const stagePositions = new Map(plan.stages.map((candidate) => [candidate.id, candidate.position]));
+  const nextTasks = plan.tasks
+    .filter((candidate) => candidate.status !== "done" && candidate.id !== resumeTask?.id)
+    .sort((left, right) => {
+      const stagePositionDifference =
+        (stagePositions.get(left.stageId) ?? Number.MAX_SAFE_INTEGER) -
+        (stagePositions.get(right.stageId) ?? Number.MAX_SAFE_INTEGER);
+      const taskPositionDifference = left.position - right.position;
+
+      return (
+        stagePositionDifference ||
+        taskPositionDifference ||
+        left.stageId.localeCompare(right.stageId) ||
+        left.id.localeCompare(right.id)
+      );
+    });
 
   return buildResumeBriefView({
     task: resumeTask,
@@ -301,8 +314,12 @@ export function App() {
   const selectedTask =
     projectPlan.tasks.find((candidate) => candidate.id === selectedTaskId) ?? null;
   const todayTask =
-    projectPlan.tasks.find((candidate) => candidate.id === resumeBrief?.taskId) ??
-    projectPlan.tasks.find((candidate) => candidate.id === project?.activeTaskId) ??
+    projectPlan.tasks.find(
+      (candidate) => candidate.id === resumeBrief?.taskId && candidate.status !== "done"
+    ) ??
+    projectPlan.tasks.find(
+      (candidate) => candidate.id === project?.activeTaskId && candidate.status !== "done"
+    ) ??
     null;
   const markdownExport = project
     ? exportPlanMarkdown({
