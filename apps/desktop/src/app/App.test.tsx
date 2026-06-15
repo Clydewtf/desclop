@@ -139,6 +139,46 @@ function importedPlanFixture(projectId: string) {
   };
 }
 
+function activeProjectPlanFixture({
+  projectId,
+  stageTitle,
+  taskTitle,
+  nextStep
+}: {
+  projectId: string;
+  stageTitle: string;
+  taskTitle: string;
+  nextStep: string;
+}) {
+  return {
+    stages: [
+      {
+        id: `${projectId}-stage`,
+        projectId,
+        title: stageTitle,
+        description: "",
+        position: 0,
+        status: "current" as const
+      }
+    ],
+    tasks: [
+      {
+        id: `${projectId}-task`,
+        projectId,
+        stageId: `${projectId}-stage`,
+        title: taskTitle,
+        description: "",
+        status: "active" as const,
+        priority: null,
+        dueDate: null,
+        nextStep,
+        position: 0
+      }
+    ],
+    checklistItems: []
+  };
+}
+
 function twoTaskPlanFixture({
   firstStatus,
   secondStatus
@@ -311,6 +351,292 @@ describe("App", () => {
     expect(screen.getByText("1 recent commit on main")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue task" })).toBeEnabled();
     expect(screen.queryByText("Active task")).not.toBeInTheDocument();
+  });
+
+  it("shows saved projects after closing and can reopen the same project", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({
+      id: "p1",
+      name: "First Project",
+      activeTaskId: "p1-task"
+    });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project",
+      activeTaskId: "p2-task"
+    });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject, secondProject]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({
+        projectId: "p1",
+        taskId: "p1-task",
+        stageId: "p1-stage",
+        latestNote: "First project resume",
+        nextStep: "Continue first project"
+      })
+    );
+    loadProjectPlan.mockResolvedValue(
+      activeProjectPlanFixture({
+        projectId: "p1",
+        stageTitle: "First stage",
+        taskTitle: "First project task",
+        nextStep: "Continue first project"
+      })
+    );
+
+    renderWithRouter(<App />);
+
+    expect(await screen.findByRole("heading", { name: "First project task" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^(?:switch|close) project$/i }));
+
+    const firstProjectButton = await screen.findByRole("button", { name: "First Project" });
+    expect(screen.getByRole("button", { name: "Second Project" })).toBeInTheDocument();
+
+    await user.click(firstProjectButton);
+
+    await waitFor(() => {
+      expect(loadProjectPlan).toHaveBeenLastCalledWith("p1");
+    });
+    expect(await screen.findByRole("heading", { name: "First project task" })).toBeInTheDocument();
+  });
+
+  it("opens another saved project with its own plan, resume, and Git context", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({
+      id: "p1",
+      name: "First Project",
+      activeTaskId: "p1-task",
+      gitEnabled: true
+    });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project",
+      activeTaskId: "p2-task",
+      gitEnabled: true
+    });
+    const plans = {
+      p1: activeProjectPlanFixture({
+        projectId: "p1",
+        stageTitle: "First stage",
+        taskTitle: "First project task",
+        nextStep: "Continue first project"
+      }),
+      p2: activeProjectPlanFixture({
+        projectId: "p2",
+        stageTitle: "Second stage",
+        taskTitle: "Second project task",
+        nextStep: "Continue second project"
+      })
+    };
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject, secondProject]);
+    getResumeBrief.mockImplementation(async (projectId) =>
+      resumeBriefFixture({
+        id: `${projectId}-resume`,
+        projectId,
+        taskId: `${projectId}-task`,
+        stageId: `${projectId}-stage`,
+        latestNote: projectId === "p1" ? "First project resume" : "Second project resume",
+        nextStep: projectId === "p1" ? "Continue first project" : "Continue second project",
+        facts: []
+      })
+    );
+    loadProjectPlan.mockImplementation(async (projectId) => plans[projectId as keyof typeof plans]);
+    syncGitCommits.mockImplementation(async (projectId) => [
+      {
+        sha: projectId === "p1" ? "first123" : "second456",
+        projectId,
+        branch: "main",
+        message: projectId === "p1" ? "First project commit" : "Second project commit",
+        authorName: "Clyde",
+        committedAt: "2026-05-20T11:00:00Z",
+        changedFiles: [projectId === "p1" ? "first.ts" : "second.ts"]
+      }
+    ]);
+
+    renderWithRouter(<App />);
+
+    expect(await screen.findByRole("heading", { name: "First project task" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^(?:switch|close) project$/i }));
+    await user.click(await screen.findByRole("button", { name: "Second Project" }));
+
+    expect(await screen.findByRole("heading", { name: "Second project task" })).toBeInTheDocument();
+    expect(screen.getByText("Second stage")).toBeInTheDocument();
+    expect(screen.getByText("Second project resume")).toBeInTheDocument();
+    expect(screen.queryByText("First project task")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(getResumeBrief).toHaveBeenLastCalledWith("p2");
+      expect(loadProjectPlan).toHaveBeenLastCalledWith("p2");
+      expect(syncGitCommits).toHaveBeenLastCalledWith("p2");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Timeline" }));
+
+    expect(await screen.findByText("Second project commit")).toBeInTheDocument();
+    expect(screen.queryByText("First project commit")).not.toBeInTheDocument();
+  });
+
+  it("opens the existing project creation form from the saved-project list", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ name: "Existing Project" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /^(?:switch|close) project$/i }));
+    expect(screen.getByRole("button", { name: "Existing Project" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /create.*project/i }));
+
+    expect(screen.getByRole("heading", { name: "Create a local project" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Project name")).toBeEnabled();
+    expect(screen.getByLabelText("Local folder path")).toBeEnabled();
+  });
+
+  it("creates a project from the picker without losing saved projects", async () => {
+    const user = userEvent.setup();
+    const existingProject = projectFixture({ id: "p1", name: "Existing Project" });
+    const createdProject = projectFixture({
+      id: "p2",
+      name: "Created Project",
+      localPath: "/tmp/created-project",
+      activeTaskId: "p2-task"
+    });
+    enableTauriApi();
+    listProjects.mockResolvedValue([existingProject]);
+    createProject.mockResolvedValue(createdProject);
+    getResumeBrief.mockImplementation(async (projectId) =>
+      projectId === "p2"
+        ? resumeBriefFixture({
+            id: "p2-resume",
+            projectId: "p2",
+            taskId: "p2-task",
+            stageId: "p2-stage",
+            latestNote: "Created project resume",
+            nextStep: "Continue created project"
+          })
+        : emptyResumeBrief(projectId)
+    );
+    loadProjectPlan.mockImplementation(async (projectId) =>
+      projectId === "p2"
+        ? activeProjectPlanFixture({
+            projectId: "p2",
+            stageTitle: "Created stage",
+            taskTitle: "Created project task",
+            nextStep: "Continue created project"
+          })
+        : { stages: [], tasks: [], checklistItems: [] }
+    );
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Create new project" }));
+    await user.type(screen.getByLabelText("Project name"), "Created Project");
+    await user.type(screen.getByLabelText("Local folder path"), "/tmp/created-project");
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+
+    expect(createProject).toHaveBeenCalledWith({
+      name: "Created Project",
+      localPath: "/tmp/created-project",
+      gitEnabled: false
+    });
+    expect(
+      await screen.findByRole("heading", { name: "Created project task" })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Switch project" }));
+    expect(screen.getByRole("button", { name: "Existing Project" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Created Project" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Existing Project" }));
+    expect(
+      within(screen.getByRole("complementary", { name: "Application" })).getByText(
+        "Existing Project"
+      )
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Created Project" }));
+    expect(
+      await screen.findByRole("heading", { name: "Created project task" })
+    ).toBeInTheDocument();
+  });
+
+  it("ignores pending Timeline data after closing its project", async () => {
+    const user = userEvent.setup();
+    let resolveFirstProjectNotes: (notes: Awaited<ReturnType<typeof api.listNotesForProject>>) => void =
+      () => {};
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project"
+    });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject, secondProject]);
+    getResumeBrief.mockImplementation(async (projectId) => emptyResumeBrief(projectId));
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+    listNotesForProject
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirstProjectNotes = resolve;
+        })
+      )
+      .mockResolvedValue([]);
+    listWorkEntriesForProject.mockResolvedValue([]);
+    listInboxItemsForProject.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Timeline" }));
+    await waitFor(() => {
+      expect(listNotesForProject).toHaveBeenCalledWith("p1");
+    });
+    await user.click(screen.getByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Second Project" }));
+
+    expect(
+      within(screen.getByRole("complementary", { name: "Application" })).getByText(
+        "Second Project"
+      )
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirstProjectNotes([
+        {
+          id: "p1-note",
+          projectId: "p1",
+          taskId: null,
+          body: "First project stale timeline note",
+          createdAt: "2026-05-20T12:00:00Z"
+        }
+      ]);
+    });
+
+    expect(
+      within(screen.getByRole("complementary", { name: "Application" })).getByText(
+        "Second Project"
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText("First project stale timeline note")).not.toBeInTheDocument();
+  });
+
+  it("shows project creation directly when there are no saved projects", async () => {
+    enableTauriApi();
+    listProjects.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Create a local project" })
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Project name")).toBeEnabled();
+    expect(screen.getByLabelText("Local folder path")).toBeEnabled();
   });
 
   it("imports a markdown plan and opens Plan with refreshed stages", async () => {
@@ -548,6 +874,114 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
   });
 
+  it("ignores pending task context after switching projects", async () => {
+    const user = userEvent.setup();
+    let resolveFirstTaskNotes: (
+      notes: Awaited<ReturnType<typeof api.listNotesForTask>>
+    ) => void = () => {};
+    const firstProject = projectFixture({
+      id: "p1",
+      name: "First Project",
+      activeTaskId: "p1-task"
+    });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project",
+      activeTaskId: "p2-task"
+    });
+    enableTauriApi();
+    listProjects.mockResolvedValueOnce([firstProject, secondProject]);
+    getResumeBrief
+      .mockResolvedValueOnce(
+        resumeBriefFixture({
+          projectId: "p1",
+          taskId: "p1-task",
+          stageId: "p1-stage",
+          nextStep: "Continue first project"
+        })
+      )
+      .mockResolvedValueOnce(
+        resumeBriefFixture({
+          id: "p2-resume",
+          projectId: "p2",
+          taskId: "p2-task",
+          stageId: "p2-stage",
+          nextStep: "Continue second project"
+        })
+      );
+    loadProjectPlan
+      .mockResolvedValueOnce(
+        activeProjectPlanFixture({
+          projectId: "p1",
+          stageTitle: "First stage",
+          taskTitle: "First project task",
+          nextStep: "Continue first project"
+        })
+      )
+      .mockResolvedValueOnce(
+        activeProjectPlanFixture({
+          projectId: "p2",
+          stageTitle: "Second stage",
+          taskTitle: "Second project task",
+          nextStep: "Continue second project"
+        })
+      );
+    listNotesForTask
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFirstTaskNotes = resolve;
+        })
+      )
+      .mockResolvedValueOnce([
+        {
+          id: "p2-note",
+          projectId: "p2",
+          taskId: "p2-task",
+          body: "Second project task note",
+          createdAt: "2026-05-20T12:01:00Z"
+        }
+      ]);
+    listWorkEntriesForTask.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    listInboxItemsForTask.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+    listInboxItemsForProject.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await waitFor(() => {
+      expect(listNotesForTask).toHaveBeenCalledWith("p1", "p1-task");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Second Project" }));
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Second project task" })
+    ).toBeInTheDocument();
+    expect(await screen.findByText("Second project task note")).toBeInTheDocument();
+
+    await act(async () => {
+      resolveFirstTaskNotes([
+        {
+          id: "p1-note",
+          projectId: "p1",
+          taskId: "p1-task",
+          body: "Stale first project task note",
+          createdAt: "2026-05-20T12:00:00Z"
+        }
+      ]);
+    });
+
+    expect(screen.getByRole("complementary", { name: "Application" })).toHaveTextContent(
+      "Second Project"
+    );
+    expect(screen.getByRole("heading", { name: "Second project task" })).toBeInTheDocument();
+    expect(screen.getByText("Second project task note")).toBeInTheDocument();
+    expect(screen.queryByText("Stale first project task note")).not.toBeInTheDocument();
+  });
+
   it("activates a Plan task so Today can resume it", async () => {
     const user = userEvent.setup();
     const plan = importedPlanFixture("p1");
@@ -650,6 +1084,108 @@ describe("App", () => {
       expect(within(firstTaskRow as HTMLElement).getByText("To do")).toBeInTheDocument();
       expect(within(secondTaskRow as HTMLElement).getByText("Active")).toBeInTheDocument();
     });
+  });
+
+  it("ignores a pending task status refresh after switching projects", async () => {
+    const user = userEvent.setup();
+    let resolveStatusUpdate: () => void = () => {};
+    const firstProject = projectFixture({
+      id: "p1",
+      name: "First Project",
+      activeTaskId: "p1-task"
+    });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project",
+      activeTaskId: "p2-task"
+    });
+    const firstPlan = activeProjectPlanFixture({
+      projectId: "p1",
+      stageTitle: "First stage",
+      taskTitle: "First project task",
+      nextStep: "Continue first project"
+    });
+    const secondPlan = activeProjectPlanFixture({
+      projectId: "p2",
+      stageTitle: "Second stage",
+      taskTitle: "Second project task",
+      nextStep: "Continue second project"
+    });
+    const staleFirstPlan = activeProjectPlanFixture({
+      projectId: "p1",
+      stageTitle: "Stale first stage",
+      taskTitle: "Stale first project task",
+      nextStep: "Stale first next step"
+    });
+    enableTauriApi();
+    listProjects.mockResolvedValueOnce([firstProject, secondProject]);
+    getResumeBrief
+      .mockResolvedValueOnce(
+        resumeBriefFixture({
+          projectId: "p1",
+          taskId: "p1-task",
+          stageId: "p1-stage",
+          nextStep: "Continue first project"
+        })
+      )
+      .mockResolvedValueOnce(
+        resumeBriefFixture({
+          id: "p2-resume",
+          projectId: "p2",
+          taskId: "p2-task",
+          stageId: "p2-stage",
+          nextStep: "Continue second project"
+        })
+      )
+      .mockResolvedValueOnce(
+        resumeBriefFixture({
+          id: "p1-stale-resume",
+          projectId: "p1",
+          taskId: "p1-task",
+          stageId: "p1-stage",
+          latestNote: "Stale first resume",
+          nextStep: "Stale first next step"
+        })
+      );
+    loadProjectPlan
+      .mockResolvedValueOnce(firstPlan)
+      .mockResolvedValueOnce(secondPlan)
+      .mockResolvedValueOnce(staleFirstPlan);
+    listNotesForTask.mockResolvedValueOnce([]);
+    listWorkEntriesForTask.mockResolvedValueOnce([]);
+    listInboxItemsForTask.mockResolvedValueOnce([]);
+    listInboxItemsForProject.mockResolvedValueOnce([]);
+    vi.mocked(api.updateTaskStatus).mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveStatusUpdate = resolve;
+      })
+    );
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.selectOptions(screen.getByLabelText("Task status"), "blocked");
+    await waitFor(() => {
+      expect(api.updateTaskStatus).toHaveBeenCalledWith("p1-task", "blocked");
+    });
+
+    await user.click(screen.getByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Second Project" }));
+    expect(
+      await screen.findByRole("heading", { name: "Second project task" })
+    ).toBeInTheDocument();
+
+    await act(async () => {
+      resolveStatusUpdate();
+    });
+
+    expect(screen.getByRole("complementary", { name: "Application" })).toHaveTextContent(
+      "Second Project"
+    );
+    expect(screen.getByRole("heading", { name: "Second project task" })).toBeInTheDocument();
+    expect(screen.queryByText("Stale first project task")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stale first resume")).not.toBeInTheDocument();
   });
 
   it("captures inbox items from Today", async () => {
@@ -1625,6 +2161,63 @@ describe("App", () => {
         "# Imported Project Plan"
       );
     });
+  });
+
+  it("does not reopen a portable import that finishes after closing its project", async () => {
+    const user = userEvent.setup();
+    let resolvePortableImport: (projectId: string) => void = () => {};
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project"
+    });
+    const importedProject = projectFixture({
+      id: "p3",
+      name: "Imported Project",
+      localPath: "/tmp/imported-project"
+    });
+    enableTauriApi();
+    listProjects
+      .mockResolvedValueOnce([firstProject, secondProject])
+      .mockResolvedValueOnce([firstProject, secondProject, importedProject]);
+    getResumeBrief.mockImplementation(async (projectId) => emptyResumeBrief(projectId));
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+    importProjectBundle.mockReturnValue(
+      new Promise((resolve) => {
+        resolvePortableImport = resolve;
+      })
+    );
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Export / Import" }));
+    await user.type(
+      screen.getByLabelText("Bundle folder"),
+      "/tmp/desclop-bundle/Imported.desclop"
+    );
+    await user.type(screen.getByLabelText("Reselected local folder path"), "/tmp/imported-project");
+    await user.click(screen.getByRole("button", { name: "Import portable bundle" }));
+    await waitFor(() => {
+      expect(importProjectBundle).toHaveBeenCalledWith(
+        "/tmp/desclop-bundle/Imported.desclop",
+        "/tmp/imported-project"
+      );
+    });
+
+    await user.click(screen.getByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Second Project" }));
+
+    await act(async () => {
+      resolvePortableImport("p3");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("complementary", { name: "Application" })).toHaveTextContent(
+        "Second Project"
+      );
+    });
+    expect(screen.queryByText("Imported Project")).not.toBeInTheDocument();
   });
 
   it("opens Timeline with task notes and work facts", async () => {

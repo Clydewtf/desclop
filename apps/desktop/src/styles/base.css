@@ -143,6 +143,21 @@ select {
   max-width: 560px;
 }
 
+.project-picker,
+.project-picker__list {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.project-picker__project {
+  justify-content: space-between;
+}
+
+.project-picker__action {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
 .stack {
   display: grid;
   gap: var(--space-4);

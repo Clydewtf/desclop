@@ -41,6 +41,31 @@ describe("AppShell", () => {
     expect(onQuickCapture).toHaveBeenCalledTimes(1);
   });
 
+  it("renders a project action in the Project section and closes the current project", async () => {
+    const user = userEvent.setup();
+    const onCloseProject = vi.fn();
+
+    render(
+      <AppShell
+        activeDestination="today"
+        projectName="Desclop"
+        onCloseProject={onCloseProject}
+      >
+        <h1>Today</h1>
+      </AppShell>
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    const projectSection = within(nav).getByRole("region", { name: "Project" });
+    const projectAction = within(projectSection).getByRole("button", {
+      name: /^(?:switch|close) project$/i
+    });
+
+    await user.click(projectAction);
+
+    expect(onCloseProject).toHaveBeenCalledTimes(1);
+  });
+
   it("renders setup state without project-only destinations", () => {
     render(
       <AppShell activeDestination="setup">

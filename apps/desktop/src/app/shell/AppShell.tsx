@@ -18,6 +18,7 @@ interface AppShellProps {
   projectStatus?: string | null;
   onNavigate?: (destination: AppDestination) => void;
   onQuickCapture?: () => void;
+  onCloseProject?: () => void;
   children: ReactNode;
 }
 
@@ -44,6 +45,7 @@ export function AppShell({
   projectStatus,
   onNavigate,
   onQuickCapture,
+  onCloseProject,
   children
 }: AppShellProps) {
   const hasProject = Boolean(projectName);
@@ -94,7 +96,16 @@ export function AppShell({
                 <div className="app-nav__heading" id="app-nav-project">
                   Project
                 </div>
-                <div className="app-nav__items">{projectDestinations.map(renderDestinationButton)}</div>
+                <div className="app-nav__items">
+                  {projectDestinations.map(renderDestinationButton)}
+                  <Button
+                    variant="ghost"
+                    className="app-nav__button"
+                    onClick={onCloseProject}
+                  >
+                    Switch project
+                  </Button>
+                </div>
               </section>
             </nav>
           </>

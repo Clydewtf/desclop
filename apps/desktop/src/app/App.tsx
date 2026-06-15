@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import "../styles/base.css";
 import { exportPlanMarkdown } from "../features/export-import/markdownExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
@@ -6,6 +6,7 @@ import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImpor
 import { parseMarkdownPlan, type ParsedMarkdownPlan } from "../features/markdown-import/markdownParser";
 import { Planner } from "../features/planner/Planner";
 import { buildPlannerFrames } from "../features/planner/plannerEngine";
+import { ProjectPicker } from "../features/project-setup/ProjectPicker";
 import { ProjectSetup } from "../features/project-setup/ProjectSetup";
 import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDetail";
 import { Timeline } from "../features/timeline/Timeline";
@@ -132,7 +133,10 @@ function activeDestinationForScreen(screen: AppScreen): AppDestination {
 }
 
 export function App() {
+  const projectContextRevision = useRef(0);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [setupMode, setSetupMode] = useState<"picker" | "create">("picker");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [resumeError, setResumeError] = useState<string | null>(null);
@@ -168,6 +172,53 @@ export function App() {
   const [portableStatus, setPortableStatus] = useState<string | null>(null);
   const [portableError, setPortableError] = useState<string | null>(null);
 
+  function invalidateProjectContext() {
+    projectContextRevision.current += 1;
+    return projectContextRevision.current;
+  }
+
+  function isCurrentProjectContext(revision: number) {
+    return projectContextRevision.current === revision;
+  }
+
+  function resetProjectContext() {
+    setSelectedProjectId(null);
+    setLoadError(null);
+    setResumeError(null);
+    setGitError(null);
+    setGitCommits([]);
+    setResumeBrief(null);
+    setProjectPlan({ stages: [], tasks: [], checklistItems: [] });
+    setCreateError(null);
+    setScreen("today");
+    setSelectedTaskId(null);
+    setSelectedNotes([]);
+    setSelectedWorkEntries([]);
+    setSelectedLinkedCommits([]);
+    setSelectedInboxItems([]);
+    setTimelineNotes([]);
+    setTimelineWorkEntries([]);
+    setTimelineInboxItems([]);
+    setTimelineError(null);
+    setFocusSession(null);
+    setManualReviewTaskId(null);
+    setMarkdownDraft("");
+    setParsedPlan(null);
+    setImportError(null);
+    setImporting(false);
+    setBundleDestination("");
+    setBundleFolder("");
+    setReselectedLocalPath("");
+    setPortableStatus(null);
+    setPortableError(null);
+  }
+
+  function beginProjectLoad() {
+    const revision = invalidateProjectContext();
+    resetProjectContext();
+    return revision;
+  }
+
   const loadProjects = useCallback(async () => {
     if (!hasTauriInternals()) {
       setProjects([]);
@@ -182,43 +233,17 @@ export function App() {
     setGitError(null);
     try {
       const loadedProjects = await api.listProjects();
+      setProjects(loadedProjects);
       if (loadedProjects[0]) {
-        const activeProject = loadedProjects[0];
-        let resumeResult: ResumeLoadResult;
-        let gitResult: GitLoadResult;
-        let plan: ProjectPlanPayload;
         try {
-          [resumeResult, gitResult, plan] = await Promise.all([
-            loadResumeBrief(activeProject.id),
-            loadGitCommits(activeProject),
-            api.loadProjectPlan(activeProject.id)
-          ]);
+          await loadProjectIntoState(loadedProjects[0], loadedProjects);
         } catch {
           setLoadError("Could not load project plan.");
           return;
         }
-        setProjects(loadedProjects);
-        setResumeBrief(resumeResult.brief);
-        setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
-        setGitCommits(gitResult.commits);
-        setGitError(gitResult.unavailable ? "Git unavailable." : null);
-        setProjectPlan(plan);
-        setSelectedInboxItems([]);
-        setTimelineNotes([]);
-        setTimelineWorkEntries([]);
-        setTimelineInboxItems([]);
       } else {
-        setProjects(loadedProjects);
-        setResumeBrief(null);
-        setResumeError(null);
-        setGitCommits([]);
-        setGitError(null);
-        setSelectedLinkedCommits([]);
-        setSelectedInboxItems([]);
-        setTimelineNotes([]);
-        setTimelineWorkEntries([]);
-        setTimelineInboxItems([]);
-        setProjectPlan({ stages: [], tasks: [], checklistItems: [] });
+        resetProjectContext();
+        setSetupMode("create");
       }
     } catch {
       setLoadError("Could not load projects.");
@@ -254,35 +279,16 @@ export function App() {
     setGitError(null);
     try {
       const project = await api.createProject(input);
-      let resumeResult: ResumeLoadResult;
-      let gitResult: GitLoadResult;
-      let plan: ProjectPlanPayload;
       try {
-        [resumeResult, gitResult, plan] = await Promise.all([
-          loadResumeBrief(project.id),
-          loadGitCommits(project),
-          api.loadProjectPlan(project.id)
-        ]);
+        const nextProjects = [
+          ...projects.filter((candidate) => candidate.id !== project.id),
+          project
+        ];
+        await loadProjectIntoState(project, nextProjects);
       } catch {
         setLoadError("Could not load project plan.");
         return;
       }
-      setProjects([project]);
-      setResumeBrief(resumeResult.brief);
-      setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
-      setGitCommits(gitResult.commits);
-      setGitError(gitResult.unavailable ? "Git unavailable." : null);
-      setProjectPlan(plan);
-      setScreen("today");
-      setSelectedTaskId(null);
-      setSelectedNotes([]);
-      setSelectedWorkEntries([]);
-      setSelectedLinkedCommits([]);
-      setSelectedInboxItems([]);
-      setTimelineNotes([]);
-      setTimelineWorkEntries([]);
-      setTimelineInboxItems([]);
-      setFocusSession(null);
     } catch {
       setCreateError("Could not create project.");
     } finally {
@@ -290,7 +296,8 @@ export function App() {
     }
   }
 
-  const project = projects[0] ?? null;
+  const project =
+    projects.find((candidate) => candidate.id === selectedProjectId) ?? null;
   const selectedTask =
     projectPlan.tasks.find((candidate) => candidate.id === selectedTaskId) ?? null;
   const todayTask =
@@ -306,9 +313,9 @@ export function App() {
       })
     : "";
 
-  async function loadTaskContext(taskId: string) {
+  async function loadTaskContext(taskId: string, revision: number) {
     if (!project) {
-      return;
+      return false;
     }
 
     const [notes, workEntries, linkedCommits, taskInboxItems, projectInboxItems] = await Promise.all([
@@ -320,6 +327,9 @@ export function App() {
       loadListOrEmpty(() => api.listInboxItemsForTask(project.id, taskId)),
       loadListOrEmpty(() => api.listInboxItemsForProject(project.id))
     ]);
+    if (!isCurrentProjectContext(revision)) {
+      return false;
+    }
     setSelectedNotes(notes);
     setSelectedWorkEntries(workEntries);
     setSelectedLinkedCommits(linkedCommits);
@@ -327,28 +337,56 @@ export function App() {
       ...taskInboxItems,
       ...projectInboxItems.filter((item) => item.status === "open" && item.taskId === null)
     ]);
+    return true;
   }
 
-  async function refreshProjectData(projectId: string) {
-    const [plan, resumeResult] = await Promise.all([
-      api.loadProjectPlan(projectId),
-      loadResumeBrief(projectId)
-    ]);
+  async function refreshProjectData(projectId: string, revision: number) {
+    let plan: ProjectPlanPayload;
+    let resumeResult: ResumeLoadResult;
+    try {
+      [plan, resumeResult] = await Promise.all([
+        api.loadProjectPlan(projectId),
+        loadResumeBrief(projectId)
+      ]);
+    } catch (error) {
+      if (!isCurrentProjectContext(revision)) {
+        return false;
+      }
+      throw error;
+    }
+    if (!isCurrentProjectContext(revision)) {
+      return false;
+    }
     setProjectPlan(plan);
     setResumeBrief(resumeResult.brief);
     setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
+    return true;
   }
 
-  async function loadProjectIntoState(activeProject: Project, loadedProjects: Project[]) {
-    const [resumeResult, gitResult, plan] = await Promise.all([
-      loadResumeBrief(activeProject.id),
-      loadGitCommits(activeProject),
-      api.loadProjectPlan(activeProject.id)
-    ]);
-    setProjects([
-      activeProject,
-      ...loadedProjects.filter((candidate) => candidate.id !== activeProject.id)
-    ]);
+  async function loadProjectIntoState(
+    activeProject: Project,
+    loadedProjects: Project[],
+    revision = beginProjectLoad()
+  ) {
+    let resumeResult: ResumeLoadResult;
+    let gitResult: GitLoadResult;
+    let plan: ProjectPlanPayload;
+    try {
+      [resumeResult, gitResult, plan] = await Promise.all([
+        loadResumeBrief(activeProject.id),
+        loadGitCommits(activeProject),
+        api.loadProjectPlan(activeProject.id)
+      ]);
+    } catch (error) {
+      if (!isCurrentProjectContext(revision)) {
+        return null;
+      }
+      throw error;
+    }
+    if (!isCurrentProjectContext(revision)) {
+      return null;
+    }
+    setProjects(loadedProjects);
     setResumeBrief(resumeResult.brief);
     setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
     setGitCommits(gitResult.commits);
@@ -363,14 +401,36 @@ export function App() {
     setTimelineWorkEntries([]);
     setTimelineInboxItems([]);
     setFocusSession(null);
+    setScreen("today");
+    setSetupMode("picker");
+    setSelectedProjectId(activeProject.id);
+    return revision;
   }
 
-  async function activateTask(taskId: string) {
+  async function openSavedProject(projectToOpen: Project) {
+    try {
+      await loadProjectIntoState(projectToOpen, projects);
+    } catch {
+      setSelectedProjectId(null);
+      setLoadError("Could not load project plan.");
+    }
+  }
+
+  function closeProject() {
+    invalidateProjectContext();
+    resetProjectContext();
+    setSetupMode("picker");
+  }
+
+  async function activateTask(taskId: string, revision: number) {
     if (!project) {
-      return;
+      return false;
     }
 
     await api.setActiveTask(project.id, taskId);
+    if (!isCurrentProjectContext(revision)) {
+      return false;
+    }
     const activatedTask = projectPlan.tasks.find((candidate) => candidate.id === taskId) ?? null;
 
     setProjects((currentProjects) =>
@@ -400,14 +460,32 @@ export function App() {
           }
         : brief
     );
+    return true;
   }
 
-  async function openTask(taskId: string, options: { activate?: boolean } = {}) {
+  async function openTask(
+    taskId: string,
+    options: { activate?: boolean } = {},
+    revision = projectContextRevision.current
+  ) {
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
     if (options.activate) {
-      await activateTask(taskId);
+      if (!(await activateTask(taskId, revision))) {
+        return;
+      }
+    }
+    if (!isCurrentProjectContext(revision)) {
+      return;
     }
     setSelectedTaskId(taskId);
-    await loadTaskContext(taskId);
+    if (!(await loadTaskContext(taskId, revision))) {
+      return;
+    }
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
     setScreen("task-detail");
   }
 
@@ -422,6 +500,8 @@ export function App() {
       return;
     }
 
+    const revision = projectContextRevision.current;
+
     setTimelineError(null);
     setTimelineNotes([]);
     setTimelineWorkEntries([]);
@@ -432,11 +512,17 @@ export function App() {
         loadListOrEmpty(() => api.listWorkEntriesForProject(project.id)),
         loadListOrEmpty(() => api.listInboxItemsForProject(project.id))
       ]);
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
       setTimelineNotes(notes);
       setTimelineWorkEntries(workEntries);
       setTimelineInboxItems(inboxItems);
       setScreen("timeline");
     } catch {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
       setTimelineError("Timeline unavailable.");
     }
   }
@@ -471,17 +557,27 @@ export function App() {
   }
 
   async function changeTaskStatus(taskId: string, status: TaskStatus) {
+    const revision = projectContextRevision.current;
     await api.updateTaskStatus(taskId, status);
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
     if (project) {
-      await refreshProjectData(project.id);
+      if (!(await refreshProjectData(project.id, revision))) {
+        return;
+      }
     }
     if (selectedTaskId === taskId) {
-      await loadTaskContext(taskId);
+      await loadTaskContext(taskId, revision);
     }
   }
 
   async function toggleChecklistItem(itemId: string, completed: boolean) {
+    const revision = projectContextRevision.current;
     await api.updateChecklistItem(itemId, completed);
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
     setProjectPlan((plan) => ({
       ...plan,
       checklistItems: plan.checklistItems.map((item) =>
@@ -495,12 +591,20 @@ export function App() {
       return;
     }
 
+    const revision = projectContextRevision.current;
     const note = await api.addNote(project.id, taskId, body);
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
     setSelectedNotes((notes) => [...notes, note]);
   }
 
   async function saveNextStep(taskId: string, nextStep: string) {
+    const revision = projectContextRevision.current;
     await api.updateNextStep(taskId, nextStep);
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
     setProjectPlan((plan) => ({
       ...plan,
       tasks: plan.tasks.map((task) => (task.id === taskId ? { ...task, nextStep } : task))
@@ -511,13 +615,21 @@ export function App() {
   }
 
   async function unlinkCommit(commitSha: string, taskId: string) {
+    const revision = projectContextRevision.current;
     await api.unlinkCommit(commitSha, taskId);
-    await loadTaskContext(taskId);
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
+    await loadTaskContext(taskId, revision);
   }
 
   async function moveCommit(commitSha: string, fromTaskId: string, toTaskId: string) {
+    const revision = projectContextRevision.current;
     await api.moveCommitLink(commitSha, fromTaskId, toTaskId);
-    await loadTaskContext(fromTaskId);
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
+    await loadTaskContext(fromTaskId, revision);
   }
 
   function startFocus(input: StartFocusInput) {
@@ -557,11 +669,15 @@ export function App() {
       return;
     }
 
+    const revision = projectContextRevision.current;
     const item = await api.captureInboxItem({
       projectId: project.id,
       body: input.body,
       kind: input.kind
     });
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
     if (screen === "task-detail" && selectedTask) {
       setSelectedInboxItems((items) => {
         const nextItems = items.filter((candidate) => candidate.id !== item.id);
@@ -583,10 +699,12 @@ export function App() {
       return;
     }
 
+    const revision = projectContextRevision.current;
+    const focusTaskId = focusSession.taskId;
     const endedAtMs = focusSession.endedAtMs ?? Date.now();
     const workEntry = await api.createWorkEntry({
       projectId: project.id,
-      taskId: focusSession.taskId,
+      taskId: focusTaskId,
       source: "focus",
       startedAt: new Date(focusSession.startedAtMs).toISOString(),
       endedAt: new Date(endedAtMs).toISOString(),
@@ -596,16 +714,19 @@ export function App() {
       nextStep: input.nextStep
     });
 
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
     setSelectedWorkEntries((entries) => [...entries, workEntry]);
     if (input.nextStep) {
       setProjectPlan((plan) => ({
         ...plan,
         tasks: plan.tasks.map((task) =>
-          task.id === focusSession.taskId ? { ...task, nextStep: input.nextStep } : task
+          task.id === focusTaskId ? { ...task, nextStep: input.nextStep } : task
         )
       }));
       setResumeBrief((brief) =>
-        brief?.taskId === focusSession.taskId ? { ...brief, nextStep: input.nextStep } : brief
+        brief?.taskId === focusTaskId ? { ...brief, nextStep: input.nextStep } : brief
       );
     }
     setScreen("task-detail");
@@ -621,6 +742,7 @@ export function App() {
       return;
     }
 
+    const revision = projectContextRevision.current;
     const taskId = manualReviewTaskId;
     await api.createWorkEntry({
       projectId: project.id,
@@ -634,10 +756,18 @@ export function App() {
       nextStep: input.nextStep
     });
 
-    await refreshProjectData(project.id);
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
+    if (!(await refreshProjectData(project.id, revision))) {
+      return;
+    }
     if (taskId) {
-      await openTask(taskId);
+      await openTask(taskId, {}, revision);
     } else {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
       setScreen("today");
     }
   }
@@ -652,15 +782,24 @@ export function App() {
       return;
     }
 
+    const revision = projectContextRevision.current;
     setImporting(true);
     setImportError(null);
     try {
       await api.importPlan(project.id, parsedPlan.stages);
-      await refreshProjectData(project.id);
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      if (!(await refreshProjectData(project.id, revision))) {
+        return;
+      }
       setMarkdownDraft("");
       setParsedPlan(null);
       setScreen("plan");
     } catch (error) {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
       const message = error instanceof Error ? error.message : String(error);
       if (message.includes("Plan already has task history")) {
         setImportError("Could not import plan without losing existing task history.");
@@ -668,7 +807,9 @@ export function App() {
         setImportError("Could not import plan.");
       }
     } finally {
-      setImporting(false);
+      if (isCurrentProjectContext(revision)) {
+        setImporting(false);
+      }
     }
   }
 
@@ -685,18 +826,26 @@ export function App() {
       return;
     }
 
+    const revision = projectContextRevision.current;
     setPortableError(null);
     setPortableStatus(null);
     try {
       const exportedPath = await api.exportProjectBundle(project.id, destination);
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
       setPortableStatus(`Exported portable bundle to ${exportedPath}`);
     } catch {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
       setPortableError("Could not export portable bundle.");
     }
   }
 
   async function importPortableBundle(event: FormEvent) {
     event.preventDefault();
+    let revision = projectContextRevision.current;
     const source = bundleFolder.trim();
     const localPath = reselectedLocalPath.trim();
     if (!source || !localPath) {
@@ -709,16 +858,34 @@ export function App() {
     setPortableStatus(null);
     try {
       const importedProjectId = await api.importProjectBundle(source, localPath);
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
       const loadedProjects = await api.listProjects();
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
       const importedProject = loadedProjects.find(
         (candidate) => candidate.id === importedProjectId
       );
       if (!importedProject) {
         throw new Error("Imported project was not returned by list_projects.");
       }
-      await loadProjectIntoState(importedProject, loadedProjects);
+      revision = beginProjectLoad();
+      const loadedRevision = await loadProjectIntoState(
+        importedProject,
+        loadedProjects,
+        revision
+      );
+      if (loadedRevision === null || !isCurrentProjectContext(loadedRevision)) {
+        return;
+      }
+      setScreen("utilities");
       setPortableStatus("Imported portable project.");
     } catch {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
       setPortableError("Could not import portable bundle.");
     }
   }
@@ -967,6 +1134,29 @@ export function App() {
     );
   }
 
+  if (!project) {
+    return (
+      <AppShell activeDestination="setup">
+        {setupMode === "create" ? (
+          <ProjectSetup
+            creating={creating}
+            error={createError}
+            onCreate={createProject}
+          />
+        ) : (
+          <ProjectPicker
+            projects={projects}
+            onOpenProject={openSavedProject}
+            onCreateProject={() => {
+              setCreateError(null);
+              setSetupMode("create");
+            }}
+          />
+        )}
+      </AppShell>
+    );
+  }
+
   return (
     <AppShell
       activeDestination={activeDestinationForScreen(screen)}
@@ -974,6 +1164,7 @@ export function App() {
       projectStatus={resumeError || gitError ? [resumeError, gitError].filter(Boolean).join(" ") : null}
       onNavigate={handleNavigate}
       onQuickCapture={() => setScreen("today")}
+      onCloseProject={closeProject}
     >
       {resumeError || gitError ? (
         <InlineAlert tone="warning">
