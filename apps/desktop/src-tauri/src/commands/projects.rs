@@ -29,3 +29,11 @@ pub fn create_project(
         .create_project(input.name, input.local_path, input.git_enabled)
         .map_err(|err| err.to_string())
 }
+
+#[tauri::command]
+pub fn delete_project(project_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    ProjectRepository::new(&conn)
+        .delete_project(&project_id)
+        .map_err(|err| err.to_string())
+}
