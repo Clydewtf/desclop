@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { type Project } from "../../shared/domain/types";
 import { Button, InlineAlert, ScreenHeader, Surface } from "../../shared/ui";
 
@@ -6,9 +6,9 @@ interface ProjectPickerProps {
   projects: Project[];
   onOpenProject: (project: Project) => void | Promise<void>;
   onCreateProject: () => void;
-  onDeleteProject: (project: Project) => void | Promise<void>;
-  deletingProjectId: string | null;
-  deleteError: string | null;
+  onDeleteProject?: (project: Project) => void | Promise<void>;
+  deletingProjectId?: string | null;
+  deleteError?: string | null;
 }
 
 export function ProjectPicker({
@@ -16,13 +16,59 @@ export function ProjectPicker({
   onOpenProject,
   onCreateProject,
   onDeleteProject,
-  deletingProjectId,
-  deleteError
+  deletingProjectId = null,
+  deleteError = null
 }: ProjectPickerProps) {
   const [projectToDeleteId, setProjectToDeleteId] = useState<string | null>(null);
   const dialogTitleId = useId();
   const dialogDescriptionId = useId();
+  const deleteButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const projectToDelete = projects.find((project) => project.id === projectToDeleteId) ?? null;
+  const isDeletingProject = deletingProjectId === projectToDelete?.id;
+
+  useEffect(() => {
+    if (projectToDelete) {
+      dialogRef.current
+        ?.querySelector<HTMLButtonElement>('[data-dialog-action="cancel"]')
+        ?.focus();
+    } else {
+      deleteButtonRef.current?.focus();
+    }
+  }, [projectToDelete]);
+
+  function closeDeleteDialog() {
+    setProjectToDeleteId(null);
+  }
+
+  function handleDialogKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape" && !isDeletingProject) {
+      event.preventDefault();
+      closeDeleteDialog();
+      return;
+    }
+
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const focusableButtons = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")
+    );
+    const firstButton = focusableButtons[0];
+    const lastButton = focusableButtons.at(-1);
+    if (!firstButton || !lastButton) {
+      return;
+    }
+
+    if (event.shiftKey && document.activeElement === firstButton) {
+      event.preventDefault();
+      lastButton.focus();
+    } else if (!event.shiftKey && document.activeElement === lastButton) {
+      event.preventDefault();
+      firstButton.focus();
+    }
+  }
 
   return (
     <Surface ariaLabel="Saved projects" className="start-flow project-picker">
@@ -48,27 +94,34 @@ export function ProjectPicker({
               <span>{project.name}</span>
               <span className="project-picker__action">Open project</span>
             </Button>
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setProjectToDeleteId(project.id)}
-            >
-              Delete
-            </Button>
+            {onDeleteProject ? (
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={(event) => {
+                  deleteButtonRef.current = event.currentTarget;
+                  setProjectToDeleteId(project.id);
+                }}
+              >
+                Delete
+              </Button>
+            ) : null}
           </div>
         ))}
       </div>
       <Button type="button" onClick={onCreateProject}>
         Create new project
       </Button>
-      {projectToDelete ? (
+      {projectToDelete && onDeleteProject ? (
         <div className="project-picker__dialog-backdrop">
           <div
+            ref={dialogRef}
             className="project-picker__dialog"
             role="dialog"
             aria-modal="true"
             aria-labelledby={dialogTitleId}
             aria-describedby={dialogDescriptionId}
+            onKeyDown={handleDialogKeyDown}
           >
             <h2 id={dialogTitleId}>Delete project</h2>
             <p id={dialogDescriptionId}>
@@ -79,14 +132,15 @@ export function ProjectPicker({
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => setProjectToDeleteId(null)}
+                data-dialog-action="cancel"
+                onClick={closeDeleteDialog}
               >
                 Cancel
               </Button>
               <Button
                 type="button"
                 variant="danger"
-                disabled={deletingProjectId === projectToDelete.id}
+                disabled={isDeletingProject}
                 onClick={() => void onDeleteProject(projectToDelete)}
               >
                 Delete project

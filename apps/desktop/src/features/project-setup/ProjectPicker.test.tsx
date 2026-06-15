@@ -16,7 +16,15 @@ const project: Project = {
   updatedAt: "2026-06-15T00:00:00.000Z"
 };
 
+const secondProject: Project = {
+  ...project,
+  id: "project-456",
+  name: "Release Planning",
+  localPath: "/tmp/release-planning"
+};
+
 interface RenderPickerOptions {
+  projects?: Project[];
   onOpenProject?: (project: Project) => void | Promise<void>;
   onDeleteProject?: (project: Project) => void | Promise<void>;
   deletingProjectId?: string | null;
@@ -24,6 +32,7 @@ interface RenderPickerOptions {
 }
 
 function renderPicker({
+  projects = [project],
   onOpenProject = vi.fn(),
   onDeleteProject = vi.fn(),
   deletingProjectId = null,
@@ -31,7 +40,7 @@ function renderPicker({
 }: RenderPickerOptions = {}) {
   return renderWithRouter(
     <ProjectPicker
-      projects={[project]}
+      projects={projects}
       onOpenProject={onOpenProject}
       onCreateProject={vi.fn()}
       onDeleteProject={onDeleteProject}
@@ -42,6 +51,35 @@ function renderPicker({
 }
 
 describe("ProjectPicker", () => {
+  it("hides deletion controls when no delete callback is supplied", () => {
+    renderWithRouter(
+      <ProjectPicker
+        projects={[project]}
+        onOpenProject={vi.fn()}
+        onCreateProject={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+  });
+
+  it("renders a separate delete control for each project and confirms the selected project", async () => {
+    const user = userEvent.setup();
+
+    renderPicker({ projects: [project, secondProject] });
+
+    const firstProjectRow = screen.getByRole("group", { name: project.name });
+    const secondProjectRow = screen.getByRole("group", { name: secondProject.name });
+    expect(within(firstProjectRow).getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(within(secondProjectRow).getByRole("button", { name: "Delete" })).toBeInTheDocument();
+
+    await user.click(within(secondProjectRow).getByRole("button", { name: "Delete" }));
+
+    expect(screen.getByRole("dialog", { name: "Delete project" })).toHaveAccessibleDescription(
+      "Delete “Release Planning” from Desclop? Local project files will not be deleted."
+    );
+  });
+
   it("opens deletion confirmation without opening the project", async () => {
     const user = userEvent.setup();
     const onOpenProject = vi.fn();
@@ -72,12 +110,14 @@ describe("ProjectPicker", () => {
     const onDeleteProject = vi.fn();
 
     renderPicker({ onOpenProject, onDeleteProject });
-    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    await user.click(deleteButton);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(onDeleteProject).not.toHaveBeenCalled();
     expect(onOpenProject).not.toHaveBeenCalled();
+    expect(deleteButton).toHaveFocus();
   });
 
   it("confirms project deletion once", async () => {
@@ -99,6 +139,63 @@ describe("ProjectPicker", () => {
     await user.click(screen.getByRole("button", { name: "Delete" }));
 
     expect(screen.getByRole("button", { name: "Delete project" })).toBeDisabled();
+  });
+
+  it("keeps confirmation enabled when another project is being deleted", async () => {
+    const user = userEvent.setup();
+
+    renderPicker({ deletingProjectId: secondProject.id });
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(screen.getByRole("button", { name: "Delete project" })).toBeEnabled();
+  });
+
+  it("focuses Cancel when the confirmation opens", async () => {
+    const user = userEvent.setup();
+
+    renderPicker();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+
+    expect(screen.getByRole("button", { name: "Cancel" })).toHaveFocus();
+  });
+
+  it("closes on Escape and restores focus to the opening delete button", async () => {
+    const user = userEvent.setup();
+
+    renderPicker();
+    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    await user.click(deleteButton);
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(deleteButton).toHaveFocus();
+  });
+
+  it("does not close on Escape while deletion is pending", async () => {
+    const user = userEvent.setup();
+
+    renderPicker({ deletingProjectId: project.id });
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByRole("dialog", { name: "Delete project" })).toBeInTheDocument();
+  });
+
+  it("traps forward and backward tab focus within the confirmation", async () => {
+    const user = userEvent.setup();
+
+    renderPicker();
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    const cancelButton = screen.getByRole("button", { name: "Cancel" });
+    const confirmButton = screen.getByRole("button", { name: "Delete project" });
+
+    expect(cancelButton).toHaveFocus();
+    await user.tab();
+    expect(confirmButton).toHaveFocus();
+    await user.tab();
+    expect(cancelButton).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(confirmButton).toHaveFocus();
   });
 
   it("shows a supplied deletion error while keeping the project available", async () => {
