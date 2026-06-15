@@ -100,9 +100,8 @@ function buildTodayView(
     task && resumeMatchesTask
       ? { ...task, nextStep: task.nextStep || resumeBrief.nextStep }
       : task;
-  const stageId = resumeMatchesTask ? (resumeBrief?.stageId ?? resumeTask?.stageId) : resumeTask?.stageId;
   const stage =
-    plan.stages.find((candidate) => candidate.id === stageId) ?? null;
+    plan.stages.find((candidate) => candidate.id === resumeTask?.stageId) ?? null;
   const stagePositions = new Map(plan.stages.map((candidate) => [candidate.id, candidate.position]));
   const nextTasks = plan.tasks
     .filter((candidate) => candidate.status !== "done" && candidate.id !== resumeTask?.id)
@@ -123,8 +122,9 @@ function buildTodayView(
   return buildResumeBriefView({
     task: resumeTask,
     stage,
-    latestNote: resumeBrief?.latestNote ?? "",
-    precomputedFacts: resumeBrief?.facts.length ? resumeBrief.facts : undefined,
+    latestNote: resumeMatchesTask ? resumeBrief.latestNote : "",
+    precomputedFacts:
+      resumeMatchesTask && resumeBrief.facts.length ? resumeBrief.facts : undefined,
     commits,
     workEntries: [],
     inboxItems: [],

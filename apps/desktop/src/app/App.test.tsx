@@ -373,12 +373,29 @@ describe("App", () => {
   it("uses a non-done project active task when the resume task is done", async () => {
     enableTauriApi();
     listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t2" })]);
-    getResumeBrief.mockResolvedValue(resumeBriefFixture({ taskId: "t1", stageId: "s1" }));
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({
+        taskId: "t1",
+        stageId: "s1",
+        latestNote: "Stale completed-task note",
+        facts: ["Stale completed-task fact"]
+      })
+    );
     const plan = twoTaskPlanFixture({ firstStatus: "done", secondStatus: "active" });
     loadProjectPlan.mockResolvedValue({
       ...plan,
+      stages: [
+        ...plan.stages,
+        {
+          ...plan.stages[0],
+          id: "s2",
+          title: "Active task stage",
+          position: 1
+        }
+      ],
       tasks: plan.tasks.map((task) => ({
         ...task,
+        stageId: task.id === "t2" ? "s2" : task.stageId,
         title: task.id === "t1" ? "Completed resume task" : "Valid active task",
         nextStep: task.id === "t2" ? "Continue valid work" : ""
       }))
@@ -388,7 +405,37 @@ describe("App", () => {
 
     const currentTask = await screen.findByLabelText("Current task");
     expect(within(currentTask).getByRole("heading", { name: "Valid active task" })).toBeInTheDocument();
+    expect(within(currentTask).getByText("Active task stage")).toBeInTheDocument();
     expect(within(currentTask).queryByText("Completed resume task")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stale completed-task note")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stale completed-task fact")).not.toBeInTheDocument();
+  });
+
+  it("uses the selected task stage when the matching resume stage is stale", async () => {
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(resumeBriefFixture({ taskId: "t1", stageId: "stale-stage" }));
+    const plan = importedPlanFixture("p1");
+    loadProjectPlan.mockResolvedValue({
+      ...plan,
+      stages: [
+        ...plan.stages,
+        {
+          ...plan.stages[0],
+          id: "stale-stage",
+          title: "Stale resume stage",
+          position: 1,
+          status: "future"
+        }
+      ],
+      tasks: [{ ...plan.tasks[0], nextStep: "Continue current work" }]
+    });
+
+    renderWithRouter(<App />);
+
+    const currentTask = await screen.findByLabelText("Current task");
+    expect(within(currentTask).getByText("Foundation")).toBeInTheDocument();
+    expect(within(currentTask).queryByText("Stale resume stage")).not.toBeInTheDocument();
   });
 
   it("orders Next up by stage and task position while excluding current and done tasks", async () => {
@@ -411,7 +458,7 @@ describe("App", () => {
           title: "First stage",
           description: "",
           position: 0,
-          status: "todo"
+          status: "future"
         }
       ],
       tasks: [
