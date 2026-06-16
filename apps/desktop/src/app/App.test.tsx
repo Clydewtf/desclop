@@ -858,6 +858,58 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Delete project" })).toBeEnabled();
   });
 
+  it("keeps the picker visible when fallback project loading fails after deletion", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project"
+    });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject, secondProject]);
+    deleteProject.mockResolvedValue(undefined);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan
+      .mockResolvedValueOnce({ stages: [], tasks: [], checklistItems: [] })
+      .mockRejectedValueOnce(new Error("plan unavailable"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Delete First Project" }));
+    await user.click(screen.getByRole("button", { name: "Delete project" }));
+
+    expect(await screen.findByRole("button", { name: "Second Project" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Project loading failed" })).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not load project plan.");
+    expect(screen.queryByRole("button", { name: "First Project" })).not.toBeInTheDocument();
+  });
+
+  it("clears a stale delete error when the same confirmation is reopened", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject]);
+    deleteProject.mockRejectedValueOnce(new Error("database unavailable"));
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Delete First Project" }));
+    await user.click(screen.getByRole("button", { name: "Delete project" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not delete project.");
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    await user.click(screen.getByRole("button", { name: "Delete First Project" }));
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(deleteProject).toHaveBeenCalledTimes(1);
+  });
+
   it("prevents duplicate project deletion requests while deletion is pending", async () => {
     const user = userEvent.setup();
     const firstProject = projectFixture({ id: "p1", name: "First Project" });

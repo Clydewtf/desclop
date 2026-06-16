@@ -27,6 +27,7 @@ interface RenderPickerOptions {
   projects?: Project[];
   onOpenProject?: (project: Project) => void | Promise<void>;
   onDeleteProject?: (project: Project) => void | Promise<void>;
+  onDeleteDialogChange?: (projectId: string | null) => void;
   deletingProjectId?: string | null;
   deleteError?: ProjectDeleteError | null;
 }
@@ -35,6 +36,7 @@ function renderPicker({
   projects = [project],
   onOpenProject = vi.fn(),
   onDeleteProject = vi.fn(),
+  onDeleteDialogChange = vi.fn(),
   deletingProjectId = null,
   deleteError = null
 }: RenderPickerOptions = {}) {
@@ -44,6 +46,7 @@ function renderPicker({
       onOpenProject={onOpenProject}
       onCreateProject={vi.fn()}
       onDeleteProject={onDeleteProject}
+      onDeleteDialogChange={onDeleteDialogChange}
       deletingProjectId={deletingProjectId}
       deleteError={deleteError}
     />
@@ -126,6 +129,19 @@ describe("ProjectPicker", () => {
     expect(onDeleteProject).not.toHaveBeenCalled();
     expect(onOpenProject).not.toHaveBeenCalled();
     expect(deleteButton).toHaveFocus();
+  });
+
+  it("notifies when the delete dialog opens and closes", async () => {
+    const user = userEvent.setup();
+    const onDeleteDialogChange = vi.fn();
+
+    renderPicker({ onDeleteDialogChange });
+
+    await user.click(screen.getByRole("button", { name: `Delete ${project.name}` }));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onDeleteDialogChange).toHaveBeenNthCalledWith(1, project.id);
+    expect(onDeleteDialogChange).toHaveBeenNthCalledWith(2, null);
   });
 
   it("confirms project deletion once", async () => {

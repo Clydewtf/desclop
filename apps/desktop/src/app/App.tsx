@@ -151,10 +151,12 @@ function activeDestinationForScreen(screen: AppScreen): AppDestination {
 export function App() {
   const projectContextRevision = useRef(0);
   const deleteProjectInFlight = useRef(false);
+  const projectsRef = useRef<Project[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<ProjectDeleteError | null>(null);
+  const [pickerError, setPickerError] = useState<string | null>(null);
   const [setupMode, setSetupMode] = useState<"picker" | "create">("picker");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -203,6 +205,7 @@ export function App() {
   function resetProjectContext() {
     setSelectedProjectId(null);
     setLoadError(null);
+    setPickerError(null);
     setResumeError(null);
     setGitError(null);
     setGitCommits([]);
@@ -242,12 +245,14 @@ export function App() {
     if (!hasTauriInternals()) {
       setProjects([]);
       setLoadError(null);
+      setPickerError(null);
       setLoading(false);
       return;
     }
 
     setLoading(true);
     setLoadError(null);
+    setPickerError(null);
     setResumeError(null);
     setGitError(null);
     try {
@@ -276,6 +281,10 @@ export function App() {
   }, [loadProjects]);
 
   useEffect(() => {
+    projectsRef.current = projects;
+  }, [projects]);
+
+  useEffect(() => {
     if (screen !== "focus") {
       return;
     }
@@ -300,7 +309,7 @@ export function App() {
       const project = await api.createProject(input);
       try {
         const nextProjects = [
-          ...projects.filter((candidate) => candidate.id !== project.id),
+          ...projectsRef.current.filter((candidate) => candidate.id !== project.id),
           project
         ];
         await loadProjectIntoState(project, nextProjects);
@@ -449,7 +458,7 @@ export function App() {
     setDeletingProjectId(projectToDelete.id);
     try {
       await api.deleteProject(projectToDelete.id);
-      const nextProjects = projects.filter(
+      const nextProjects = projectsRef.current.filter(
         (candidate) => candidate.id !== projectToDelete.id
       );
       const revision = beginProjectLoad();
@@ -465,7 +474,7 @@ export function App() {
         await loadProjectIntoState(fallbackProject, nextProjects, revision);
       } catch {
         setProjects(nextProjects);
-        setLoadError("Could not load project plan.");
+        setPickerError("Could not load project plan.");
       }
     } catch {
       setDeleteError({
@@ -1206,17 +1215,25 @@ export function App() {
             onCreate={createProject}
           />
         ) : (
-          <ProjectPicker
-            projects={projects}
-            onOpenProject={openSavedProject}
-            onDeleteProject={deleteSavedProject}
-            deletingProjectId={deletingProjectId}
-            deleteError={deleteError}
-            onCreateProject={() => {
-              setCreateError(null);
-              setSetupMode("create");
-            }}
-          />
+          <>
+            {pickerError ? <InlineAlert tone="error">{pickerError}</InlineAlert> : null}
+            <ProjectPicker
+              projects={projects}
+              onOpenProject={openSavedProject}
+              onDeleteProject={deleteSavedProject}
+              onDeleteDialogChange={(projectId) => {
+                if (!projectId || deleteError?.projectId === projectId) {
+                  setDeleteError(null);
+                }
+              }}
+              deletingProjectId={deletingProjectId}
+              deleteError={deleteError}
+              onCreateProject={() => {
+                setCreateError(null);
+                setSetupMode("create");
+              }}
+            />
+          </>
         )}
       </AppShell>
     );

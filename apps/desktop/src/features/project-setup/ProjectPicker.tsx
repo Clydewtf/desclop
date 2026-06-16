@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { type Project } from "../../shared/domain/types";
 import { Button, InlineAlert, ScreenHeader, Surface } from "../../shared/ui";
 
@@ -12,6 +12,7 @@ interface ProjectPickerProps {
   onOpenProject: (project: Project) => void | Promise<void>;
   onCreateProject: () => void;
   onDeleteProject?: (project: Project) => void | Promise<void>;
+  onDeleteDialogChange?: (projectId: string | null) => void;
   deletingProjectId?: string | null;
   deleteError?: ProjectDeleteError | null;
 }
@@ -21,6 +22,7 @@ export function ProjectPicker({
   onOpenProject,
   onCreateProject,
   onDeleteProject,
+  onDeleteDialogChange,
   deletingProjectId = null,
   deleteError = null
 }: ProjectPickerProps) {
@@ -36,6 +38,13 @@ export function ProjectPicker({
   const isDeletingProject = deletingProjectId === projectToDelete?.id;
   const projectDeleteError =
     deleteError && deleteError.projectId === projectToDelete?.id ? deleteError.message : null;
+
+  const notifyDeleteDialogChange = useCallback(
+    (projectId: string | null) => {
+      onDeleteDialogChange?.(projectId);
+    },
+    [onDeleteDialogChange]
+  );
 
   useEffect(() => {
     if (projectToDelete && onDeleteProject) {
@@ -74,14 +83,23 @@ export function ProjectPicker({
     shouldRestoreFocusRef.current = false;
     deleteButtonRef.current = null;
     if (projectToDeleteId) {
+      notifyDeleteDialogChange(null);
       setProjectToDeleteId(null);
     }
-  }, [isDeletingProject, onDeleteProject, projectToDelete, projectToDeleteId, projects]);
+  }, [
+    isDeletingProject,
+    notifyDeleteDialogChange,
+    onDeleteProject,
+    projectToDelete,
+    projectToDeleteId,
+    projects
+  ]);
 
   function closeDeleteDialog() {
     if (isDeletingProject) {
       return;
     }
+    notifyDeleteDialogChange(null);
     setProjectToDeleteId(null);
   }
 
@@ -151,6 +169,7 @@ export function ProjectPicker({
                   deleteButtonRef.current = event.currentTarget;
                   projectToDeleteIndexRef.current = projectIndex;
                   shouldRestoreFocusRef.current = true;
+                  notifyDeleteDialogChange(project.id);
                   setProjectToDeleteId(project.id);
                 }}
               >
