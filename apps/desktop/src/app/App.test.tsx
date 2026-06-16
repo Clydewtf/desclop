@@ -835,6 +835,7 @@ describe("App", () => {
     expect(
       await screen.findByRole("heading", { name: "Create a local project" })
     ).toBeInTheDocument();
+    expect(screen.getByLabelText("Project name")).toHaveFocus();
   });
 
   it("keeps a project visible and shows its deletion error when deletion fails", async () => {

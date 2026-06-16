@@ -65,6 +65,7 @@ export function ProjectSetup({ onCreate, creating = false, error }: ProjectSetup
           id="project-name"
           label="Project name"
           value={name}
+          autoFocus
           disabled={creating}
           onChange={(event) => setName(event.target.value)}
           aria-describedby={validationErrors.name ? "project-name-error" : undefined}
