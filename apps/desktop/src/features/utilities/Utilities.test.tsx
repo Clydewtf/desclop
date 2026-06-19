@@ -44,6 +44,24 @@ describe("Utilities", () => {
     expect(screen.getByLabelText("Markdown preview")).toHaveAttribute("readonly");
   });
 
+  it("shows portable feedback and opens plan import", async () => {
+    const user = userEvent.setup();
+    const onOpenImport = vi.fn();
+
+    renderUtilities({
+      portableError: "Portable export failed.",
+      portableStatus: "Portable backup restored.",
+      onOpenImport
+    });
+
+    expect(screen.getByText("Portable export failed.")).toBeInTheDocument();
+    expect(screen.getByText("Portable backup restored.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Import plan" }));
+
+    expect(onOpenImport).toHaveBeenCalledTimes(1);
+  });
+
   it("uses choose folder controls for portable export and import", async () => {
     const user = userEvent.setup();
     const onChooseBundleDestination = vi.fn();
@@ -72,6 +90,17 @@ describe("Utilities", () => {
       bundleDestination: "",
       bundleFolder: "/tmp/backup",
       reselectedLocalPath: ""
+    });
+
+    expect(screen.getByRole("button", { name: "Export portable backup" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Import portable backup" })).toBeDisabled();
+  });
+
+  it("keeps portable actions disabled for whitespace-only folder selections", () => {
+    renderUtilities({
+      bundleDestination: "   ",
+      bundleFolder: "\t",
+      reselectedLocalPath: "\n"
     });
 
     expect(screen.getByRole("button", { name: "Export portable backup" })).toBeDisabled();
