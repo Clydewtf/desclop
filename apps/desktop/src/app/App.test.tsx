@@ -1230,7 +1230,7 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
     expect(screen.getByText("0 work entries, 0 commits, 0 notes")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Export / Import" }));
+    await user.click(screen.getByRole("button", { name: "Backups" }));
     expect(screen.getByRole("heading", { name: "Export / Import" })).toBeInTheDocument();
     expect(screen.getByText("/tmp/desclop")).toBeInTheDocument();
   });
@@ -1328,7 +1328,7 @@ describe("App", () => {
       "page"
     );
     expect(within(nav).getByRole("button", { name: "Import Plan" })).toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: "Export / Import" })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: "Backups" })).toBeInTheDocument();
 
     await user.click(within(nav).getByRole("button", { name: "Import Plan" }));
 
@@ -2671,7 +2671,7 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Export / Import" }));
+    await user.click(await screen.findByRole("button", { name: "Backups" }));
 
     expect(screen.getByRole("heading", { name: "Export / Import" })).toBeInTheDocument();
     const markdownExport = screen.getByLabelText("Markdown export") as HTMLTextAreaElement;
@@ -2733,7 +2733,7 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    await user.click(await screen.findByRole("button", { name: "Export / Import" }));
+    await user.click(await screen.findByRole("button", { name: "Backups" }));
     await user.type(
       screen.getByLabelText("Bundle folder"),
       "/tmp/desclop-bundle/Imported.desclop"

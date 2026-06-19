@@ -74,10 +74,10 @@ select {
 .app-sidebar {
   display: grid;
   align-content: start;
-  gap: var(--space-5);
+  gap: var(--space-4);
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
-  padding: var(--space-5);
+  padding: var(--space-4);
 }
 
 .app-sidebar__identity {
@@ -86,7 +86,7 @@ select {
 }
 
 .app-sidebar__identity strong {
-  font-size: 1.05rem;
+  font-size: 1rem;
 }
 
 .app-sidebar__identity span {
@@ -101,7 +101,7 @@ select {
 
 .app-nav {
   display: grid;
-  gap: var(--space-5);
+  gap: var(--space-4);
 }
 
 .app-nav__section {
@@ -121,11 +121,6 @@ select {
 .app-nav__items {
   display: grid;
   gap: var(--space-1);
-}
-
-.app-nav__button {
-  width: 100%;
-  justify-content: flex-start;
 }
 
 .app-nav__button[aria-current="page"] {
@@ -388,6 +383,19 @@ label.inline-field input {
 
 .ui-button--ghost:hover:not(:disabled) {
   background: var(--color-surface-muted);
+}
+
+.ui-button.app-nav__button {
+  width: 100%;
+  justify-content: flex-start;
+  min-height: 36px;
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
+.ui-button.app-nav__project-action {
+  margin-top: var(--space-2);
+  color: var(--color-muted);
 }
 
 .ui-button--danger {

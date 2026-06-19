@@ -36,7 +36,7 @@ const workDestinations: ShellDestination[] = [
 
 const projectDestinations: ShellDestination[] = [
   { destination: "import", label: "Import Plan", icon: Upload },
-  { destination: "utilities", label: "Export / Import", icon: Download }
+  { destination: "utilities", label: "Backups", icon: Download }
 ];
 
 export function AppShell({
@@ -100,7 +100,7 @@ export function AppShell({
                   {projectDestinations.map(renderDestinationButton)}
                   <Button
                     variant="ghost"
-                    className="app-nav__button"
+                    className="app-nav__button app-nav__project-action"
                     onClick={onCloseProject}
                   >
                     Switch project

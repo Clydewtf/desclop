@@ -1,6 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
+import "../../styles/base.css";
 import { AppShell } from "./AppShell";
 
 describe("AppShell", () => {
@@ -64,6 +65,56 @@ describe("AppShell", () => {
     await user.click(projectAction);
 
     expect(onCloseProject).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels project backups without wrapping export import copy", () => {
+    render(
+      <AppShell activeDestination="utilities" projectName="Desclop">
+        <h1>Backups</h1>
+      </AppShell>
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Primary" });
+    expect(within(nav).getByRole("button", { name: "Backups" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(
+      within(nav).queryByRole("button", { name: "Export / Import" })
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders switch project as a quieter project action", () => {
+    render(
+      <AppShell activeDestination="today" projectName="Desclop">
+        <h1>Today</h1>
+      </AppShell>
+    );
+
+    expect(screen.getByRole("button", { name: "Switch project" })).toHaveClass(
+      "app-nav__button",
+      "app-nav__project-action"
+    );
+  });
+
+  it("applies compact sidebar button styles after shared button styles", () => {
+    render(
+      <AppShell activeDestination="today" projectName="Desclop">
+        <h1>Today</h1>
+      </AppShell>
+    );
+
+    const todayStyles = getComputedStyle(screen.getByRole("button", { name: "Today" }));
+    expect(todayStyles.minHeight).toBe("36px");
+    expect(todayStyles.padding).toBe("7px 10px");
+    expect(todayStyles.justifyContent).toBe("flex-start");
+    expect(todayStyles.whiteSpace).toBe("nowrap");
+
+    const projectActionStyles = getComputedStyle(
+      screen.getByRole("button", { name: "Switch project" })
+    );
+    expect(projectActionStyles.marginTop).toBe("var(--space-2)");
+    expect(projectActionStyles.color).toBe("var(--color-muted)");
   });
 
   it("renders setup state without project-only destinations", () => {
