@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
-import type { Project } from "../../shared/domain/types";
+import type { Project, ProjectSummary } from "../../shared/domain/types";
 import { ProjectPicker, type ProjectDeleteError } from "./ProjectPicker";
 
 const project: Project = {
@@ -25,6 +25,8 @@ const secondProject: Project = {
 
 interface RenderPickerOptions {
   projects?: Project[];
+  projectSummaries?: Record<string, ProjectSummary>;
+  homePath?: string;
   onOpenProject?: (project: Project) => void | Promise<void>;
   onDeleteProject?: (project: Project) => void | Promise<void>;
   onDeleteDialogChange?: (projectId: string | null) => void;
@@ -34,6 +36,8 @@ interface RenderPickerOptions {
 
 function renderPicker({
   projects = [project],
+  projectSummaries = {},
+  homePath = "",
   onOpenProject = vi.fn(),
   onDeleteProject = vi.fn(),
   onDeleteDialogChange = vi.fn(),
@@ -43,6 +47,8 @@ function renderPicker({
   return renderWithRouter(
     <ProjectPicker
       projects={projects}
+      projectSummaries={projectSummaries}
+      homePath={homePath}
       onOpenProject={onOpenProject}
       onCreateProject={vi.fn()}
       onDeleteProject={onDeleteProject}
@@ -54,6 +60,38 @@ function renderPicker({
 }
 
 describe("ProjectPicker", () => {
+  it("renders lightweight metadata for a saved project", () => {
+    renderPicker({
+      projectSummaries: {
+        [project.id]: {
+          projectId: project.id,
+          taskCount: 12,
+          openInboxCount: 3,
+          activeTaskTitle: "Create local store"
+        }
+      },
+      homePath: "/tmp"
+    });
+
+    const projectRow = screen.getByRole("group", { name: project.name });
+    expect(projectRow).toHaveTextContent("~/desclop-manual-qa");
+    expect(projectRow).toHaveTextContent("12 tasks");
+    expect(projectRow).toHaveTextContent("3 inbox items");
+    expect(projectRow).toHaveTextContent("Active: Create local store");
+  });
+
+  it("keeps Open project primary and uses a separate delete control", () => {
+    renderPicker();
+
+    const openButton = screen.getByRole("button", {
+      name: /Desclop Manual QA.*Open project/s
+    });
+    const deleteButton = screen.getByRole("button", { name: "Delete Desclop Manual QA" });
+
+    expect(openButton).toHaveAttribute("data-project-action", "open");
+    expect(deleteButton).toHaveClass("project-picker__delete");
+  });
+
   it("hides deletion controls when no delete callback is supplied", () => {
     renderWithRouter(
       <ProjectPicker
@@ -250,7 +288,9 @@ describe("ProjectPicker", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Delete project" });
     expect(within(dialog).getByRole("alert")).toHaveTextContent("Unable to delete project.");
-    expect(screen.getByRole("button", { name: "Desclop Manual QA" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Desclop Manual QA.*Open project/s })
+    ).toBeInTheDocument();
   });
 
   it("does not show one project's deletion error in another project's confirmation", async () => {
@@ -295,7 +335,9 @@ describe("ProjectPicker", () => {
     );
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: secondProject.name })).toHaveFocus();
+    expect(
+      screen.getByRole("button", { name: /Release Planning.*Open project/s })
+    ).toHaveFocus();
   });
 
   it("focuses Create new project when the selected project was the last row", async () => {

@@ -1,6 +1,6 @@
 import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "./test-utils";
 import { App } from "./App";
 import { api } from "../shared/api/client";
@@ -9,6 +9,7 @@ import type { ResumeBrief } from "../shared/domain/types";
 vi.mock("../shared/api/client", () => ({
   api: {
     listProjects: vi.fn(),
+    listProjectSummaries: vi.fn(),
     createProject: vi.fn(),
     deleteProject: vi.fn(),
     getResumeBrief: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("../shared/api/client", () => ({
 }));
 
 const listProjects = vi.mocked(api.listProjects);
+const listProjectSummaries = vi.mocked(api.listProjectSummaries);
 const createProject = vi.mocked(api.createProject);
 const deleteProject = vi.mocked(api.deleteProject);
 const getResumeBrief = vi.mocked(api.getResumeBrief);
@@ -229,6 +231,10 @@ function twoTaskPlanFixture({
   };
 }
 
+beforeEach(() => {
+  listProjectSummaries.mockResolvedValue([]);
+});
+
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
@@ -260,6 +266,54 @@ describe("App", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not load projects.");
     expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: "Create project" })).not.toBeInTheDocument();
+  });
+
+  it("opens projects when project summaries are unavailable", async () => {
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "p1-task" })]);
+    listProjectSummaries.mockRejectedValueOnce(new Error("summary unavailable"));
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(
+      activeProjectPlanFixture({
+        projectId: "p1",
+        stageTitle: "Summary fallback",
+        taskTitle: "Open despite summary failure",
+        nextStep: "Keep project loading resilient"
+      })
+    );
+
+    renderWithRouter(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Open despite summary failure" })
+    ).toBeInTheDocument();
+    expect(listProjectSummaries).toHaveBeenCalledTimes(1);
+  });
+
+  it("passes loaded project summaries to the saved-project picker", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ name: "Metadata Project" })]);
+    listProjectSummaries.mockResolvedValue([
+      {
+        projectId: "p1",
+        taskCount: 12,
+        openInboxCount: 3,
+        activeTaskTitle: "Create local store"
+      }
+    ]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+
+    expect(
+      screen.getByRole("button", {
+        name: /Metadata Project.*12 tasks.*3 inbox items.*Active: Create local store.*Open project/s
+      })
+    ).toBeInTheDocument();
   });
 
   it("shows a recoverable error when project plan loading fails", async () => {
@@ -578,8 +632,12 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "First project task" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^(?:switch|close) project$/i }));
 
-    const firstProjectButton = await screen.findByRole("button", { name: "First Project" });
-    expect(screen.getByRole("button", { name: "Second Project" })).toBeInTheDocument();
+    const firstProjectButton = await screen.findByRole("button", {
+      name: /First Project.*Open project/s
+    });
+    expect(
+      screen.getByRole("button", { name: /Second Project.*Open project/s })
+    ).toBeInTheDocument();
 
     await user.click(firstProjectButton);
 
@@ -648,7 +706,9 @@ describe("App", () => {
 
     expect(await screen.findByRole("heading", { name: "First project task" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /^(?:switch|close) project$/i }));
-    await user.click(await screen.findByRole("button", { name: "Second Project" }));
+    await user.click(
+      await screen.findByRole("button", { name: /Second Project.*Open project/s })
+    );
 
     expect(await screen.findByRole("heading", { name: "Second project task" })).toBeInTheDocument();
     expect(screen.getByText("Second stage")).toBeInTheDocument();
@@ -739,8 +799,12 @@ describe("App", () => {
     });
     await user.click(screen.getByRole("button", { name: "Switch project" }));
 
-    expect(screen.queryByRole("button", { name: "First Project" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Second Project" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /First Project.*Open project/s })
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Second Project.*Open project/s })
+    ).toBeInTheDocument();
   });
 
   it("clears deleted project context and opens the fallback with its own context", async () => {
@@ -855,7 +919,9 @@ describe("App", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not delete project.");
     expect(screen.getByRole("dialog", { name: "Delete project" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "First Project" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /First Project.*Open project/s })
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete project" })).toBeEnabled();
   });
 
@@ -881,10 +947,14 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Delete First Project" }));
     await user.click(screen.getByRole("button", { name: "Delete project" }));
 
-    expect(await screen.findByRole("button", { name: "Second Project" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: /Second Project.*Open project/s })
+    ).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Project loading failed" })).not.toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("Could not load project plan.");
-    expect(screen.queryByRole("button", { name: "First Project" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /First Project.*Open project/s })
+    ).not.toBeInTheDocument();
   });
 
   it("clears a stale delete error when the same confirmation is reopened", async () => {
@@ -945,7 +1015,9 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: /^(?:switch|close) project$/i }));
-    expect(screen.getByRole("button", { name: "Existing Project" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Existing Project.*Open project/s })
+    ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /create.*project/i }));
 
     expect(screen.getByRole("heading", { name: "Create a local project" })).toBeInTheDocument();
@@ -1006,10 +1078,16 @@ describe("App", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Switch project" }));
-    expect(screen.getByRole("button", { name: "Existing Project" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Created Project" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Existing Project.*Open project/s })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Created Project.*Open project/s })
+    ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Existing Project" }));
+    await user.click(
+      screen.getByRole("button", { name: /Existing Project.*Open project/s })
+    );
     expect(
       within(screen.getByRole("complementary", { name: "Application" })).getByText(
         "Existing Project"
@@ -1017,7 +1095,9 @@ describe("App", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Switch project" }));
-    await user.click(screen.getByRole("button", { name: "Created Project" }));
+    await user.click(
+      screen.getByRole("button", { name: /Created Project.*Open project/s })
+    );
     expect(
       await screen.findByRole("heading", { name: "Created project task" })
     ).toBeInTheDocument();
@@ -1054,7 +1134,9 @@ describe("App", () => {
       expect(listNotesForProject).toHaveBeenCalledWith("p1");
     });
     await user.click(screen.getByRole("button", { name: "Switch project" }));
-    await user.click(screen.getByRole("button", { name: "Second Project" }));
+    await user.click(
+      screen.getByRole("button", { name: /Second Project.*Open project/s })
+    );
 
     expect(
       within(screen.getByRole("complementary", { name: "Application" })).getByText(
@@ -1410,7 +1492,9 @@ describe("App", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Switch project" }));
-    await user.click(screen.getByRole("button", { name: "Second Project" }));
+    await user.click(
+      screen.getByRole("button", { name: /Second Project.*Open project/s })
+    );
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
 
     expect(
@@ -1627,7 +1711,9 @@ describe("App", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Switch project" }));
-    await user.click(screen.getByRole("button", { name: "Second Project" }));
+    await user.click(
+      screen.getByRole("button", { name: /Second Project.*Open project/s })
+    );
     expect(
       await screen.findByRole("heading", { name: "Second project task" })
     ).toBeInTheDocument();
@@ -2662,7 +2748,9 @@ describe("App", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "Switch project" }));
-    await user.click(screen.getByRole("button", { name: "Second Project" }));
+    await user.click(
+      screen.getByRole("button", { name: /Second Project.*Open project/s })
+    );
 
     await act(async () => {
       resolvePortableImport("p3");

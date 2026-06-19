@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useCallback, useEffect, useId, useRef, useState } from "react";
-import { type Project } from "../../shared/domain/types";
+import { type Project, type ProjectSummary } from "../../shared/domain/types";
 import { Button, InlineAlert, ScreenHeader, Surface } from "../../shared/ui";
+import { buildProjectMetadataParts } from "./projectMetadata";
 
 export interface ProjectDeleteError {
   projectId: string;
@@ -9,6 +10,8 @@ export interface ProjectDeleteError {
 
 interface ProjectPickerProps {
   projects: Project[];
+  projectSummaries?: Record<string, ProjectSummary>;
+  homePath?: string;
   onOpenProject: (project: Project) => void | Promise<void>;
   onCreateProject: () => void;
   onDeleteProject?: (project: Project) => void | Promise<void>;
@@ -19,6 +22,8 @@ interface ProjectPickerProps {
 
 export function ProjectPicker({
   projects,
+  projectSummaries = {},
+  homePath = "",
   onOpenProject,
   onCreateProject,
   onDeleteProject,
@@ -141,43 +146,54 @@ export function ProjectPicker({
         description="Choose a saved local project or create a new one."
       />
       <div ref={projectListRef} className="project-picker__list">
-        {projects.map((project, projectIndex) => (
-          <div
-            key={project.id}
-            className="project-picker__item"
-            role="group"
-            aria-label={project.name}
-          >
-            <Button
-              type="button"
-              variant="secondary"
-              className="project-picker__project"
+        {projects.map((project, projectIndex) => {
+          const metadataParts = buildProjectMetadataParts(
+            project,
+            projectSummaries[project.id],
+            homePath
+          );
+
+          return (
+            <div
+              key={project.id}
+              className="project-picker__item"
+              role="group"
               aria-label={project.name}
-              data-project-action="open"
-              data-project-id={project.id}
-              onClick={() => void onOpenProject(project)}
             >
-              <span>{project.name}</span>
-              <span className="project-picker__action">Open project</span>
-            </Button>
-            {onDeleteProject ? (
               <Button
                 type="button"
                 variant="secondary"
-                aria-label={`Delete ${project.name}`}
-                onClick={(event) => {
-                  deleteButtonRef.current = event.currentTarget;
-                  projectToDeleteIndexRef.current = projectIndex;
-                  shouldRestoreFocusRef.current = true;
-                  notifyDeleteDialogChange(project.id);
-                  setProjectToDeleteId(project.id);
-                }}
+                className="project-picker__project"
+                data-project-action="open"
+                data-project-id={project.id}
+                onClick={() => void onOpenProject(project)}
               >
-                Delete
+                <span className="project-picker__summary">
+                  <span className="project-picker__name">{project.name}</span>
+                  <span className="project-picker__meta">{metadataParts.join(" · ")}</span>
+                </span>
+                <span className="project-picker__action">Open project</span>
               </Button>
-            ) : null}
-          </div>
-        ))}
+              {onDeleteProject ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="project-picker__delete"
+                  aria-label={`Delete ${project.name}`}
+                  onClick={(event) => {
+                    deleteButtonRef.current = event.currentTarget;
+                    projectToDeleteIndexRef.current = projectIndex;
+                    shouldRestoreFocusRef.current = true;
+                    notifyDeleteDialogChange(project.id);
+                    setProjectToDeleteId(project.id);
+                  }}
+                >
+                  Delete
+                </Button>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
       <Button type="button" data-project-action="create" onClick={onCreateProject}>
         Create new project

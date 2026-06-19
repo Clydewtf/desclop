@@ -17,7 +17,17 @@ import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
 import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
-import { type GitCommit, type InboxItem, type InboxKind, type Note, type Project, type ResumeBrief, type TaskStatus, type WorkEntry } from "../shared/domain/types";
+import {
+  type GitCommit,
+  type InboxItem,
+  type InboxKind,
+  type Note,
+  type Project,
+  type ProjectSummary,
+  type ResumeBrief,
+  type TaskStatus,
+  type WorkEntry
+} from "../shared/domain/types";
 import {
   Button,
   InlineAlert,
@@ -91,6 +101,18 @@ async function loadListOrEmpty<T>(load: () => Promise<T[]>): Promise<T[]> {
   }
 }
 
+function indexProjectSummaries(summaries: ProjectSummary[]) {
+  return Object.fromEntries(summaries.map((summary) => [summary.projectId, summary]));
+}
+
+async function loadProjectSummariesOrEmpty() {
+  try {
+    return indexProjectSummaries(await api.listProjectSummaries());
+  } catch {
+    return {};
+  }
+}
+
 function buildTodayView(
   resumeBrief: ResumeBrief | null,
   plan: ProjectPlanPayload,
@@ -153,6 +175,7 @@ export function App() {
   const deleteProjectInFlight = useRef(false);
   const projectsRef = useRef<Project[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [projectSummaries, setProjectSummaries] = useState<Record<string, ProjectSummary>>({});
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<ProjectDeleteError | null>(null);
@@ -244,6 +267,7 @@ export function App() {
   const loadProjects = useCallback(async () => {
     if (!hasTauriInternals()) {
       setProjects([]);
+      setProjectSummaries({});
       setLoadError(null);
       setPickerError(null);
       setLoading(false);
@@ -256,8 +280,12 @@ export function App() {
     setResumeError(null);
     setGitError(null);
     try {
-      const loadedProjects = await api.listProjects();
+      const [loadedProjects, loadedProjectSummaries] = await Promise.all([
+        api.listProjects(),
+        loadProjectSummariesOrEmpty()
+      ]);
       setProjects(loadedProjects);
+      setProjectSummaries(loadedProjectSummaries);
       if (loadedProjects[0]) {
         try {
           await loadProjectIntoState(loadedProjects[0], loadedProjects);
@@ -307,6 +335,7 @@ export function App() {
     setGitError(null);
     try {
       const project = await api.createProject(input);
+      setProjectSummaries(await loadProjectSummariesOrEmpty());
       try {
         const nextProjects = [
           ...projectsRef.current.filter((candidate) => candidate.id !== project.id),
@@ -458,6 +487,7 @@ export function App() {
     setDeletingProjectId(projectToDelete.id);
     try {
       await api.deleteProject(projectToDelete.id);
+      setProjectSummaries(await loadProjectSummariesOrEmpty());
       const nextProjects = projectsRef.current.filter(
         (candidate) => candidate.id !== projectToDelete.id
       );
@@ -861,6 +891,11 @@ export function App() {
       if (!isCurrentProjectContext(revision)) {
         return;
       }
+      const loadedProjectSummaries = await loadProjectSummariesOrEmpty();
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setProjectSummaries(loadedProjectSummaries);
       if (!(await refreshProjectData(project.id, revision))) {
         return;
       }
@@ -1219,6 +1254,8 @@ export function App() {
             {pickerError ? <InlineAlert tone="error">{pickerError}</InlineAlert> : null}
             <ProjectPicker
               projects={projects}
+              projectSummaries={projectSummaries}
+              homePath=""
               onOpenProject={openSavedProject}
               onDeleteProject={deleteSavedProject}
               onDeleteDialogChange={(projectId) => {
