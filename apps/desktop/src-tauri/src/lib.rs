@@ -16,6 +16,7 @@ pub fn run() {
             app.manage(AppState::new(app_data_dir)?);
             Ok(())
         })
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::projects::list_projects,

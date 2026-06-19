@@ -24,3 +24,4 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 git2 = "0.19"
+tauri-plugin-dialog = "2"
