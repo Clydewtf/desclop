@@ -1,7 +1,7 @@
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::{CreateProjectInput, Project};
+use crate::domain::{CreateProjectInput, Project, ProjectSummary};
 use crate::repositories::projects::ProjectRepository;
 
 #[tauri::command]
@@ -9,6 +9,14 @@ pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<Project>, String>
     let conn = state.conn.lock().map_err(|err| err.to_string())?;
     ProjectRepository::new(&conn)
         .list_projects()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn list_project_summaries(state: State<'_, AppState>) -> Result<Vec<ProjectSummary>, String> {
+    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    ProjectRepository::new(&conn)
+        .list_project_summaries()
         .map_err(|err| err.to_string())
 }
 

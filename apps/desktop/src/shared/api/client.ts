@@ -9,6 +9,7 @@ import type {
   LicenseState,
   Note,
   Project,
+  ProjectSummary,
   ResumeBrief,
   Stage,
   Task,
@@ -75,6 +76,8 @@ export interface SetEntitlementInput {
 
 export const api = {
   listProjects: () => invoke<Project[]>("list_projects"),
+  listProjectSummaries: () =>
+    invoke<ProjectSummary[]>("list_project_summaries"),
   createProject: (input: CreateProjectInput) =>
     invoke<Project>("create_project", { input }),
   deleteProject: (projectId: string) =>

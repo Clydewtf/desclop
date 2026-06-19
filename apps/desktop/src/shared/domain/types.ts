@@ -19,6 +19,13 @@ export interface Project {
   updatedAt: string;
 }
 
+export interface ProjectSummary {
+  projectId: Id;
+  taskCount: number;
+  openInboxCount: number;
+  activeTaskTitle: string | null;
+}
+
 export interface Stage {
   id: Id;
   projectId: Id;

@@ -12,6 +12,11 @@ describe("api", () => {
     invoke.mockReset();
   });
 
+  it("invokes the list_project_summaries command", async () => {
+    await api.listProjectSummaries();
+    expect(invoke).toHaveBeenCalledWith("list_project_summaries");
+  });
+
   it("invokes the delete_project command with the project id", async () => {
     await api.deleteProject("project-123");
 

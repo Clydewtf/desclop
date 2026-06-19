@@ -17,6 +17,15 @@ pub struct Project {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ProjectSummary {
+    pub project_id: Id,
+    pub task_count: i64,
+    pub open_inbox_count: i64,
+    pub active_task_title: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateProjectInput {
     pub name: String,
     pub local_path: String,

@@ -2,7 +2,7 @@ use chrono::Utc;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
 
-use crate::domain::Project;
+use crate::domain::{Project, ProjectSummary};
 
 pub struct ProjectRepository<'a> {
     conn: &'a Connection,
@@ -65,6 +65,44 @@ impl<'a> ProjectRepository<'a> {
                 active_task_id: row.get(5)?,
                 created_at: row.get(6)?,
                 updated_at: row.get(7)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    pub fn list_project_summaries(&self) -> rusqlite::Result<Vec<ProjectSummary>> {
+        let mut stmt = self.conn.prepare(
+            "with task_counts as (
+               select project_id, count(*) as task_count
+               from tasks
+               group by project_id
+             ),
+             open_inbox_counts as (
+               select project_id, count(*) as open_inbox_count
+               from inbox_items
+               where status = 'open'
+               group by project_id
+             )
+             select projects.id,
+                    coalesce(task_counts.task_count, 0),
+                    coalesce(open_inbox_counts.open_inbox_count, 0),
+                    active_task.title
+             from projects
+             left join task_counts on task_counts.project_id = projects.id
+             left join open_inbox_counts on open_inbox_counts.project_id = projects.id
+             left join tasks active_task
+               on active_task.project_id = projects.id
+              and active_task.id = projects.active_task_id
+             order by projects.updated_at desc",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            Ok(ProjectSummary {
+                project_id: row.get(0)?,
+                task_count: row.get(1)?,
+                open_inbox_count: row.get(2)?,
+                active_task_title: row.get(3)?,
             })
         })?;
 
@@ -214,6 +252,202 @@ mod tests {
         assert_eq!(created.git_enabled, false);
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].id, created.id);
+    }
+
+    #[test]
+    fn list_project_summaries_returns_counts_and_active_task_title() {
+        let conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let repo = ProjectRepository::new(&conn);
+        let project = repo
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), false)
+            .expect("create project");
+
+        conn.execute(
+            "insert into stages (id, project_id, title, position, status, created_at, updated_at)
+             values (?1, ?2, 'Current stage', 0, 'current', 'now', 'now')",
+            params!["stage-1", project.id],
+        )
+        .expect("insert stage");
+        conn.execute(
+            "insert into tasks (id, project_id, stage_id, title, status, position, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, 'now', 'now')",
+            params![
+                "task-active",
+                project.id,
+                "stage-1",
+                "Delete project",
+                "active",
+                0
+            ],
+        )
+        .expect("insert active task");
+        conn.execute(
+            "insert into tasks (id, project_id, stage_id, title, status, position, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, 'now', 'now')",
+            params![
+                "task-done",
+                project.id,
+                "stage-1",
+                "Finished task",
+                "done",
+                1
+            ],
+        )
+        .expect("insert done task");
+        conn.execute(
+            "update projects set active_task_id = ?1 where id = ?2",
+            params!["task-active", project.id],
+        )
+        .expect("set active task");
+        conn.execute(
+            "insert into inbox_items (id, project_id, body, kind, status, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, ?5, 'now', 'now')",
+            params!["inbox-open", project.id, "Open item", "note", "open"],
+        )
+        .expect("insert open inbox item");
+        conn.execute(
+            "insert into inbox_items (id, project_id, body, kind, status, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, ?5, 'now', 'now')",
+            params![
+                "inbox-deleted",
+                project.id,
+                "Deleted item",
+                "note",
+                "deleted"
+            ],
+        )
+        .expect("insert deleted inbox item");
+
+        let summaries = repo
+            .list_project_summaries()
+            .expect("list project summaries");
+
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].project_id, project.id);
+        assert_eq!(summaries[0].task_count, 2);
+        assert_eq!(summaries[0].open_inbox_count, 1);
+        assert_eq!(
+            summaries[0].active_task_title.as_deref(),
+            Some("Delete project")
+        );
+    }
+
+    #[test]
+    fn list_project_summaries_isolates_projects_and_includes_empty_projects() {
+        let conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let repo = ProjectRepository::new(&conn);
+        let first = repo
+            .create_project("First".to_string(), "/tmp/first".to_string(), false)
+            .expect("create first project");
+        let second = repo
+            .create_project("Second".to_string(), "/tmp/second".to_string(), false)
+            .expect("create second project");
+        let empty = repo
+            .create_project("Empty".to_string(), "/tmp/empty".to_string(), false)
+            .expect("create empty project");
+
+        conn.execute(
+            "insert into stages (id, project_id, title, position, status, created_at, updated_at)
+             values (?1, ?2, 'First stage', 0, 'current', 'now', 'now')",
+            params!["stage-first", first.id],
+        )
+        .expect("insert first stage");
+        conn.execute(
+            "insert into stages (id, project_id, title, position, status, created_at, updated_at)
+             values (?1, ?2, 'Second stage', 0, 'current', 'now', 'now')",
+            params!["stage-second", second.id],
+        )
+        .expect("insert second stage");
+        conn.execute(
+            "insert into tasks (id, project_id, stage_id, title, status, position, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, 'active', 0, 'now', 'now')",
+            params![
+                "task-first-active",
+                first.id,
+                "stage-first",
+                "First active task"
+            ],
+        )
+        .expect("insert first active task");
+        conn.execute(
+            "insert into tasks (id, project_id, stage_id, title, status, position, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, 'done', 1, 'now', 'now')",
+            params!["task-first-done", first.id, "stage-first", "First done task"],
+        )
+        .expect("insert first done task");
+        conn.execute(
+            "insert into tasks (id, project_id, stage_id, title, status, position, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, 'active', 0, 'now', 'now')",
+            params![
+                "task-second-active",
+                second.id,
+                "stage-second",
+                "Second active task"
+            ],
+        )
+        .expect("insert second active task");
+        conn.execute(
+            "update projects set active_task_id = ?1 where id = ?2",
+            params!["task-first-active", first.id],
+        )
+        .expect("set first active task");
+        conn.execute(
+            "update projects set active_task_id = ?1 where id = ?2",
+            params!["task-second-active", second.id],
+        )
+        .expect("set second active task");
+
+        for (id, project_id, status) in [
+            ("inbox-first-open-1", first.id.as_str(), "open"),
+            ("inbox-first-open-2", first.id.as_str(), "open"),
+            ("inbox-first-deleted", first.id.as_str(), "deleted"),
+            ("inbox-second-open", second.id.as_str(), "open"),
+        ] {
+            conn.execute(
+                "insert into inbox_items (id, project_id, body, kind, status, created_at, updated_at)
+                 values (?1, ?2, 'Inbox item', 'note', ?3, 'now', 'now')",
+                params![id, project_id, status],
+            )
+            .expect("insert inbox item");
+        }
+
+        let summaries = repo
+            .list_project_summaries()
+            .expect("list project summaries");
+
+        assert_eq!(summaries.len(), 3);
+
+        let first_summary = summaries
+            .iter()
+            .find(|summary| summary.project_id == first.id)
+            .expect("first project summary");
+        assert_eq!(first_summary.task_count, 2);
+        assert_eq!(first_summary.open_inbox_count, 2);
+        assert_eq!(
+            first_summary.active_task_title.as_deref(),
+            Some("First active task")
+        );
+
+        let second_summary = summaries
+            .iter()
+            .find(|summary| summary.project_id == second.id)
+            .expect("second project summary");
+        assert_eq!(second_summary.task_count, 1);
+        assert_eq!(second_summary.open_inbox_count, 1);
+        assert_eq!(
+            second_summary.active_task_title.as_deref(),
+            Some("Second active task")
+        );
+
+        let empty_summary = summaries
+            .iter()
+            .find(|summary| summary.project_id == empty.id)
+            .expect("empty project summary");
+        assert_eq!(empty_summary.task_count, 0);
+        assert_eq!(empty_summary.open_inbox_count, 0);
+        assert_eq!(empty_summary.active_task_title, None);
     }
 
     #[test]

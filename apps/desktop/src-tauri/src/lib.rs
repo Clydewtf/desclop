@@ -19,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::projects::list_projects,
+            commands::projects::list_project_summaries,
             commands::projects::create_project,
             commands::projects::delete_project,
             commands::plans::import_plan,
