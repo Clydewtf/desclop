@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "../styles/base.css";
 import { exportPlanMarkdown } from "../features/export-import/markdownExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
@@ -15,8 +15,10 @@ import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDe
 import { Timeline } from "../features/timeline/Timeline";
 import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
+import { Utilities } from "../features/utilities/Utilities";
 import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
+import { chooseFolder } from "../shared/api/folderDialog";
 import {
   type GitCommit,
   type InboxItem,
@@ -919,15 +921,14 @@ export function App() {
     }
   }
 
-  async function exportPortableBundle(event: FormEvent) {
-    event.preventDefault();
+  async function exportPortableBundle() {
     if (!project) {
       return;
     }
 
     const destination = bundleDestination.trim();
     if (!destination) {
-      setPortableError("Bundle destination folder is required.");
+      setPortableError("Destination folder is required.");
       setPortableStatus(null);
       return;
     }
@@ -940,7 +941,7 @@ export function App() {
       if (!isCurrentProjectContext(revision)) {
         return;
       }
-      setPortableStatus(`Exported portable bundle to ${exportedPath}`);
+      setPortableStatus(`Exported portable backup to ${exportedPath}`);
     } catch {
       if (!isCurrentProjectContext(revision)) {
         return;
@@ -949,13 +950,12 @@ export function App() {
     }
   }
 
-  async function importPortableBundle(event: FormEvent) {
-    event.preventDefault();
+  async function importPortableBundle() {
     let revision = projectContextRevision.current;
     const source = bundleFolder.trim();
     const localPath = reselectedLocalPath.trim();
     if (!source || !localPath) {
-      setPortableError("Bundle folder and reselected local folder path are required.");
+      setPortableError("Backup folder and local project folder are required.");
       setPortableStatus(null);
       return;
     }
@@ -993,6 +993,30 @@ export function App() {
         return;
       }
       setPortableError("Could not import portable bundle.");
+    }
+  }
+
+  async function chooseBundleDestination() {
+    const selected = await chooseFolder();
+    if (selected) {
+      setBundleDestination(selected);
+      setPortableError(null);
+    }
+  }
+
+  async function chooseBundleFolder() {
+    const selected = await chooseFolder();
+    if (selected) {
+      setBundleFolder(selected);
+      setPortableError(null);
+    }
+  }
+
+  async function chooseLocalProjectFolder() {
+    const selected = await chooseFolder();
+    if (selected) {
+      setReselectedLocalPath(selected);
+      setPortableError(null);
     }
   }
 
@@ -1061,65 +1085,23 @@ export function App() {
 
     if (screen === "utilities" && project) {
       return (
-        <section className="utilities-screen">
-          <ScreenHeader
-            eyebrow="Project"
-            title="Export / Import"
-            description="Markdown export, portable bundles, local boundaries, and maintenance actions."
-          />
-          {portableError ? <InlineAlert tone="error">{portableError}</InlineAlert> : null}
-          {portableStatus ? <InlineAlert tone="info">{portableStatus}</InlineAlert> : null}
-          <Surface ariaLabel="Project settings">
-            <dl className="settings-list">
-              <div>
-                <dt>Project path</dt>
-                <dd>{project.localPath}</dd>
-              </div>
-              <div>
-                <dt>Git</dt>
-                <dd>{project.gitEnabled ? "Enabled" : "Disabled"}</dd>
-              </div>
-            </dl>
-            {gitError ? <InlineAlert tone="warning">{gitError}</InlineAlert> : null}
-          </Surface>
-          <Surface ariaLabel="Markdown export panel">
-            <TextArea
-              id="markdown-export"
-              label="Markdown export"
-              readOnly
-              value={markdownExport}
-              onChange={() => {}}
-            />
-          </Surface>
-          <Surface ariaLabel="Portable bundle export">
-            <form className="stack" onSubmit={exportPortableBundle}>
-              <label htmlFor="bundle-destination">Bundle destination folder</label>
-              <input
-                id="bundle-destination"
-                value={bundleDestination}
-                onChange={(event) => setBundleDestination(event.target.value)}
-              />
-              <Button type="submit">Export portable bundle</Button>
-            </form>
-          </Surface>
-          <Surface ariaLabel="Portable bundle import">
-            <form className="stack" onSubmit={importPortableBundle}>
-              <label htmlFor="bundle-folder">Bundle folder</label>
-              <input
-                id="bundle-folder"
-                value={bundleFolder}
-                onChange={(event) => setBundleFolder(event.target.value)}
-              />
-              <label htmlFor="reselected-local-path">Reselected local folder path</label>
-              <input
-                id="reselected-local-path"
-                value={reselectedLocalPath}
-                onChange={(event) => setReselectedLocalPath(event.target.value)}
-              />
-              <Button type="submit">Import portable bundle</Button>
-            </form>
-          </Surface>
-        </section>
+        <Utilities
+          projectPath={project.localPath}
+          gitEnabled={project.gitEnabled}
+          gitHealth={gitError}
+          markdownExport={markdownExport}
+          bundleDestination={bundleDestination}
+          bundleFolder={bundleFolder}
+          reselectedLocalPath={reselectedLocalPath}
+          portableStatus={portableStatus}
+          portableError={portableError}
+          onOpenImport={() => setScreen("import")}
+          onChooseBundleDestination={() => void chooseBundleDestination()}
+          onChooseBundleFolder={() => void chooseBundleFolder()}
+          onChooseLocalProjectFolder={() => void chooseLocalProjectFolder()}
+          onExportPortableBundle={() => void exportPortableBundle()}
+          onImportPortableBundle={() => void importPortableBundle()}
+        />
       );
     }
 
