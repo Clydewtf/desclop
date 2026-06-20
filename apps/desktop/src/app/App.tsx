@@ -996,28 +996,35 @@ export function App() {
     }
   }
 
-  async function chooseBundleDestination() {
-    const selected = await chooseFolder();
-    if (selected) {
-      setBundleDestination(selected);
-      setPortableError(null);
+  async function choosePortableFolder(onSelect: (selected: string) => void) {
+    const revision = projectContextRevision.current;
+    try {
+      const selected = await chooseFolder();
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      if (selected) {
+        onSelect(selected);
+        setPortableError(null);
+      }
+    } catch {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setPortableError("Could not open folder picker.");
     }
+  }
+
+  async function chooseBundleDestination() {
+    await choosePortableFolder(setBundleDestination);
   }
 
   async function chooseBundleFolder() {
-    const selected = await chooseFolder();
-    if (selected) {
-      setBundleFolder(selected);
-      setPortableError(null);
-    }
+    await choosePortableFolder(setBundleFolder);
   }
 
   async function chooseLocalProjectFolder() {
-    const selected = await chooseFolder();
-    if (selected) {
-      setReselectedLocalPath(selected);
-      setPortableError(null);
-    }
+    await choosePortableFolder(setReselectedLocalPath);
   }
 
   function renderProjectScreen() {

@@ -2672,6 +2672,63 @@ describe("App", () => {
     expect(screen.getByLabelText("Local project folder")).toHaveValue("/tmp/desclop");
   });
 
+  it("ignores a folder selection that finishes after switching projects", async () => {
+    const user = userEvent.setup();
+    let resolveFolderSelection: (path: string) => void = () => {};
+    const firstProject = projectFixture({ id: "p1", name: "First Project" });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project"
+    });
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject, secondProject]);
+    getResumeBrief.mockImplementation(async (projectId) => emptyResumeBrief(projectId));
+    loadProjectPlan.mockImplementation(async (projectId) => importedPlanFixture(projectId));
+    chooseFolderMock.mockReturnValue(
+      new Promise((resolve) => {
+        resolveFolderSelection = resolve;
+      })
+    );
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Backups" }));
+    await user.click(screen.getByRole("button", { name: "Choose destination folder" }));
+    await user.click(screen.getByRole("button", { name: "Switch project" }));
+    await user.click(
+      screen.getByRole("button", { name: /Second Project.*Open project/s })
+    );
+    await user.click(await screen.findByRole("button", { name: "Backups" }));
+
+    await act(async () => {
+      resolveFolderSelection("/tmp/stale-backups");
+    });
+
+    expect(screen.getByLabelText("Destination folder")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Export portable backup" })).toBeDisabled();
+  });
+
+  it("shows a folder picker error without changing the selected path", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    chooseFolderMock.mockRejectedValue(new Error("dialog unavailable"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Backups" }));
+    await user.click(screen.getByRole("button", { name: "Choose destination folder" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not open folder picker."
+    );
+    expect(screen.getByLabelText("Destination folder")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Export portable backup" })).toBeDisabled();
+  });
+
   it("exports and imports portable backups with visible feedback", async () => {
     const user = userEvent.setup();
     const importedProject = projectFixture({
@@ -2699,16 +2756,30 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Export portable backup" }));
 
     expect(exportProjectBundle).toHaveBeenCalledWith("p1", "/tmp/backups");
-    expect(
-      await screen.findByText("Exported portable backup to /tmp/backups/desclop")
-    ).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("status")
+          .some((status) =>
+            status.textContent?.includes(
+              "Exported portable backup to /tmp/backups/desclop"
+            )
+          )
+      ).toBe(true);
+    });
 
     await user.click(screen.getByRole("button", { name: "Choose backup folder" }));
     await user.click(screen.getByRole("button", { name: "Choose local project folder" }));
     await user.click(screen.getByRole("button", { name: "Import portable backup" }));
 
     expect(importProjectBundle).toHaveBeenCalledWith("/tmp/backups/desclop", "/tmp/desclop");
-    expect(await screen.findByText("Imported portable project.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole("status")
+          .some((status) => status.textContent?.includes("Imported portable project."))
+      ).toBe(true);
+    });
   });
 
   it("opens readable markdown export and runs portable bundle export/import commands", async () => {
