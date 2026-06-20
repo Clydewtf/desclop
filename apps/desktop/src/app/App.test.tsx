@@ -1235,7 +1235,7 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Timeline" }));
     expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
-    expect(screen.getByText("0 work entries, 0 commits, 0 notes")).toBeInTheDocument();
+    expect(screen.getByText("0 commits · No work reviews · No notes")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Backups" }));
     expect(screen.getByRole("heading", { name: "Export / Import" })).toBeInTheDocument();
@@ -1265,7 +1265,7 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "Timeline" }));
 
     expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
-    expect(screen.getByText("0 work entries, 1 commit, 0 notes")).toBeInTheDocument();
+    expect(screen.getByText("1 commit · No work reviews · No notes")).toBeInTheDocument();
     expect(screen.getByText("Add timeline screen")).toBeInTheDocument();
   });
 
@@ -2959,7 +2959,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Timeline" }));
 
     expect(await screen.findByRole("heading", { name: "Timeline" })).toBeInTheDocument();
-    expect(screen.getByText("1 work entry, 0 commits, 1 note")).toBeInTheDocument();
+    expect(screen.getByText("0 commits · 1 work review · 1 note")).toBeInTheDocument();
     expect(screen.getByText("Reviewed schema")).toBeInTheDocument();
     expect(screen.getByText("Schema note")).toBeInTheDocument();
   });
@@ -3021,7 +3021,7 @@ describe("App", () => {
     expect(listWorkEntriesForProject).toHaveBeenCalledWith("p1");
     expect(listInboxItemsForProject).toHaveBeenCalledWith("p1");
     expect(await screen.findByRole("heading", { name: "Timeline" })).toBeInTheDocument();
-    expect(screen.getByText("1 work entry, 0 commits, 1 note")).toBeInTheDocument();
+    expect(screen.getByText("0 commits · 1 work review · 2 notes")).toBeInTheDocument();
     expect(screen.getByText("Reviewed schema")).toBeInTheDocument();
     expect(screen.getByText("Schema note")).toBeInTheDocument();
     expect(screen.getByText("Check export path")).toBeInTheDocument();
