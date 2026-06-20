@@ -96,4 +96,25 @@ describe("buildTimeline", () => {
       body: "Work reviews, notes, and captures will appear here as you use Desclop."
     });
   });
+
+  it("preserves note text when the first line is empty", () => {
+    const body = "\nPreserve the original note";
+    const timeline = buildTimeline({
+      workEntries: [],
+      commits: [],
+      notes: [
+        {
+          id: "n1",
+          projectId: "p1",
+          taskId: null,
+          body,
+          createdAt: timestamp(2026, 5, 16, 10, 45)
+        }
+      ],
+      inboxItems: [],
+      completedTasks: []
+    });
+
+    expect(timeline.sections[0].items[0].title).toBe(body);
+  });
 });

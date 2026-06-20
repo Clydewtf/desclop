@@ -132,7 +132,7 @@ function parseTimelineTimestamp(timestamp: string) {
 }
 
 function firstLine(value: string) {
-  return value.split(/\r?\n/, 1)[0];
+  return value.split(/\r?\n/)[0] || value;
 }
 
 function formatWorkMetadata(entry: WorkEntry) {
