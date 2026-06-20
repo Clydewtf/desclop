@@ -29,14 +29,16 @@ export type TimelineCompletedTask = Task & {
   updatedAt?: string | null;
 };
 
+export interface TimelineInput {
+  workEntries: WorkEntry[];
+  commits: GitCommit[];
+  notes: Note[];
+  inboxItems: InboxItem[];
+  completedTasks: TimelineCompletedTask[];
+}
+
 export function buildTimeline(
-  input: {
-    workEntries: WorkEntry[];
-    commits: GitCommit[];
-    notes: Note[];
-    inboxItems: InboxItem[];
-    completedTasks: TimelineCompletedTask[];
-  },
+  input: TimelineInput,
   now = new Date()
 ) {
   const items: TimelineItem[] = [
@@ -89,13 +91,14 @@ export function buildTimeline(
 
   const sections: TimelineSection[] = [];
   for (const item of items) {
+    const id = formatTimelineSectionId(item.timestamp);
     const label = formatTimelineDateLabel(item.timestamp, now);
     const currentSection = sections.at(-1);
 
-    if (currentSection?.label === label) {
+    if (currentSection?.id === id) {
       currentSection.items.push(item);
     } else {
-      sections.push({ id: label, label, items: [item] });
+      sections.push({ id, label, items: [item] });
     }
   }
 
@@ -131,6 +134,16 @@ function parseTimelineTimestamp(timestamp: string) {
   return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
 }
 
+function formatTimelineSectionId(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "undated";
+
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function firstLine(value: string) {
   return value.split(/\r?\n/)[0] || value;
 }
@@ -153,13 +166,9 @@ const inboxKindLabels: Record<InboxItem["kind"], string> = {
   task_candidate: "Follow-up"
 };
 
-function buildSparseState(input: {
-  workEntries: WorkEntry[];
-  commits: GitCommit[];
-  notes: Note[];
-  inboxItems: InboxItem[];
-}): TimelineSparseState | null {
-  const appEventCount = input.workEntries.length + input.notes.length + input.inboxItems.length;
+function buildSparseState(input: TimelineInput): TimelineSparseState | null {
+  const appEventCount =
+    input.workEntries.length + input.notes.length + input.inboxItems.length + input.completedTasks.length;
 
   if (input.commits.length > 0 && appEventCount === 0) {
     return {
