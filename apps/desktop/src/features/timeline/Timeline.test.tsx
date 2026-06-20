@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
 import { Timeline } from "./Timeline";
@@ -7,6 +7,7 @@ describe("Timeline", () => {
   it("renders project history grouped by local date", () => {
     const workTimestamp = new Date(2026, 5, 16, 10).toISOString();
     const commitTimestamp = new Date(2026, 5, 16, 10, 5).toISOString();
+    const noteTimestamp = new Date(2026, 5, 15, 16).toISOString();
 
     renderWithRouter(
       <Timeline
@@ -36,7 +37,15 @@ describe("Timeline", () => {
             changedFiles: ["Timeline.tsx"]
           }
         ]}
-        notes={[]}
+        notes={[
+          {
+            id: "n1",
+            projectId: "p1",
+            taskId: null,
+            body: "Yesterday follow-up",
+            createdAt: noteTimestamp
+          }
+        ]}
         inboxItems={[]}
         completedTasks={[]}
         now={new Date(2026, 5, 16, 12)}
@@ -44,14 +53,55 @@ describe("Timeline", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Timeline" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Today, Jun 16" })).toBeInTheDocument();
-    expect(screen.getByText("Commit")).toBeInTheDocument();
-    expect(screen.getByText("Work review")).toBeInTheDocument();
-    expect(screen.getByText("abcdef1 · main · 1 file changed")).toBeInTheDocument();
-    expect(screen.getByText("Reviewed schema")).toBeInTheDocument();
-    expect(screen.getByText("Wire timeline")).toBeInTheDocument();
+    const todayGroup = screen.getByRole("heading", { name: "Today, Jun 16" }).closest("section");
+    const yesterdayGroup = screen
+      .getByRole("heading", { name: "Yesterday, Jun 15" })
+      .closest("section");
+
+    expect(todayGroup).not.toBeNull();
+    expect(yesterdayGroup).not.toBeNull();
+    expect(within(todayGroup!).getByRole("list")).toHaveAttribute("role", "list");
+    expect(within(todayGroup!).getByText("Commit")).toBeInTheDocument();
+    expect(within(todayGroup!).getByText("Work review")).toBeInTheDocument();
+    expect(within(todayGroup!).getByText("abcdef1 · main · 1 file changed")).toBeInTheDocument();
+    expect(within(todayGroup!).getByText("Reviewed schema")).toBeInTheDocument();
+    expect(within(todayGroup!).getByText("Wire timeline")).toBeInTheDocument();
+    expect(within(todayGroup!).queryByText("Yesterday follow-up")).not.toBeInTheDocument();
+    expect(within(yesterdayGroup!).getByText("Yesterday follow-up")).toBeInTheDocument();
+    expect(within(yesterdayGroup!).queryByText("Wire timeline")).not.toBeInTheDocument();
     expect(screen.queryByText(workTimestamp)).not.toBeInTheDocument();
     expect(screen.queryByText(commitTimestamp)).not.toBeInTheDocument();
+  });
+
+  it("renders an accessible placeholder instead of an invalid time for undated events", () => {
+    const { container } = renderWithRouter(
+      <Timeline
+        workEntries={[]}
+        commits={[]}
+        notes={[]}
+        inboxItems={[]}
+        completedTasks={[
+          {
+            id: "t1",
+            projectId: "p1",
+            stageId: "s1",
+            title: "Undated cleanup",
+            description: "",
+            status: "done",
+            priority: null,
+            dueDate: null,
+            nextStep: "",
+            position: 1
+          }
+        ]}
+      />
+    );
+
+    const placeholder = screen.getByLabelText("Time unavailable");
+
+    expect(placeholder).toHaveTextContent("—");
+    expect(placeholder).toHaveClass("timeline-row__time");
+    expect(container.querySelector('time[datetime=""]')).not.toBeInTheDocument();
   });
 
   it("renders an actionable empty state", () => {

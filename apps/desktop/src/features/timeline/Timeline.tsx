@@ -54,13 +54,21 @@ export function Timeline({
                   aria-labelledby={`${section.id}-heading`}
                 >
                   <h2 id={`${section.id}-heading`}>{section.label}</h2>
-                  <ol className="timeline-list">
+                  <ol className="timeline-list" role="list">
                     {section.items.map((item) => (
                       <li
                         key={`${item.kind}-${item.id}`}
                         className={`timeline-row timeline-row--${item.kind}`}
                       >
-                        <time dateTime={item.timestamp}>{item.time}</time>
+                        {item.time && !Number.isNaN(Date.parse(item.timestamp)) ? (
+                          <time className="timeline-row__time" dateTime={item.timestamp}>
+                            {item.time}
+                          </time>
+                        ) : (
+                          <span className="timeline-row__time" aria-label="Time unavailable">
+                            —
+                          </span>
+                        )}
                         <span className="timeline-row__type">{item.typeLabel}</span>
                         <div className="timeline-row__content">
                           <strong>{item.title}</strong>
