@@ -1,4 +1,5 @@
 import {
+  forwardRef,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
@@ -55,19 +56,26 @@ export function TextField({
   );
 }
 
-export function TextArea({
-  id,
-  label,
-  hint,
-  className = "",
-  "aria-describedby": ariaDescribedBy,
-  ...props
-}: TextareaHTMLAttributes<HTMLTextAreaElement> & { id: string; label: string; hint?: string }) {
+export const TextArea = forwardRef<
+  HTMLTextAreaElement,
+  TextareaHTMLAttributes<HTMLTextAreaElement> & { id: string; label: string; hint?: string }
+>(function TextArea(
+  {
+    id,
+    label,
+    hint,
+    className = "",
+    "aria-describedby": ariaDescribedBy,
+    ...props
+  },
+  ref
+) {
   const hintId = hint ? `${id}-hint` : undefined;
 
   return (
     <FieldFrame id={id} label={label} hint={hint} hintId={hintId}>
       <textarea
+        ref={ref}
         id={id}
         className={["ui-textarea", className].filter(Boolean).join(" ")}
         aria-describedby={mergeDescribedBy(ariaDescribedBy, hintId)}
@@ -75,7 +83,7 @@ export function TextArea({
       />
     </FieldFrame>
   );
-}
+});
 
 export function SelectField({
   id,

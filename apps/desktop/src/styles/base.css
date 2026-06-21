@@ -1255,3 +1255,42 @@ label.inline-field input {
     justify-content: flex-start;
   }
 }
+
+.quick-capture-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: start center;
+  padding: 12vh 24px 24px;
+  background: rgba(18, 23, 34, 0.32);
+}
+
+.quick-capture-dialog {
+  display: grid;
+  width: min(640px, 100%);
+  box-sizing: border-box;
+  gap: 16px;
+  padding: 20px;
+  border: 1px solid var(--border, var(--color-border));
+  border-radius: 8px;
+  background: var(--surface, var(--color-surface));
+  box-shadow: 0 24px 70px rgba(15, 23, 42, 0.22);
+}
+
+.quick-capture-dialog header h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.quick-capture-meta {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.quick-capture-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
