@@ -1549,6 +1549,66 @@ describe("App", () => {
     expect(await screen.findByText("Captured to Task: Create local store")).toBeInTheDocument();
   });
 
+  it("ignores repeated global capture opens while a save is pending", async () => {
+    const user = userEvent.setup();
+    const pendingCapture = deferred<Awaited<ReturnType<typeof api.captureInboxItem>>>();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    captureInboxItem.mockReturnValue(pendingCapture.promise);
+    attachInboxItemToTask.mockResolvedValue({
+      id: "i-pending",
+      projectId: "p1",
+      taskId: "t1",
+      body: "Preserve this pending capture",
+      kind: "note",
+      status: "attached",
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.type(
+      within(dialog).getByLabelText("Capture"),
+      "Preserve this pending capture"
+    );
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+
+    fireEvent.keyDown(window, { key: "C", shiftKey: true, metaKey: true });
+
+    expect(screen.getByRole("dialog", { name: "Quick capture" })).toBe(dialog);
+    expect(within(dialog).getByLabelText("Capture")).toHaveValue(
+      "Preserve this pending capture"
+    );
+    expect(within(dialog).getByRole("button", { name: "Saving capture" })).toBeDisabled();
+
+    await act(async () => {
+      pendingCapture.resolve({
+        id: "i-pending",
+        projectId: "p1",
+        taskId: null,
+        body: "Preserve this pending capture",
+        kind: "note",
+        status: "open",
+        createdAt: "2026-05-20T10:00:00Z",
+        updatedAt: "2026-05-20T10:00:00Z"
+      });
+    });
+
+    expect(attachInboxItemToTask).toHaveBeenCalledTimes(1);
+    expect(attachInboxItemToTask).toHaveBeenCalledWith({
+      itemId: "i-pending",
+      taskId: "t1"
+    });
+    expect(await screen.findByText("Captured to Task: Create local store")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Quick capture" })).not.toBeInTheDocument();
+  });
+
   it("saves Quick capture to Inbox without attaching it", async () => {
     const user = userEvent.setup();
     enableTauriApi();

@@ -428,7 +428,7 @@ export function App() {
     : "";
 
   const openQuickCapture = useCallback(() => {
-    if (!projectId) {
+    if (!projectId || quickCaptureOpen) {
       return;
     }
 
@@ -448,6 +448,7 @@ export function App() {
     focusCaptureTaskId,
     projectActiveTaskId,
     projectId,
+    quickCaptureOpen,
     screen,
     selectedCaptureTaskId,
     todayCaptureTaskId
