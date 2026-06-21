@@ -1419,6 +1419,40 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
   });
 
+  it("opens a completed Plan task without activating it", async () => {
+    const user = userEvent.setup();
+    const importedPlan = importedPlanFixture("p1");
+    const plan = {
+      ...importedPlan,
+      tasks: [
+        {
+          ...importedPlan.tasks[0],
+          title: "Publish release notes",
+          status: "done" as const
+        }
+      ]
+    };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: null })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(plan);
+    setActiveTask.mockResolvedValue(undefined);
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(
+      screen.getByRole("button", { name: "Open Publish release notes" })
+    );
+
+    expect(setActiveTask).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("heading", { name: "Publish release notes" })
+    ).toBeInTheDocument();
+  });
+
   it("ignores pending task context after switching projects", async () => {
     const user = userEvent.setup();
     let resolveFirstTaskNotes: (

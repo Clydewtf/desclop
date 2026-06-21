@@ -3,10 +3,10 @@ import { Button, ScreenHeader, TaskStatusBadge } from "../../shared/ui";
 
 interface PlannerProps {
   frames: PlannerFrame[];
-  onContinueTask: (taskId: string) => void;
+  onOpenTask: (taskId: string, options: { activate: boolean }) => void;
 }
 
-export function Planner({ frames, onContinueTask }: PlannerProps) {
+export function Planner({ frames, onOpenTask }: PlannerProps) {
   return (
     <section className="planner-map stack" aria-label="Plan">
       <ScreenHeader
@@ -94,7 +94,13 @@ export function Planner({ frames, onContinueTask }: PlannerProps) {
                           </small>
                         ) : null}
                       </div>
-                      <Button variant="secondary" onClick={() => onContinueTask(task.id)}>
+                      <Button
+                        variant="secondary"
+                        aria-label={`${actionLabel} ${task.title}`}
+                        onClick={() =>
+                          onOpenTask(task.id, { activate: task.status !== "done" })
+                        }
+                      >
                         {actionLabel}
                       </Button>
                     </div>

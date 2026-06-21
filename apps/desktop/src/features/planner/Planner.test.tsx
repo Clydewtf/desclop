@@ -8,7 +8,7 @@ import type { PlannerFrame } from "./plannerEngine";
 describe("Planner", () => {
   it("renders Plan as a readable stage map with task next steps", async () => {
     const user = userEvent.setup();
-    const onContinueTask = vi.fn();
+    const onOpenTask = vi.fn();
     const frames: PlannerFrame[] = [
       {
         stage: {
@@ -99,7 +99,7 @@ describe("Planner", () => {
       }
     ];
 
-    renderWithRouter(<Planner frames={frames} onContinueTask={onContinueTask} />);
+    renderWithRouter(<Planner frames={frames} onOpenTask={onOpenTask} />);
 
     expect(screen.getByRole("heading", { name: "Plan" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Completed foundation" })).toBeInTheDocument();
@@ -109,12 +109,67 @@ describe("Planner", () => {
     expect(
       screen.getByRole("progressbar", { name: "Restructure Today progress" })
     ).toHaveAttribute("aria-valuenow", "0");
-    expect(
-      screen.queryByRole("button", { name: "Continue Restructure Today" })
-    ).not.toBeInTheDocument();
+    const continueButton = screen.getByRole("button", {
+      name: "Continue Restructure Today"
+    });
+    expect(continueButton).toHaveTextContent(/^Continue$/);
 
-    await user.click(screen.getByRole("button", { name: "Continue" }));
+    await user.click(continueButton);
 
-    expect(onContinueTask).toHaveBeenCalledWith("t2");
+    expect(onOpenTask).toHaveBeenCalledWith("t2", { activate: true });
+  });
+
+  it("opens a completed task without activating it", async () => {
+    const user = userEvent.setup();
+    const onOpenTask = vi.fn();
+    const frames: PlannerFrame[] = [
+      {
+        stage: {
+          id: "stage-1",
+          projectId: "project-1",
+          title: "Polish release",
+          description: "",
+          position: 0,
+          status: "current"
+        },
+        collapsed: false,
+        recommendedTaskId: null,
+        progress: {
+          completedTasks: 1,
+          totalTasks: 1,
+          completedChecklist: 0,
+          totalChecklist: 0,
+          percent: 100,
+          tasksLabel: "1/1 tasks",
+          checklistLabel: null
+        },
+        tasks: [
+          {
+            id: "t1",
+            projectId: "project-1",
+            stageId: "stage-1",
+            title: "Publish release notes",
+            description: "",
+            status: "done",
+            priority: "normal",
+            dueDate: null,
+            nextStep: "",
+            position: 0,
+            checklist: []
+          }
+        ]
+      }
+    ];
+
+    renderWithRouter(<Planner frames={frames} onOpenTask={onOpenTask} />);
+
+    const openButton = screen.getByRole("button", {
+      name: "Open Publish release notes"
+    });
+    expect(openButton).toHaveTextContent(/^Open$/);
+
+    await user.click(openButton);
+
+    expect(onOpenTask).toHaveBeenCalledWith("t1", { activate: false });
   });
 });

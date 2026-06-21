@@ -1074,7 +1074,7 @@ export function App() {
             projectPlan.checklistItems,
             project?.activeTaskId ?? null
           )}
-          onContinueTask={(taskId) => void openTask(taskId, { activate: true })}
+          onOpenTask={(taskId, options) => void openTask(taskId, options)}
         />
       );
     }
