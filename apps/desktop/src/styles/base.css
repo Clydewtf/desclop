@@ -940,9 +940,8 @@ label.inline-field input {
 }
 
 .stage-frame--current {
-  border-color: var(--color-accent);
-  background: var(--color-info-bg);
-  box-shadow: inset 4px 0 0 var(--color-accent);
+  border-color: var(--color-border);
+  background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface));
 }
 
 .stage-frame--completed {
@@ -955,9 +954,9 @@ label.inline-field input {
 }
 
 .stage-frame__header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-start;
-  justify-content: space-between;
   gap: var(--space-4);
 }
 
@@ -997,6 +996,21 @@ label.inline-field input {
   padding: 4px 10px;
 }
 
+.stage-frame__progress-bar {
+  grid-column: 1 / -1;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+}
+
+.stage-frame__progress-bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-accent);
+}
+
 .stage-frame__summary {
   display: grid;
   gap: var(--space-3);
@@ -1028,6 +1042,10 @@ label.inline-field input {
   padding: var(--space-3) var(--space-4);
 }
 
+.task-row--recommended {
+  background: var(--color-surface-muted);
+}
+
 .task-row__content {
   display: grid;
   min-width: 0;
@@ -1042,6 +1060,15 @@ label.inline-field input {
   font-weight: 800;
 }
 
+.task-row__next-marker {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
 .task-row small,
 .task-row__next-step {
   color: var(--color-muted);
@@ -1053,7 +1080,7 @@ label.inline-field input {
 }
 
 .task-row__next-step {
-  margin: 0;
+  margin: 4px 0 0;
   line-height: 1.45;
 }
 
@@ -1218,6 +1245,10 @@ label.inline-field input {
   .task-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .stage-frame__header {
+    grid-template-columns: 1fr;
   }
 
   .stage-frame__progress {

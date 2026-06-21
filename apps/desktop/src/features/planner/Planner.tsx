@@ -25,22 +25,32 @@ export function Planner({ frames, onContinueTask }: PlannerProps) {
                 <p className="stage-frame__status">{stageStatusLabel(frame.stage.status)}</p>
                 <h2 id={`${frame.stage.id}-title`}>{frame.stage.title}</h2>
               </div>
-              <div className="stage-frame__progress" aria-label={`${frame.stage.title} progress`}>
-                <span>
-                  {frame.progress.completedTasks}/{frame.progress.totalTasks} tasks
-                </span>
-                <span>
-                  {frame.progress.completedChecklist}/{frame.progress.totalChecklist} checklist
-                </span>
+              <div
+                className="stage-frame__progress"
+                aria-label={`${frame.stage.title} progress summary`}
+              >
+                <span>{frame.progress.tasksLabel}</span>
+                {frame.progress.checklistLabel ? (
+                  <span>{frame.progress.checklistLabel}</span>
+                ) : null}
+              </div>
+              <div
+                className="stage-frame__progress-bar"
+                role="progressbar"
+                aria-label={`${frame.stage.title} progress`}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={frame.progress.percent}
+              >
+                <span style={{ width: `${frame.progress.percent}%` }} />
               </div>
             </header>
 
             {frame.collapsed ? (
               <div className="stage-frame__summary">
                 <p>
-                  {frame.progress.completedTasks}/{frame.progress.totalTasks} tasks done.{" "}
-                  {frame.progress.completedChecklist}/{frame.progress.totalChecklist} checklist
-                  complete.
+                  {frame.progress.tasksLabel}
+                  {frame.progress.checklistLabel ? ` · ${frame.progress.checklistLabel}` : ""}
                 </p>
                 <div className="task-list task-list--collapsed">
                   {frame.tasks.map((task) => (
@@ -55,26 +65,41 @@ export function Planner({ frames, onContinueTask }: PlannerProps) {
               </div>
             ) : (
               <div className="task-list">
-                {frame.tasks.map((task) => (
-                  <div className="task-row" key={task.id}>
-                    <div className="task-row__content">
-                      <div className="task-row__title">
-                        <span>{task.title}</span>
-                        <TaskStatusBadge status={task.status} />
+                {frame.tasks.map((task) => {
+                  const isRecommended = task.id === frame.recommendedTaskId;
+                  const completedChecklist = task.checklist.filter(
+                    (item) => item.completed
+                  ).length;
+                  const actionLabel = task.status === "done" ? "Open" : "Continue";
+
+                  return (
+                    <div
+                      className={`task-row${isRecommended ? " task-row--recommended" : ""}`}
+                      key={task.id}
+                    >
+                      <div className="task-row__content">
+                        <div className="task-row__title">
+                          <span>{task.title}</span>
+                          {isRecommended ? (
+                            <span className="task-row__next-marker">Next</span>
+                          ) : null}
+                          <TaskStatusBadge status={task.status} />
+                        </div>
+                        {task.nextStep ? (
+                          <p className="task-row__next-step">Next: {task.nextStep}</p>
+                        ) : null}
+                        {task.checklist.length > 0 ? (
+                          <small>
+                            {completedChecklist}/{task.checklist.length} checklist
+                          </small>
+                        ) : null}
                       </div>
-                      <small>
-                        {task.checklist.filter((item) => item.completed).length}/
-                        {task.checklist.length} checklist
-                      </small>
-                      {task.nextStep ? (
-                        <p className="task-row__next-step">{task.nextStep}</p>
-                      ) : null}
+                      <Button variant="secondary" onClick={() => onContinueTask(task.id)}>
+                        {actionLabel}
+                      </Button>
                     </div>
-                    <Button variant="secondary" onClick={() => onContinueTask(task.id)}>
-                      Continue {task.title}
-                    </Button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </article>

@@ -56,7 +56,7 @@ describe("Planner", () => {
           status: "current"
         },
         collapsed: false,
-        recommendedTaskId: null,
+        recommendedTaskId: "t2",
         progress: {
           completedTasks: 0,
           totalTasks: 2,
@@ -104,9 +104,16 @@ describe("Planner", () => {
     expect(screen.getByRole("heading", { name: "Plan" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Completed foundation" })).toBeInTheDocument();
     expect(screen.getByText("1/3 tasks")).toBeInTheDocument();
-    expect(screen.getByText("Run Today component tests")).toBeInTheDocument();
+    expect(screen.getByText("Next")).toBeInTheDocument();
+    expect(screen.getByText("Next: Run Today component tests")).toBeInTheDocument();
+    expect(
+      screen.getByRole("progressbar", { name: "Restructure Today progress" })
+    ).toHaveAttribute("aria-valuenow", "0");
+    expect(
+      screen.queryByRole("button", { name: "Continue Restructure Today" })
+    ).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Continue Restructure Today" }));
+    await user.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(onContinueTask).toHaveBeenCalledWith("t2");
   });
