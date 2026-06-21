@@ -1718,6 +1718,111 @@ describe("App", () => {
     expect(screen.getByText("2 inbox items")).toBeInTheDocument();
   });
 
+  it("does not attach a captured item after its task-target session becomes stale", async () => {
+    const user = userEvent.setup();
+    const pendingCapture = deferred<Awaited<ReturnType<typeof api.captureInboxItem>>>();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    captureInboxItem.mockReturnValue(pendingCapture.promise);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+    let dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.type(within(dialog).getByLabelText("Capture"), "Leave this in Inbox");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+    dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.type(within(dialog).getByLabelText("Capture"), "New capture session");
+
+    await act(async () => {
+      pendingCapture.resolve({
+        id: "i-stale",
+        projectId: "p1",
+        taskId: null,
+        body: "Leave this in Inbox",
+        kind: "note",
+        status: "open",
+        createdAt: "2026-05-20T10:00:00Z",
+        updatedAt: "2026-05-20T10:00:00Z"
+      });
+    });
+
+    expect(attachInboxItemToTask).not.toHaveBeenCalled();
+    expect(deleteInboxItem).not.toHaveBeenCalled();
+    expect(screen.queryByText("Captured to Task: Create local store")).not.toBeInTheDocument();
+    expect(screen.queryByText("Captured to Inbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Quick capture" })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText("Capture")).toHaveValue("New capture session");
+    expect(screen.getByRole("heading", { name: "Foundation" })).toBeInTheDocument();
+  });
+
+  it("preserves the Task Detail rail when indeterminate recovery reads fail", async () => {
+    const user = userEvent.setup();
+    const existingItem = {
+      id: "i-existing",
+      projectId: "p1",
+      taskId: "t1",
+      body: "Existing rail context",
+      kind: "question" as const,
+      status: "attached" as const,
+      createdAt: "2026-05-20T09:00:00Z",
+      updatedAt: "2026-05-20T09:00:00Z"
+    };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({ taskId: "t1", stageId: "s1", nextStep: "Run tests" })
+    );
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    listInboxItemsForTask
+      .mockResolvedValueOnce([existingItem])
+      .mockRejectedValueOnce(new Error("task inbox unavailable"));
+    listInboxItemsForProject
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error("project inbox unavailable"));
+    captureInboxItem.mockResolvedValue({
+      ...existingItem,
+      id: "i-indeterminate",
+      taskId: null,
+      body: "Uncertain capture",
+      status: "open"
+    });
+    attachInboxItemToTask.mockRejectedValue(new Error("attach uncertain"));
+    deleteInboxItem.mockRejectedValue(new Error("rollback uncertain"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    expect(await screen.findByText("Existing rail context")).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole("complementary", { name: "Application" })).getByRole(
+        "button",
+        { name: "Capture" }
+      )
+    );
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.type(within(dialog).getByLabelText("Capture"), "Uncertain capture");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+
+    expect(
+      await screen.findByText(
+        "Capture was saved, but task attachment could not be confirmed. Check Inbox before retrying."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Quick capture" })).not.toBeInTheDocument();
+    expect(screen.getByText("Existing rail context")).toBeInTheDocument();
+    expect(screen.getByText("1 inbox items")).toBeInTheDocument();
+    expect(screen.queryByText("Uncertain capture")).not.toBeInTheDocument();
+  });
+
   it("ignores a stale task capture after a newer Inbox capture completes", async () => {
     const user = userEvent.setup();
     const pendingAttach = deferred<Awaited<ReturnType<typeof api.attachInboxItemToTask>>>();

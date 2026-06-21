@@ -881,6 +881,12 @@ export function App() {
       body: input.body,
       kind: input.kind
     });
+    if (
+      !isCurrentProjectContext(revision) ||
+      captureOperationRevision.current !== operationRevision
+    ) {
+      return;
+    }
     let savedItem = item;
     if (input.taskId) {
       try {
@@ -901,26 +907,28 @@ export function App() {
 
           const currentSelectedTaskId = selectedTaskIdRef.current;
           if (screenRef.current === "task-detail" && currentSelectedTaskId) {
-            const [taskInboxItems, projectInboxItems] = await Promise.all([
-              loadListOrEmpty(() =>
-                api.listInboxItemsForTask(project.id, currentSelectedTaskId)
-              ),
-              loadListOrEmpty(() => api.listInboxItemsForProject(project.id))
-            ]);
-            if (
-              !isCurrentProjectContext(revision) ||
-              captureOperationRevision.current !== operationRevision ||
-              screenRef.current !== "task-detail" ||
-              selectedTaskIdRef.current !== currentSelectedTaskId
-            ) {
-              return;
+            try {
+              const [taskInboxItems, projectInboxItems] = await Promise.all([
+                api.listInboxItemsForTask(project.id, currentSelectedTaskId),
+                api.listInboxItemsForProject(project.id)
+              ]);
+              if (
+                !isCurrentProjectContext(revision) ||
+                captureOperationRevision.current !== operationRevision ||
+                screenRef.current !== "task-detail" ||
+                selectedTaskIdRef.current !== currentSelectedTaskId
+              ) {
+                return;
+              }
+              setSelectedInboxItems([
+                ...taskInboxItems,
+                ...projectInboxItems.filter(
+                  (candidate) => candidate.status === "open" && candidate.taskId === null
+                )
+              ]);
+            } catch {
+              // Preserve the existing rail when recovery reads are unavailable.
             }
-            setSelectedInboxItems([
-              ...taskInboxItems,
-              ...projectInboxItems.filter(
-                (candidate) => candidate.status === "open" && candidate.taskId === null
-              )
-            ]);
           }
 
           if (
