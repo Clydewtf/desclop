@@ -20,11 +20,15 @@ describe("Planner", () => {
           status: "completed"
         },
         collapsed: true,
+        recommendedTaskId: null,
         progress: {
           completedTasks: 1,
           totalTasks: 3,
           completedChecklist: 2,
-          totalChecklist: 4
+          totalChecklist: 4,
+          percent: 33,
+          tasksLabel: "1/3 tasks",
+          checklistLabel: "2/4 checklist"
         },
         tasks: [
           {
@@ -52,11 +56,15 @@ describe("Planner", () => {
           status: "current"
         },
         collapsed: false,
+        recommendedTaskId: null,
         progress: {
           completedTasks: 0,
           totalTasks: 2,
           completedChecklist: 2,
-          totalChecklist: 5
+          totalChecklist: 5,
+          percent: 0,
+          tasksLabel: "0/2 tasks",
+          checklistLabel: "2/5 checklist"
         },
         tasks: [
           {
