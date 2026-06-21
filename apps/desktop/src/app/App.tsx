@@ -6,6 +6,7 @@ import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImpor
 import { parseMarkdownPlan, type ParsedMarkdownPlan } from "../features/markdown-import/markdownParser";
 import { Planner } from "../features/planner/Planner";
 import { buildPlannerFrames } from "../features/planner/plannerEngine";
+import { QuickCaptureOverlay } from "../features/quick-capture/QuickCaptureOverlay";
 import {
   ProjectPicker,
   type ProjectDeleteError
@@ -172,6 +173,34 @@ function activeDestinationForScreen(screen: AppScreen): AppDestination {
   return "today";
 }
 
+function defaultQuickCaptureTaskId({
+  screen,
+  selectedTaskId,
+  focusTaskId,
+  todayTaskId,
+  activeTaskId
+}: {
+  screen: AppScreen;
+  selectedTaskId: string | null;
+  focusTaskId: string | null;
+  todayTaskId: string | null;
+  activeTaskId: string | null;
+}) {
+  if (screen === "task-detail" && selectedTaskId) {
+    return selectedTaskId;
+  }
+  if (screen === "focus" && focusTaskId) {
+    return focusTaskId;
+  }
+  if (screen === "today" && todayTaskId) {
+    return todayTaskId;
+  }
+  if (screen === "plan" && activeTaskId) {
+    return activeTaskId;
+  }
+  return null;
+}
+
 export function App() {
   const projectContextRevision = useRef(0);
   const deleteProjectInFlight = useRef(false);
@@ -217,6 +246,9 @@ export function App() {
   const [reselectedLocalPath, setReselectedLocalPath] = useState("");
   const [portableStatus, setPortableStatus] = useState<string | null>(null);
   const [portableError, setPortableError] = useState<string | null>(null);
+  const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
+  const [quickCaptureDefaultTaskId, setQuickCaptureDefaultTaskId] = useState<string | null>(null);
+  const [captureStatus, setCaptureStatus] = useState<string | null>(null);
 
   function invalidateProjectContext() {
     projectContextRevision.current += 1;
@@ -258,6 +290,9 @@ export function App() {
     setReselectedLocalPath("");
     setPortableStatus(null);
     setPortableError(null);
+    setQuickCaptureOpen(false);
+    setQuickCaptureDefaultTaskId(null);
+    setCaptureStatus(null);
   }
 
   function beginProjectLoad() {
@@ -375,6 +410,44 @@ export function App() {
         checklistItems: projectPlan.checklistItems
       })
     : "";
+
+  const openQuickCapture = useCallback(() => {
+    if (!project) {
+      return;
+    }
+
+    setQuickCaptureDefaultTaskId(
+      defaultQuickCaptureTaskId({
+        screen,
+        selectedTaskId: selectedTask?.id ?? null,
+        focusTaskId: focusSession?.taskId ?? null,
+        todayTaskId: todayTask?.id ?? null,
+        activeTaskId: project.activeTaskId
+      })
+    );
+    setCaptureStatus(null);
+    setQuickCaptureOpen(true);
+  }, [focusSession, project, screen, selectedTask, todayTask]);
+
+  const closeQuickCapture = useCallback(() => {
+    setQuickCaptureOpen(false);
+  }, []);
+
+  useEffect(() => {
+    function handleQuickCaptureShortcut(event: KeyboardEvent) {
+      if (
+        event.shiftKey &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "c"
+      ) {
+        event.preventDefault();
+        openQuickCapture();
+      }
+    }
+
+    window.addEventListener("keydown", handleQuickCaptureShortcut);
+    return () => window.removeEventListener("keydown", handleQuickCaptureShortcut);
+  }, [openQuickCapture]);
 
   async function loadTaskContext(taskId: string, revision: number) {
     if (!project) {
@@ -767,7 +840,11 @@ export function App() {
     setScreen("work-review");
   }
 
-  async function captureInbox(input: { body: string; kind: InboxKind }) {
+  async function saveQuickCapture(input: {
+    body: string;
+    kind: InboxKind;
+    taskId: string | null;
+  }) {
     if (!project) {
       return;
     }
@@ -778,18 +855,30 @@ export function App() {
       body: input.body,
       kind: input.kind
     });
+    const savedItem = input.taskId
+      ? await api.attachInboxItemToTask({ itemId: item.id, taskId: input.taskId })
+      : item;
     if (!isCurrentProjectContext(revision)) {
       return;
     }
     if (screen === "task-detail" && selectedTask) {
       setSelectedInboxItems((items) => {
-        const nextItems = items.filter((candidate) => candidate.id !== item.id);
+        const nextItems = items.filter((candidate) => candidate.id !== savedItem.id);
         const belongsInRail =
-          item.projectId === selectedTask.projectId &&
-          (item.taskId === selectedTask.id || item.taskId === null);
-        return belongsInRail ? [...nextItems, item] : nextItems;
+          savedItem.projectId === selectedTask.projectId &&
+          (savedItem.taskId === selectedTask.id || savedItem.taskId === null);
+        return belongsInRail ? [...nextItems, savedItem] : nextItems;
       });
     }
+    const targetTask =
+      projectPlan.tasks.find((candidate) => candidate.id === input.taskId) ?? null;
+    setCaptureStatus(
+      targetTask ? `Captured to Task: ${targetTask.title}` : "Captured to Inbox"
+    );
+  }
+
+  async function captureInbox(input: { body: string; kind: InboxKind }) {
+    await saveQuickCapture({ ...input, taskId: null });
   }
 
   async function saveFocusReview(input: {
@@ -1272,7 +1361,7 @@ export function App() {
       projectName={project?.name}
       projectStatus={resumeError || gitError ? [resumeError, gitError].filter(Boolean).join(" ") : null}
       onNavigate={handleNavigate}
-      onQuickCapture={() => setScreen("today")}
+      onQuickCapture={openQuickCapture}
       onCloseProject={closeProject}
     >
       {resumeError || gitError ? (
@@ -1281,7 +1370,15 @@ export function App() {
         </InlineAlert>
       ) : null}
       {timelineError ? <InlineAlert tone="error">{timelineError}</InlineAlert> : null}
+      {captureStatus ? <InlineAlert tone="info">{captureStatus}</InlineAlert> : null}
       {renderProjectScreen()}
+      <QuickCaptureOverlay
+        open={quickCaptureOpen}
+        tasks={projectPlan.tasks}
+        defaultTaskId={quickCaptureDefaultTaskId}
+        onSave={saveQuickCapture}
+        onClose={closeQuickCapture}
+      />
     </AppShell>
   );
 }

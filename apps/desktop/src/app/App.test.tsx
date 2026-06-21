@@ -23,6 +23,7 @@ vi.mock("../shared/api/client", () => ({
     updateNextStep: vi.fn(),
     createWorkEntry: vi.fn(),
     captureInboxItem: vi.fn(),
+    attachInboxItemToTask: vi.fn(),
     listInboxItemsForProject: vi.fn(),
     listInboxItemsForTask: vi.fn(),
     listNotesForProject: vi.fn(),
@@ -52,6 +53,7 @@ const loadProjectPlan = vi.mocked(api.loadProjectPlan);
 const importPlan = vi.mocked(api.importPlan);
 const createWorkEntry = vi.mocked(api.createWorkEntry);
 const captureInboxItem = vi.mocked(api.captureInboxItem);
+const attachInboxItemToTask = vi.mocked(api.attachInboxItemToTask);
 const listInboxItemsForProject = vi.mocked(api.listInboxItemsForProject);
 const listInboxItemsForTask = vi.mocked(api.listInboxItemsForTask);
 const updateChecklistItem = vi.mocked(api.updateChecklistItem);
@@ -1449,6 +1451,151 @@ describe("App", () => {
 
     expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
     expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
+  });
+
+  it("opens Quick capture from Plan without navigating and defaults to the active task", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    expect(within(dialog).getByLabelText("Related to")).toHaveValue("t1");
+    expect(screen.getByRole("heading", { name: "Foundation" })).toBeInTheDocument();
+  });
+
+  it.each([
+    { modifier: "Meta", event: { metaKey: true } },
+    { modifier: "Control", event: { ctrlKey: true } }
+  ])("opens Quick capture with Shift+$modifier+C without navigating", async ({ event }) => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    fireEvent.keyDown(window, { key: "C", shiftKey: true, ...event });
+
+    expect(screen.getByRole("dialog", { name: "Quick capture" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Foundation" })).toBeInTheDocument();
+  });
+
+  it("saves Quick capture to the Plan active task and reports the task title", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    captureInboxItem.mockResolvedValue({
+      id: "i1",
+      projectId: "p1",
+      taskId: null,
+      body: "Record the plan decision",
+      kind: "note",
+      status: "open",
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    });
+    attachInboxItemToTask.mockResolvedValue({
+      id: "i1",
+      projectId: "p1",
+      taskId: "t1",
+      body: "Record the plan decision",
+      kind: "note",
+      status: "attached",
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.type(within(dialog).getByLabelText("Capture"), "Record the plan decision");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+
+    expect(captureInboxItem).toHaveBeenCalledWith({
+      projectId: "p1",
+      body: "Record the plan decision",
+      kind: "note"
+    });
+    expect(attachInboxItemToTask).toHaveBeenCalledWith({ itemId: "i1", taskId: "t1" });
+    expect(captureInboxItem.mock.invocationCallOrder[0]).toBeLessThan(
+      attachInboxItemToTask.mock.invocationCallOrder[0]
+    );
+    expect(await screen.findByText("Captured to Task: Create local store")).toBeInTheDocument();
+  });
+
+  it("saves Quick capture to Inbox without attaching it", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    captureInboxItem.mockResolvedValue({
+      id: "i1",
+      projectId: "p1",
+      taskId: null,
+      body: "Review the loose idea",
+      kind: "question",
+      status: "open",
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    });
+
+    renderWithRouter(<App />);
+
+    await user.click(
+      within(await screen.findByRole("complementary", { name: "Application" })).getByRole(
+        "button",
+        { name: "Capture" }
+      )
+    );
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.selectOptions(within(dialog).getByLabelText("Related to"), "__inbox__");
+    await user.selectOptions(within(dialog).getByLabelText("Type"), "question");
+    await user.type(within(dialog).getByLabelText("Capture"), "Review the loose idea");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+
+    expect(captureInboxItem).toHaveBeenCalledWith({
+      projectId: "p1",
+      body: "Review the loose idea",
+      kind: "question"
+    });
+    expect(attachInboxItemToTask).not.toHaveBeenCalled();
+    expect(await screen.findByText("Captured to Inbox")).toBeInTheDocument();
+  });
+
+  it("defaults Quick capture to the current Focus session task", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({ taskId: "t1", stageId: "s1", nextStep: "Run repository tests" })
+    );
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(screen.getByRole("button", { name: "Start focus" }));
+    fireEvent.keyDown(window, { key: "c", shiftKey: true, ctrlKey: true });
+
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    expect(within(dialog).getByLabelText("Related to")).toHaveValue("t1");
+    expect(screen.getByRole("button", { name: "Finish focus session" })).toBeInTheDocument();
   });
 
   it("opens a completed Plan task without activating it", async () => {
