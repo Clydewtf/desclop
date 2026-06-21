@@ -33,6 +33,26 @@ const tasks = [
 ];
 
 describe("QuickCaptureOverlay", () => {
+  it("uses the planned presentation and dialog structure classes", () => {
+    const { container } = renderWithRouter(
+      <QuickCaptureOverlay
+        open
+        tasks={tasks}
+        defaultTaskId="task-active"
+        onSave={vi.fn()}
+        onClose={vi.fn()}
+      />
+    );
+
+    expect(container.querySelector(".quick-capture-overlay")).toHaveAttribute(
+      "role",
+      "presentation"
+    );
+    expect(container.querySelector("header")).toHaveClass("quick-capture-dialog__header");
+    expect(container.querySelector(".quick-capture-dialog__meta")).toBeInTheDocument();
+    expect(container.querySelector(".quick-capture-dialog__actions")).toBeInTheDocument();
+  });
+
   it("focuses Capture and saves the default task with Meta+Enter", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockResolvedValue(undefined);

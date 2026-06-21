@@ -109,14 +109,14 @@ export function QuickCaptureOverlay({
   }
 
   return (
-    <div className="quick-capture-overlay">
+    <div className="quick-capture-overlay" role="presentation">
       <form
         aria-label="Quick capture"
         className="quick-capture-dialog"
         onKeyDown={handleKeyDown}
         onSubmit={handleSubmit}
       >
-        <header>
+        <header className="quick-capture-dialog__header">
           <h2>Quick capture</h2>
         </header>
 
@@ -130,7 +130,7 @@ export function QuickCaptureOverlay({
           onChange={(event) => setBody(event.target.value)}
         />
 
-        <div className="quick-capture-meta">
+        <div className="quick-capture-dialog__meta">
           <SelectField
             id="quick-capture-kind"
             label="Type"
@@ -163,7 +163,7 @@ export function QuickCaptureOverlay({
 
         {error ? <InlineAlert tone="error">{error}</InlineAlert> : null}
 
-        <div className="quick-capture-actions">
+        <div className="quick-capture-dialog__actions">
           <Button variant="secondary" disabled={saving} onClick={onClose}>
             Cancel
           </Button>
