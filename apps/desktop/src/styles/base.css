@@ -8,6 +8,8 @@
   --color-surface: #ffffff;
   --color-surface-muted: #f9fafb;
   --color-border: #d9e0e7;
+  --border: var(--color-border);
+  --surface: var(--color-surface);
   --color-text: #17212b;
   --color-muted: #667085;
   --color-accent: #2563eb;
