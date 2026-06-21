@@ -203,8 +203,11 @@ function defaultQuickCaptureTaskId({
 
 export function App() {
   const projectContextRevision = useRef(0);
+  const captureOperationRevision = useRef(0);
   const deleteProjectInFlight = useRef(false);
   const projectsRef = useRef<Project[]>([]);
+  const screenRef = useRef<AppScreen>("today");
+  const selectedTaskIdRef = useRef<string | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectSummaries, setProjectSummaries] = useState<Record<string, ProjectSummary>>({});
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -259,7 +262,13 @@ export function App() {
     return projectContextRevision.current === revision;
   }
 
+  function invalidateCaptureOperations() {
+    captureOperationRevision.current += 1;
+    return captureOperationRevision.current;
+  }
+
   function resetProjectContext() {
+    invalidateCaptureOperations();
     setSelectedProjectId(null);
     setLoadError(null);
     setPickerError(null);
@@ -402,6 +411,13 @@ export function App() {
       (candidate) => candidate.id === project?.activeTaskId && candidate.status !== "done"
     ) ??
     null;
+  screenRef.current = screen;
+  selectedTaskIdRef.current = selectedTaskId;
+  const projectId = project?.id ?? null;
+  const projectActiveTaskId = project?.activeTaskId ?? null;
+  const selectedCaptureTaskId = selectedTask?.id ?? null;
+  const focusCaptureTaskId = focusSession?.taskId ?? null;
+  const todayCaptureTaskId = todayTask?.id ?? null;
   const markdownExport = project
     ? exportPlanMarkdown({
         projectName: project.name,
@@ -412,24 +428,33 @@ export function App() {
     : "";
 
   const openQuickCapture = useCallback(() => {
-    if (!project) {
+    if (!projectId) {
       return;
     }
 
+    invalidateCaptureOperations();
     setQuickCaptureDefaultTaskId(
       defaultQuickCaptureTaskId({
         screen,
-        selectedTaskId: selectedTask?.id ?? null,
-        focusTaskId: focusSession?.taskId ?? null,
-        todayTaskId: todayTask?.id ?? null,
-        activeTaskId: project.activeTaskId
+        selectedTaskId: selectedCaptureTaskId,
+        focusTaskId: focusCaptureTaskId,
+        todayTaskId: todayCaptureTaskId,
+        activeTaskId: projectActiveTaskId
       })
     );
     setCaptureStatus(null);
     setQuickCaptureOpen(true);
-  }, [focusSession, project, screen, selectedTask, todayTask]);
+  }, [
+    focusCaptureTaskId,
+    projectActiveTaskId,
+    projectId,
+    screen,
+    selectedCaptureTaskId,
+    todayCaptureTaskId
+  ]);
 
   const closeQuickCapture = useCallback(() => {
+    invalidateCaptureOperations();
     setQuickCaptureOpen(false);
   }, []);
 
@@ -850,23 +875,41 @@ export function App() {
     }
 
     const revision = projectContextRevision.current;
+    const operationRevision = invalidateCaptureOperations();
     const item = await api.captureInboxItem({
       projectId: project.id,
       body: input.body,
       kind: input.kind
     });
-    const savedItem = input.taskId
-      ? await api.attachInboxItemToTask({ itemId: item.id, taskId: input.taskId })
-      : item;
-    if (!isCurrentProjectContext(revision)) {
+    let savedItem = item;
+    if (input.taskId) {
+      try {
+        savedItem = await api.attachInboxItemToTask({
+          itemId: item.id,
+          taskId: input.taskId
+        });
+      } catch (attachError) {
+        try {
+          await api.deleteInboxItem(item.id);
+        } catch {
+          // Best-effort rollback must not hide the original attach failure.
+        }
+        throw attachError;
+      }
+    }
+    if (
+      !isCurrentProjectContext(revision) ||
+      captureOperationRevision.current !== operationRevision
+    ) {
       return;
     }
-    if (screen === "task-detail" && selectedTask) {
+    const currentSelectedTaskId = selectedTaskIdRef.current;
+    if (screenRef.current === "task-detail" && currentSelectedTaskId) {
       setSelectedInboxItems((items) => {
         const nextItems = items.filter((candidate) => candidate.id !== savedItem.id);
         const belongsInRail =
-          savedItem.projectId === selectedTask.projectId &&
-          (savedItem.taskId === selectedTask.id || savedItem.taskId === null);
+          savedItem.projectId === project.id &&
+          (savedItem.taskId === currentSelectedTaskId || savedItem.taskId === null);
         return belongsInRail ? [...nextItems, savedItem] : nextItems;
       });
     }

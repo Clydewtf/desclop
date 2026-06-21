@@ -24,6 +24,7 @@ vi.mock("../shared/api/client", () => ({
     createWorkEntry: vi.fn(),
     captureInboxItem: vi.fn(),
     attachInboxItemToTask: vi.fn(),
+    deleteInboxItem: vi.fn(),
     listInboxItemsForProject: vi.fn(),
     listInboxItemsForTask: vi.fn(),
     listNotesForProject: vi.fn(),
@@ -54,6 +55,7 @@ const importPlan = vi.mocked(api.importPlan);
 const createWorkEntry = vi.mocked(api.createWorkEntry);
 const captureInboxItem = vi.mocked(api.captureInboxItem);
 const attachInboxItemToTask = vi.mocked(api.attachInboxItemToTask);
+const deleteInboxItem = vi.mocked(api.deleteInboxItem);
 const listInboxItemsForProject = vi.mocked(api.listInboxItemsForProject);
 const listInboxItemsForTask = vi.mocked(api.listInboxItemsForTask);
 const updateChecklistItem = vi.mocked(api.updateChecklistItem);
@@ -77,6 +79,17 @@ function enableTauriApi() {
     value: {},
     configurable: true
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
 }
 
 function projectFixture(overrides: Partial<Awaited<ReturnType<typeof api.listProjects>>[number]> = {}) {
@@ -1576,6 +1589,141 @@ describe("App", () => {
     expect(await screen.findByText("Captured to Inbox")).toBeInTheDocument();
   });
 
+  it("rolls back a captured item when attaching fails and allows a clean retry", async () => {
+    const user = userEvent.setup();
+    const firstItem = {
+      id: "i-failed",
+      projectId: "p1",
+      taskId: null,
+      body: "Retry this capture",
+      kind: "note" as const,
+      status: "open" as const,
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    };
+    const retriedItem = { ...firstItem, id: "i-retried" };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    captureInboxItem
+      .mockResolvedValueOnce(firstItem)
+      .mockResolvedValueOnce(retriedItem);
+    attachInboxItemToTask
+      .mockRejectedValueOnce(new Error("attach failed"))
+      .mockResolvedValueOnce({
+        ...retriedItem,
+        taskId: "t1",
+        status: "attached"
+      });
+    deleteInboxItem.mockResolvedValue({
+      ...firstItem,
+      status: "deleted"
+    });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.type(within(dialog).getByLabelText("Capture"), "Retry this capture");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "Could not save capture."
+    );
+    expect(deleteInboxItem).toHaveBeenCalledWith("i-failed");
+    expect(within(dialog).getByLabelText("Capture")).toHaveValue("Retry this capture");
+    expect(screen.queryByText("Captured to Task: Create local store")).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+
+    expect(attachInboxItemToTask).toHaveBeenLastCalledWith({
+      itemId: "i-retried",
+      taskId: "t1"
+    });
+    expect(deleteInboxItem).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText("Captured to Task: Create local store")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Quick capture" })).not.toBeInTheDocument();
+  });
+
+  it("ignores a stale task capture after a newer Inbox capture completes", async () => {
+    const user = userEvent.setup();
+    const pendingAttach = deferred<Awaited<ReturnType<typeof api.attachInboxItemToTask>>>();
+    const taskItem = {
+      id: "i-task",
+      projectId: "p1",
+      taskId: null,
+      body: "Stale task capture",
+      kind: "note" as const,
+      status: "open" as const,
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    };
+    const inboxItem = {
+      ...taskItem,
+      id: "i-inbox",
+      body: "Current inbox capture"
+    };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({ taskId: "t1", stageId: "s1", nextStep: "Run tests" })
+    );
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    listInboxItemsForTask.mockResolvedValue([]);
+    listInboxItemsForProject.mockResolvedValue([]);
+    captureInboxItem
+      .mockResolvedValueOnce(taskItem)
+      .mockResolvedValueOnce(inboxItem);
+    attachInboxItemToTask.mockReturnValueOnce(pendingAttach.promise);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(
+      within(screen.getByRole("complementary", { name: "Application" })).getByRole(
+        "button",
+        { name: "Capture" }
+      )
+    );
+    let dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.type(within(dialog).getByLabelText("Capture"), "Stale task capture");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog", { name: "Quick capture" })).not.toBeInTheDocument();
+
+    await user.click(
+      within(screen.getByRole("complementary", { name: "Application" })).getByRole(
+        "button",
+        { name: "Capture" }
+      )
+    );
+    dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.selectOptions(within(dialog).getByLabelText("Related to"), "__inbox__");
+    await user.type(within(dialog).getByLabelText("Capture"), "Current inbox capture");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+
+    expect(await screen.findByText("Captured to Inbox")).toBeInTheDocument();
+    expect(screen.getByText("Current inbox capture")).toBeInTheDocument();
+
+    await act(async () => {
+      pendingAttach.resolve({
+        ...taskItem,
+        taskId: "t1",
+        status: "attached"
+      });
+    });
+
+    expect(screen.getByText("Captured to Inbox")).toBeInTheDocument();
+    expect(screen.queryByText("Captured to Task: Create local store")).not.toBeInTheDocument();
+    expect(screen.getByText("Current inbox capture")).toBeInTheDocument();
+    expect(screen.queryByText("Stale task capture")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Quick capture" })).not.toBeInTheDocument();
+  });
+
   it("defaults Quick capture to the current Focus session task", async () => {
     const user = userEvent.setup();
     enableTauriApi();
@@ -1596,6 +1744,37 @@ describe("App", () => {
     const dialog = screen.getByRole("dialog", { name: "Quick capture" });
     expect(within(dialog).getByLabelText("Related to")).toHaveValue("t1");
     expect(screen.getByRole("button", { name: "Finish focus session" })).toBeInTheDocument();
+  });
+
+  it("does not reinstall the global capture listener on Focus timer ticks", async () => {
+    const user = userEvent.setup();
+    const addEventListener = vi.spyOn(window, "addEventListener");
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({ taskId: "t1", stageId: "s1", nextStep: "Run repository tests" })
+    );
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole("button", { name: "Start focus" }));
+    const keydownListenerCount = addEventListener.mock.calls.filter(
+      ([eventName]) => eventName === "keydown"
+    ).length;
+
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+
+    expect(
+      addEventListener.mock.calls.filter(([eventName]) => eventName === "keydown")
+    ).toHaveLength(keydownListenerCount);
+    addEventListener.mockRestore();
   });
 
   it("opens a completed Plan task without activating it", async () => {
