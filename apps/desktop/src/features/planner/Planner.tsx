@@ -59,6 +59,13 @@ export function Planner({ frames, onOpenTask }: PlannerProps) {
                         <span>{task.title}</span>
                         <TaskStatusBadge status={task.status} />
                       </div>
+                      <Button
+                        variant="secondary"
+                        aria-label={`Open ${task.title}`}
+                        onClick={() => onOpenTask(task.id, { activate: false })}
+                      >
+                        Open
+                      </Button>
                     </div>
                   ))}
                 </div>

@@ -130,9 +130,9 @@ describe("Planner", () => {
           title: "Polish release",
           description: "",
           position: 0,
-          status: "current"
+          status: "completed"
         },
-        collapsed: false,
+        collapsed: true,
         recommendedTaskId: null,
         progress: {
           completedTasks: 1,

@@ -1424,9 +1424,17 @@ describe("App", () => {
     const importedPlan = importedPlanFixture("p1");
     const plan = {
       ...importedPlan,
+      stages: [
+        {
+          ...importedPlan.stages[0],
+          id: "completed-stage",
+          status: "completed" as const
+        }
+      ],
       tasks: [
         {
           ...importedPlan.tasks[0],
+          stageId: "completed-stage",
           title: "Publish release notes",
           status: "done" as const
         }
