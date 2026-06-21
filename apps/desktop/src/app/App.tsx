@@ -892,7 +892,46 @@ export function App() {
         try {
           await api.deleteInboxItem(item.id);
         } catch {
-          // Best-effort rollback must not hide the original attach failure.
+          if (
+            !isCurrentProjectContext(revision) ||
+            captureOperationRevision.current !== operationRevision
+          ) {
+            return;
+          }
+
+          const currentSelectedTaskId = selectedTaskIdRef.current;
+          if (screenRef.current === "task-detail" && currentSelectedTaskId) {
+            const [taskInboxItems, projectInboxItems] = await Promise.all([
+              loadListOrEmpty(() =>
+                api.listInboxItemsForTask(project.id, currentSelectedTaskId)
+              ),
+              loadListOrEmpty(() => api.listInboxItemsForProject(project.id))
+            ]);
+            if (
+              !isCurrentProjectContext(revision) ||
+              captureOperationRevision.current !== operationRevision ||
+              screenRef.current !== "task-detail" ||
+              selectedTaskIdRef.current !== currentSelectedTaskId
+            ) {
+              return;
+            }
+            setSelectedInboxItems([
+              ...taskInboxItems,
+              ...projectInboxItems.filter(
+                (candidate) => candidate.status === "open" && candidate.taskId === null
+              )
+            ]);
+          }
+
+          if (
+            isCurrentProjectContext(revision) &&
+            captureOperationRevision.current === operationRevision
+          ) {
+            setCaptureStatus(
+              "Capture was saved, but task attachment could not be confirmed. Check Inbox before retrying."
+            );
+          }
+          return;
         }
         throw attachError;
       }

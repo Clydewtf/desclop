@@ -1647,6 +1647,77 @@ describe("App", () => {
     expect(screen.queryByRole("dialog", { name: "Quick capture" })).not.toBeInTheDocument();
   });
 
+  it("closes capture and refreshes Task Detail when attachment and rollback are indeterminate", async () => {
+    const user = userEvent.setup();
+    const capturedItem = {
+      id: "i-indeterminate",
+      projectId: "p1",
+      taskId: null,
+      body: "Check attachment state",
+      kind: "note" as const,
+      status: "open" as const,
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    };
+    const attachedItem = {
+      ...capturedItem,
+      taskId: "t1",
+      status: "attached" as const
+    };
+    const openInboxItem = {
+      ...capturedItem,
+      id: "i-open",
+      body: "Open Inbox context"
+    };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({ taskId: "t1", stageId: "s1", nextStep: "Run tests" })
+    );
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    listInboxItemsForTask
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([attachedItem]);
+    listInboxItemsForProject
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([openInboxItem]);
+    captureInboxItem.mockResolvedValue(capturedItem);
+    attachInboxItemToTask.mockRejectedValue(new Error("attach uncertain"));
+    deleteInboxItem.mockRejectedValue(new Error("rollback uncertain"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(
+      within(screen.getByRole("complementary", { name: "Application" })).getByRole(
+        "button",
+        { name: "Capture" }
+      )
+    );
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.type(within(dialog).getByLabelText("Capture"), "Check attachment state");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+
+    expect(
+      await screen.findByText(
+        "Capture was saved, but task attachment could not be confirmed. Check Inbox before retrying."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Quick capture" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Captured to Task: Create local store")).not.toBeInTheDocument();
+    expect(screen.queryByText("Captured to Inbox")).not.toBeInTheDocument();
+    expect(captureInboxItem).toHaveBeenCalledTimes(1);
+    expect(attachInboxItemToTask).toHaveBeenCalledTimes(1);
+    expect(deleteInboxItem).toHaveBeenCalledTimes(1);
+    expect(listInboxItemsForTask).toHaveBeenLastCalledWith("p1", "t1");
+    expect(listInboxItemsForProject).toHaveBeenLastCalledWith("p1");
+    expect(screen.getByText("Check attachment state")).toBeInTheDocument();
+    expect(screen.getByText("Open Inbox context")).toBeInTheDocument();
+    expect(screen.getByText("2 inbox items")).toBeInTheDocument();
+  });
+
   it("ignores a stale task capture after a newer Inbox capture completes", async () => {
     const user = userEvent.setup();
     const pendingAttach = deferred<Awaited<ReturnType<typeof api.attachInboxItemToTask>>>();
