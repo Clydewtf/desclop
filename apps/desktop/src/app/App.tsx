@@ -1071,7 +1071,8 @@ export function App() {
           frames={buildPlannerFrames(
             projectPlan.stages,
             projectPlan.tasks,
-            projectPlan.checklistItems
+            projectPlan.checklistItems,
+            project?.activeTaskId ?? null
           )}
           onContinueTask={(taskId) => void openTask(taskId, { activate: true })}
         />

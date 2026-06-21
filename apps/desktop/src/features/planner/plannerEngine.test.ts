@@ -29,6 +29,25 @@ describe("buildPlannerFrames", () => {
     expect(frames[1].tasks[0].nextStep).toBe("Run visual QA");
   });
 
+  it("marks the active task as recommended and computes progress percent", () => {
+    const frames = buildPlannerFrames(
+      [stageFixture({ id: "stage-current", title: "Current", status: "current", position: 0 })],
+      [
+        taskFixture({ id: "task-1", stageId: "stage-current", status: "active", position: 0, nextStep: "Run component tests" }),
+        taskFixture({ id: "task-2", stageId: "stage-current", status: "done", position: 1 })
+      ],
+      [
+        { id: "check-1", taskId: "task-1", title: "Test", completed: true, position: 0 },
+        { id: "check-2", taskId: "task-2", title: "Polish", completed: false, position: 0 }
+      ],
+      "task-1"
+    );
+
+    expect(frames[0].recommendedTaskId).toBe("task-1");
+    expect(frames[0].progress.percent).toBe(50);
+    expect(frames[0].progress.checklistLabel).toBe("1/2 checklist");
+  });
+
   it("sorts stages, collapses completed stages, attaches sorted tasks and checklist, and computes progress", () => {
     const stages: Stage[] = [
       {
@@ -73,13 +92,19 @@ describe("buildPlannerFrames", () => {
       completedTasks: 0,
       totalTasks: 2,
       completedChecklist: 1,
-      totalChecklist: 2
+      totalChecklist: 2,
+      percent: 0,
+      tasksLabel: "0/2 tasks",
+      checklistLabel: "1/2 checklist"
     });
     expect(frames[0].progress).toEqual({
       completedTasks: 1,
       totalTasks: 1,
       completedChecklist: 1,
-      totalChecklist: 1
+      totalChecklist: 1,
+      percent: 100,
+      tasksLabel: "1/1 tasks",
+      checklistLabel: "1/1 checklist"
     });
   });
 });
