@@ -41,6 +41,22 @@ export function buildTimeline(
   input: TimelineInput,
   now = new Date()
 ) {
+  const completedTaskItems = input.completedTasks.flatMap((task) => {
+    const timestamp = getCompletedTaskTimestamp(task);
+    if (!timestamp) {
+      return [];
+    }
+
+    return [{
+      id: task.id,
+      kind: "task" as const,
+      typeLabel: "Task",
+      title: task.title,
+      metadata: "Completed",
+      timestamp,
+      time: formatTimelineTime(timestamp)
+    }];
+  });
   const items: TimelineItem[] = [
     ...input.workEntries.map((entry) => ({
       id: entry.id,
@@ -78,15 +94,7 @@ export function buildTimeline(
       timestamp: item.createdAt,
       time: formatTimelineTime(item.createdAt)
     })),
-    ...input.completedTasks.map((task) => ({
-      id: task.id,
-      kind: "task" as const,
-      typeLabel: "Task",
-      title: task.title,
-      metadata: "Completed",
-      timestamp: task.completedAt || task.updatedAt || "",
-      time: formatTimelineTime(task.completedAt || task.updatedAt || "")
-    }))
+    ...completedTaskItems
   ].sort(compareTimelineItems);
 
   const sections: TimelineSection[] = [];
@@ -114,7 +122,7 @@ export function buildTimeline(
   return {
     sections,
     summary: summaryParts.join(" · "),
-    sparseState: buildSparseState(input)
+    sparseState: buildSparseState(input, completedTaskItems.length)
   };
 }
 
@@ -149,7 +157,7 @@ function firstLine(value: string) {
 }
 
 function formatWorkMetadata(entry: WorkEntry) {
-  const source = entry.source === "manual" ? "Manual review" : "Focus session";
+  const source = workEntrySourceLabels[entry.source];
   return entry.durationSeconds ? `${source} · ${Math.round(entry.durationSeconds / 60)} min` : source;
 }
 
@@ -166,9 +174,12 @@ const inboxKindLabels: Record<InboxItem["kind"], string> = {
   task_candidate: "Follow-up"
 };
 
-function buildSparseState(input: TimelineInput): TimelineSparseState | null {
+function buildSparseState(
+  input: TimelineInput,
+  completedTaskCount: number
+): TimelineSparseState | null {
   const appEventCount =
-    input.workEntries.length + input.notes.length + input.inboxItems.length + input.completedTasks.length;
+    input.workEntries.length + input.notes.length + input.inboxItems.length + completedTaskCount;
 
   if (input.commits.length > 0 && appEventCount === 0) {
     return {
@@ -186,3 +197,22 @@ function buildSparseState(input: TimelineInput): TimelineSparseState | null {
 
   return null;
 }
+
+function getCompletedTaskTimestamp(task: TimelineCompletedTask) {
+  for (const timestamp of [task.completedAt, task.updatedAt]) {
+    if (timestamp && !Number.isNaN(Date.parse(timestamp))) {
+      return timestamp;
+    }
+  }
+
+  return null;
+}
+
+const workEntrySourceLabels: Record<WorkEntry["source"], string> = {
+  focus: "Focus session",
+  manual: "Manual review",
+  status_change: "Status change",
+  note: "Note",
+  inbox: "Inbox",
+  git_recovery: "Git recovery"
+};

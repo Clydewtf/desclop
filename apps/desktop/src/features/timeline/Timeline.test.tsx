@@ -73,8 +73,8 @@ describe("Timeline", () => {
     expect(screen.queryByText(commitTimestamp)).not.toBeInTheDocument();
   });
 
-  it("renders an accessible placeholder instead of an invalid time for undated events", () => {
-    const { container } = renderWithRouter(
+  it("keeps the empty state when production-shaped completed tasks have no timestamp", () => {
+    renderWithRouter(
       <Timeline
         workEntries={[]}
         commits={[]}
@@ -97,11 +97,9 @@ describe("Timeline", () => {
       />
     );
 
-    const placeholder = screen.getByLabelText("Time unavailable");
-
-    expect(placeholder).toHaveTextContent("—");
-    expect(placeholder).toHaveClass("timeline-row__time");
-    expect(container.querySelector('time[datetime=""]')).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No timeline events yet" })).toBeInTheDocument();
+    expect(screen.queryByText("Undated cleanup")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Undated" })).not.toBeInTheDocument();
   });
 
   it("renders an actionable empty state", () => {

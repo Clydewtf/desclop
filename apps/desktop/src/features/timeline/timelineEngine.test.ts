@@ -98,6 +98,48 @@ describe("buildTimeline", () => {
     });
   });
 
+  it("maps every work entry source to readable metadata with an optional duration", () => {
+    const sourceLabels = [
+      ["focus", "Focus session"],
+      ["manual", "Manual review"],
+      ["status_change", "Status change"],
+      ["note", "Note"],
+      ["inbox", "Inbox"],
+      ["git_recovery", "Git recovery"]
+    ] as const;
+
+    for (const [source, label] of sourceLabels) {
+      for (const [durationSeconds, expectedMetadata] of [
+        [null, label],
+        [125, `${label} · 2 min`]
+      ] as const) {
+        const timeline = buildTimeline({
+          workEntries: [
+            {
+              id: `${source}-${durationSeconds ?? "none"}`,
+              projectId: "p1",
+              taskId: "t1",
+              source,
+              startedAt: null,
+              endedAt: null,
+              durationSeconds,
+              done: "Reviewed timeline",
+              remains: "",
+              nextStep: "",
+              createdAt: timestamp(2026, 5, 16, 9, 30)
+            }
+          ],
+          commits: [],
+          notes: [],
+          inboxItems: [],
+          completedTasks: []
+        });
+
+        expect(timeline.sections[0].items[0].metadata).toBe(expectedMetadata);
+      }
+    }
+  });
+
   it("preserves note text when the first line is empty", () => {
     const body = "\nPreserve the original note";
     const timeline = buildTimeline({
@@ -162,7 +204,58 @@ describe("buildTimeline", () => {
     expect(commitAndCompletedTask.sparseState).toBeNull();
   });
 
-  it("uses DOM-safe local-date section ids and keeps undated tasks last", () => {
+  it("ignores completed tasks without a valid activity timestamp", () => {
+    const productionTask = {
+      id: "t1",
+      projectId: "p1",
+      stageId: "s1",
+      title: "Production-shaped completed task",
+      description: "",
+      status: "done" as const,
+      priority: null,
+      dueDate: null,
+      nextStep: "",
+      position: 1
+    };
+    const invalidTimestampTask = {
+      ...productionTask,
+      id: "t2",
+      title: "Invalid timestamp task",
+      completedAt: "not-a-date",
+      updatedAt: ""
+    };
+    const emptyTimeline = buildTimeline({
+      workEntries: [],
+      commits: [],
+      notes: [],
+      inboxItems: [],
+      completedTasks: [productionTask, invalidTimestampTask]
+    });
+    const commitsOnlyTimeline = buildTimeline({
+      workEntries: [],
+      commits: [
+        {
+          sha: "abcdef1234567890",
+          projectId: "p1",
+          branch: "main",
+          message: "chore: finish timeline",
+          authorName: "Clyde",
+          committedAt: timestamp(2026, 5, 16, 10, 45),
+          changedFiles: []
+        }
+      ],
+      notes: [],
+      inboxItems: [],
+      completedTasks: [productionTask, invalidTimestampTask]
+    });
+
+    expect(emptyTimeline.sections).toEqual([]);
+    expect(emptyTimeline.sparseState?.title).toBe("No timeline events yet");
+    expect(commitsOnlyTimeline.sections.flatMap((section) => section.items)).toHaveLength(1);
+    expect(commitsOnlyTimeline.sparseState?.title).toBe("Only commits so far");
+  });
+
+  it("uses DOM-safe local-date section ids and includes tasks with a valid updated timestamp", () => {
     const timeline = buildTimeline(
       {
         workEntries: [],
@@ -198,13 +291,14 @@ describe("buildTimeline", () => {
             id: "t2",
             projectId: "p1",
             stageId: "s1",
-            title: "Undated cleanup",
+            title: "Updated cleanup",
             description: "",
             status: "done",
             priority: null,
             dueDate: null,
             nextStep: "",
-            position: 2
+            position: 2,
+            updatedAt: timestamp(2026, 5, 15, 14, 30)
           }
         ]
       },
@@ -213,7 +307,7 @@ describe("buildTimeline", () => {
 
     expect(timeline.sections.map(({ id, label }) => ({ id, label }))).toEqual([
       { id: "2026-06-16", label: "Today, Jun 16" },
-      { id: "undated", label: "Undated" }
+      { id: "2026-06-15", label: "Yesterday, Jun 15" }
     ]);
     expect(timeline.sections[0].items).toEqual(
       expect.arrayContaining([
@@ -233,9 +327,9 @@ describe("buildTimeline", () => {
     );
     expect(timeline.sections[1].items[0]).toMatchObject({
       kind: "task",
-      title: "Undated cleanup",
+      title: "Updated cleanup",
       metadata: "Completed",
-      time: ""
+      time: expect.stringMatching(/^\d{2}:\d{2}$/)
     });
   });
 });

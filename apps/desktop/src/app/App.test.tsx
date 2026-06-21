@@ -1269,6 +1269,38 @@ describe("App", () => {
     expect(screen.getByText("Add timeline screen")).toBeInTheDocument();
   });
 
+  it("keeps the only-commits state when completed plan tasks have no timestamp", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ gitEnabled: true })]);
+    getResumeBrief.mockResolvedValue(resumeBriefFixture({ facts: [] }));
+    const plan = importedPlanFixture("p1");
+    loadProjectPlan.mockResolvedValue({
+      ...plan,
+      tasks: plan.tasks.map((task) => ({ ...task, status: "done" as const }))
+    });
+    syncGitCommits.mockResolvedValue([
+      {
+        sha: "recent1",
+        projectId: "p1",
+        branch: "main",
+        message: "Add timeline screen",
+        authorName: "Clyde",
+        committedAt: "2026-05-20T11:00:00Z",
+        changedFiles: ["apps/desktop/src/app/App.tsx"]
+      }
+    ]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Timeline" }));
+
+    expect(await screen.findByText("Only commits so far")).toBeInTheDocument();
+    expect(screen.getByText("Add timeline screen")).toBeInTheDocument();
+    expect(screen.queryByText("Create local store")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Undated" })).not.toBeInTheDocument();
+  });
+
   it("opens Import Plan from Today when the project has no plan", async () => {
     const user = userEvent.setup();
     enableTauriApi();
