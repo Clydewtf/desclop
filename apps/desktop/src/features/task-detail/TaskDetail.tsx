@@ -86,8 +86,17 @@ export function TaskDetail({
   const commitIdentitySignature = `${task.id}:${linkedCommits
     .map((commit) => commit.sha)
     .join(",")}`;
-  const commitIdentitySignatureRef = useRef(commitIdentitySignature);
-  commitIdentitySignatureRef.current = commitIdentitySignature;
+  const commitOperationIdentityRef = useRef({
+    signature: commitIdentitySignature,
+    token: Symbol(commitIdentitySignature)
+  });
+  if (commitOperationIdentityRef.current.signature !== commitIdentitySignature) {
+    commitOperationIdentityRef.current = {
+      signature: commitIdentitySignature,
+      token: Symbol(commitIdentitySignature)
+    };
+  }
+  const commitOperationIdentityToken = commitOperationIdentityRef.current.token;
 
   useEffect(() => {
     setNextStep(task.nextStep);
@@ -151,7 +160,7 @@ export function TaskDetail({
   }
 
   async function moveCommit(commitSha: string) {
-    const operationIdentitySignature = commitIdentitySignature;
+    const operationIdentityToken = commitOperationIdentityToken;
     const toTaskId = selectedMoveTarget(commitSha);
     if (
       !toTaskId ||
@@ -166,7 +175,7 @@ export function TaskDetail({
     try {
       await onCommitMove(commitSha, task.id, toTaskId);
     } catch {
-      if (commitIdentitySignatureRef.current !== operationIdentitySignature) {
+      if (commitOperationIdentityRef.current.token !== operationIdentityToken) {
         return;
       }
       setCommitActionErrors((errors) => ({
@@ -174,14 +183,14 @@ export function TaskDetail({
         [commitSha]: "Could not move commit. Try again."
       }));
     } finally {
-      if (commitIdentitySignatureRef.current === operationIdentitySignature) {
+      if (commitOperationIdentityRef.current.token === operationIdentityToken) {
         setPendingCommitActions((actions) => ({ ...actions, [commitSha]: undefined }));
       }
     }
   }
 
   async function removeCommit(commitSha: string) {
-    const operationIdentitySignature = commitIdentitySignature;
+    const operationIdentityToken = commitOperationIdentityToken;
     if (pendingCommitActions[commitSha]) {
       return;
     }
@@ -191,7 +200,7 @@ export function TaskDetail({
     try {
       await onCommitUnlink(commitSha, task.id);
     } catch {
-      if (commitIdentitySignatureRef.current !== operationIdentitySignature) {
+      if (commitOperationIdentityRef.current.token !== operationIdentityToken) {
         return;
       }
       setCommitActionErrors((errors) => ({
@@ -199,7 +208,7 @@ export function TaskDetail({
         [commitSha]: "Could not remove commit. Try again."
       }));
     } finally {
-      if (commitIdentitySignatureRef.current === operationIdentitySignature) {
+      if (commitOperationIdentityRef.current.token === operationIdentityToken) {
         setPendingCommitActions((actions) => ({ ...actions, [commitSha]: undefined }));
       }
     }
@@ -402,6 +411,7 @@ export function TaskDetail({
                             <SelectField
                               id={`${task.id}-${commit.sha}-move-target`}
                               label={`Move ${displaySha} to task`}
+                              aria-label={`Move ${commit.sha} to task`}
                               value={moveTarget}
                               disabled={Boolean(pendingAction)}
                               onChange={(event) =>

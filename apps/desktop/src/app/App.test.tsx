@@ -3304,6 +3304,189 @@ describe("App", () => {
     });
   });
 
+  it("does not reload stale task context after a deferred unlink", async () => {
+    const user = userEvent.setup();
+    const pendingUnlink = deferred<void>();
+    let firstTaskNoteLoads = 0;
+    const plan = twoTaskPlanFixture({ firstStatus: "active", secondStatus: "done" });
+    plan.tasks[0] = { ...plan.tasks[0], nextStep: "Continue testing" };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: true })]);
+    getResumeBrief.mockResolvedValue({
+      ...emptyResumeBrief(),
+      taskId: "t1",
+      stageId: "s1",
+      nextStep: ""
+    });
+    loadProjectPlan.mockResolvedValue(plan);
+    syncGitCommits.mockResolvedValue([]);
+    listNotesForTask.mockImplementation((_projectId, taskId) => {
+      if (taskId === "t2") {
+        return Promise.resolve([
+          {
+            id: "note-b",
+            projectId: "p1",
+            taskId: "t2",
+            body: "Task B context",
+            createdAt: "2026-05-20T10:00:00Z"
+          }
+        ]);
+      }
+      firstTaskNoteLoads += 1;
+      return Promise.resolve(
+        firstTaskNoteLoads === 1
+          ? []
+          : [
+              {
+                id: "stale-note-a",
+                projectId: "p1",
+                taskId: "t1",
+                body: "Stale task A context",
+                createdAt: "2026-05-20T10:00:00Z"
+              }
+            ]
+      );
+    });
+    listWorkEntriesForTask.mockResolvedValue([]);
+    listInboxItemsForTask.mockResolvedValue([]);
+    listInboxItemsForProject.mockResolvedValue([]);
+    listLinkedCommitsForTask.mockImplementation((_projectId, taskId) =>
+      Promise.resolve(
+        taskId === "t1"
+          ? [
+              {
+                sha: "abc123",
+                projectId: "p1",
+                branch: "main",
+                message: "Fix import",
+                authorName: "Clyde",
+                committedAt: "2026-05-20T10:00:00Z",
+                changedFiles: []
+              }
+            ]
+          : []
+      )
+    );
+    unlinkCommit.mockReturnValue(pendingUnlink.promise);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Remove abc123 from task" })
+    );
+    await user.click(screen.getByRole("button", { name: "Plan" }));
+    await user.click(await screen.findByRole("button", { name: "Open Second task" }));
+
+    expect(await screen.findByText("Task B context")).toBeInTheDocument();
+
+    await act(async () => {
+      pendingUnlink.resolve();
+      await pendingUnlink.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Second task" })).toBeInTheDocument();
+      expect(screen.getByText("Task B context")).toBeInTheDocument();
+      expect(screen.queryByText("Stale task A context")).not.toBeInTheDocument();
+    });
+    expect(firstTaskNoteLoads).toBe(1);
+  });
+
+  it("does not reload stale task context after a deferred commit move", async () => {
+    const user = userEvent.setup();
+    const pendingMove = deferred<void>();
+    let firstTaskNoteLoads = 0;
+    const plan = twoTaskPlanFixture({ firstStatus: "active", secondStatus: "done" });
+    plan.tasks[0] = { ...plan.tasks[0], nextStep: "Continue testing" };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: true })]);
+    getResumeBrief.mockResolvedValue({
+      ...emptyResumeBrief(),
+      taskId: "t1",
+      stageId: "s1",
+      nextStep: ""
+    });
+    loadProjectPlan.mockResolvedValue(plan);
+    syncGitCommits.mockResolvedValue([]);
+    listNotesForTask.mockImplementation((_projectId, taskId) => {
+      if (taskId === "t2") {
+        return Promise.resolve([
+          {
+            id: "note-b",
+            projectId: "p1",
+            taskId: "t2",
+            body: "Task B move context",
+            createdAt: "2026-05-20T10:00:00Z"
+          }
+        ]);
+      }
+      firstTaskNoteLoads += 1;
+      return Promise.resolve(
+        firstTaskNoteLoads === 1
+          ? []
+          : [
+              {
+                id: "stale-move-note-a",
+                projectId: "p1",
+                taskId: "t1",
+                body: "Stale moved task A context",
+                createdAt: "2026-05-20T10:00:00Z"
+              }
+            ]
+      );
+    });
+    listWorkEntriesForTask.mockResolvedValue([]);
+    listInboxItemsForTask.mockResolvedValue([]);
+    listInboxItemsForProject.mockResolvedValue([]);
+    listLinkedCommitsForTask.mockImplementation((_projectId, taskId) =>
+      Promise.resolve(
+        taskId === "t1"
+          ? [
+              {
+                sha: "abc123",
+                projectId: "p1",
+                branch: "main",
+                message: "Move import",
+                authorName: "Clyde",
+                committedAt: "2026-05-20T10:00:00Z",
+                changedFiles: []
+              }
+            ]
+          : []
+      )
+    );
+    moveCommitLink.mockReturnValue(pendingMove.promise);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Show commit details for abc123" })
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Move abc123 to task" }),
+      "t2"
+    );
+    await user.click(screen.getByRole("button", { name: "Move abc123 to task" }));
+    await user.click(screen.getByRole("button", { name: "Plan" }));
+    await user.click(await screen.findByRole("button", { name: "Open Second task" }));
+
+    expect(await screen.findByText("Task B move context")).toBeInTheDocument();
+
+    await act(async () => {
+      pendingMove.resolve();
+      await pendingMove.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Second task" })).toBeInTheDocument();
+      expect(screen.getByText("Task B move context")).toBeInTheDocument();
+      expect(screen.queryByText("Stale moved task A context")).not.toBeInTheDocument();
+    });
+    expect(firstTaskNoteLoads).toBe(1);
+  });
+
   it("chooses folders for portable export and import", async () => {
     const user = userEvent.setup();
     enableTauriApi();

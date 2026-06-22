@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
@@ -507,6 +507,12 @@ describe("TaskDetail", () => {
     expect(
       screen.getByRole("button", { name: "Move abc1234bbbb to task" })
     ).toHaveTextContent("Move to task");
+    expect(
+      screen.getByRole("combobox", { name: "Move abc1234aaaa to task" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("combobox", { name: "Move abc1234bbbb to task" })
+    ).toBeInTheDocument();
   });
 
   it("resets commit disclosure and move selection when task or commit identities change", async () => {
@@ -537,7 +543,7 @@ describe("TaskDetail", () => {
       screen.getByRole("button", { name: "Show commit details for abc123456" })
     );
     await user.selectOptions(
-      screen.getByRole("combobox", { name: "Move abc1234 to task" }),
+      screen.getByRole("combobox", { name: "Move abc123456 to task" }),
       "t2"
     );
 
@@ -557,7 +563,7 @@ describe("TaskDetail", () => {
       screen.getByRole("button", { name: "Show commit details for abc123456" })
     );
     expect(
-      screen.getByRole("combobox", { name: "Move abc1234 to task" })
+      screen.getByRole("combobox", { name: "Move abc123456 to task" })
     ).toHaveValue("");
 
     rerender(
@@ -606,14 +612,14 @@ describe("TaskDetail", () => {
       screen.getByRole("button", { name: "Show commit details for abc123456" })
     );
     await user.selectOptions(
-      screen.getByRole("combobox", { name: "Move abc1234 to task" }),
+      screen.getByRole("combobox", { name: "Move abc123456 to task" }),
       "t2"
     );
 
     rerender(<TaskDetail {...baseProps} availableTasks={[]} />);
 
     expect(
-      screen.getByRole("combobox", { name: "Move abc1234 to task" })
+      screen.getByRole("combobox", { name: "Move abc123456 to task" })
     ).toHaveValue("");
     expect(
       screen.getByRole("button", { name: "Move abc123456 to task" })
@@ -711,7 +717,7 @@ describe("TaskDetail", () => {
       screen.getByRole("button", { name: "Show commit details for abc123456" })
     );
     await user.selectOptions(
-      screen.getByRole("combobox", { name: "Move abc1234 to task" }),
+      screen.getByRole("combobox", { name: "Move abc123456 to task" }),
       "t2"
     );
     const moveButton = screen.getByRole("button", {
@@ -793,6 +799,85 @@ describe("TaskDetail", () => {
       expect(
         screen.getByRole("button", { name: "Remove abc123456 from task" })
       ).toBeEnabled();
+    });
+  });
+
+  it("keeps a newer pending remove isolated across an A to B to A transition", async () => {
+    const user = userEvent.setup();
+    let rejectFirstRemove: (error: Error) => void = () => {};
+    let resolveSecondRemove: () => void = () => {};
+    const onCommitUnlink = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectFirstRemove = reject;
+          })
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveSecondRemove = resolve;
+          })
+      );
+    const commit = gitCommitFixture({ sha: "abc123456" });
+    const props = {
+      checklist: [],
+      notes: [],
+      linkedCommits: [commit],
+      availableTasks: [],
+      workEntries: [],
+      inboxItems: [],
+      onStatusChange: vi.fn(),
+      onChecklistToggle: vi.fn(),
+      onNoteAdd: vi.fn(),
+      onNextStepSave: vi.fn(),
+      onStartFocus: vi.fn(),
+      onCommitUnlink,
+      onCommitMove: vi.fn()
+    };
+    const { rerender } = render(<TaskDetail task={task} {...props} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove abc123456 from task" })
+    );
+
+    rerender(
+      <TaskDetail
+        task={taskFixture({ id: "task-b", title: "Task B" })}
+        {...props}
+      />
+    );
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Remove abc123456 from task" })
+      ).toBeEnabled();
+    });
+
+    rerender(<TaskDetail task={task} {...props} />);
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Remove abc123456 from task" })
+      ).toBeEnabled();
+    });
+
+    const currentRemoveButton = screen.getByRole("button", {
+      name: "Remove abc123456 from task"
+    });
+    await user.click(currentRemoveButton);
+    expect(currentRemoveButton).toBeDisabled();
+
+    await act(async () => {
+      rejectFirstRemove(new Error("stale remove failed"));
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(currentRemoveButton).toBeDisabled();
+
+    resolveSecondRemove();
+    await waitFor(() => {
+      expect(currentRemoveButton).toBeEnabled();
     });
   });
 });

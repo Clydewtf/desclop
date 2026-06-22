@@ -475,8 +475,12 @@ export function App() {
     return () => window.removeEventListener("keydown", handleQuickCaptureShortcut);
   }, [openQuickCapture]);
 
-  async function loadTaskContext(taskId: string, revision: number) {
-    if (!project) {
+  async function loadTaskContext(
+    taskId: string,
+    revision: number,
+    isRelevant: () => boolean = () => true
+  ) {
+    if (!project || !isRelevant()) {
       return false;
     }
 
@@ -489,7 +493,7 @@ export function App() {
       loadListOrEmpty(() => api.listInboxItemsForTask(project.id, taskId)),
       loadListOrEmpty(() => api.listInboxItemsForProject(project.id))
     ]);
-    if (!isCurrentProjectContext(revision)) {
+    if (!isCurrentProjectContext(revision) || !isRelevant()) {
       return false;
     }
     setSelectedNotes(notes);
@@ -818,20 +822,24 @@ export function App() {
 
   async function unlinkCommit(commitSha: string, taskId: string) {
     const revision = projectContextRevision.current;
+    const isRelevant = () =>
+      screenRef.current === "task-detail" && selectedTaskIdRef.current === taskId;
     await api.unlinkCommit(commitSha, taskId);
-    if (!isCurrentProjectContext(revision)) {
+    if (!isCurrentProjectContext(revision) || !isRelevant()) {
       return;
     }
-    await loadTaskContext(taskId, revision);
+    await loadTaskContext(taskId, revision, isRelevant);
   }
 
   async function moveCommit(commitSha: string, fromTaskId: string, toTaskId: string) {
     const revision = projectContextRevision.current;
+    const isRelevant = () =>
+      screenRef.current === "task-detail" && selectedTaskIdRef.current === fromTaskId;
     await api.moveCommitLink(commitSha, fromTaskId, toTaskId);
-    if (!isCurrentProjectContext(revision)) {
+    if (!isCurrentProjectContext(revision) || !isRelevant()) {
       return;
     }
-    await loadTaskContext(fromTaskId, revision);
+    await loadTaskContext(fromTaskId, revision, isRelevant);
   }
 
   function startFocus(input: StartFocusInput) {
