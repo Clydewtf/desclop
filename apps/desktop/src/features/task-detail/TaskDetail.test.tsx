@@ -97,7 +97,7 @@ describe("TaskDetail", () => {
     expect(screen.queryByText("apps/desktop/src/features/today/Today.tsx")).not.toBeInTheDocument();
 
     const disclosure = screen.getByRole("button", {
-      name: "Show commit details for abcdef1"
+      name: "Show commit details for abcdef123456"
     });
     expect(disclosure).toHaveTextContent("Show commit details");
     expect(disclosure).toHaveAttribute("aria-expanded", "false");
@@ -108,7 +108,7 @@ describe("TaskDetail", () => {
 
     await user.click(disclosure);
     expect(
-      screen.getByRole("button", { name: "Hide commit details for abcdef1" })
+      screen.getByRole("button", { name: "Hide commit details for abcdef123456" })
     ).toHaveAttribute("aria-expanded", "true");
     expect(
       document.getElementById("task-1-abcdef123456-commit-details")
@@ -116,7 +116,7 @@ describe("TaskDetail", () => {
     expect(screen.getByText("apps/desktop/src/features/today/Today.tsx")).toBeInTheDocument();
 
     const removeButton = screen.getByRole("button", {
-      name: "Remove abcdef1 from task"
+      name: "Remove abcdef123456 from task"
     });
     expect(removeButton).toHaveTextContent("Remove from task");
     await user.click(removeButton);
@@ -457,17 +457,18 @@ describe("TaskDetail", () => {
     expect(onCommitMove).toHaveBeenCalledWith("abc123", "t1", "t2");
   });
 
-  it("gives each linked commit action a unique accessible name", () => {
+  it("uses full SHAs to distinguish commits sharing the same short prefix", async () => {
+    const user = userEvent.setup();
     renderWithRouter(
       <TaskDetail
         task={task}
         checklist={[]}
         notes={[]}
         linkedCommits={[
-          gitCommitFixture({ sha: "abc123456", message: "First commit" }),
-          gitCommitFixture({ sha: "def456789", message: "Second commit" })
+          gitCommitFixture({ sha: "abc1234aaaa", message: "First commit" }),
+          gitCommitFixture({ sha: "abc1234bbbb", message: "Second commit" })
         ]}
-        availableTasks={[]}
+        availableTasks={[taskFixture({ id: "t2", title: "Other task" })]}
         workEntries={[]}
         inboxItems={[]}
         onStatusChange={vi.fn()}
@@ -481,17 +482,31 @@ describe("TaskDetail", () => {
     );
 
     expect(
-      screen.getByRole("button", { name: "Show commit details for abc1234" })
+      screen.getByRole("button", { name: "Show commit details for abc1234aaaa" })
     ).toHaveTextContent("Show commit details");
     expect(
-      screen.getByRole("button", { name: "Show commit details for def4567" })
+      screen.getByRole("button", { name: "Show commit details for abc1234bbbb" })
     ).toHaveTextContent("Show commit details");
     expect(
-      screen.getByRole("button", { name: "Remove abc1234 from task" })
+      screen.getByRole("button", { name: "Remove abc1234aaaa from task" })
     ).toHaveTextContent("Remove from task");
     expect(
-      screen.getByRole("button", { name: "Remove def4567 from task" })
+      screen.getByRole("button", { name: "Remove abc1234bbbb from task" })
     ).toHaveTextContent("Remove from task");
+
+    await user.click(
+      screen.getByRole("button", { name: "Show commit details for abc1234aaaa" })
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Show commit details for abc1234bbbb" })
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Move abc1234aaaa to task" })
+    ).toHaveTextContent("Move to task");
+    expect(
+      screen.getByRole("button", { name: "Move abc1234bbbb to task" })
+    ).toHaveTextContent("Move to task");
   });
 
   it("resets commit disclosure and move selection when task or commit identities change", async () => {
@@ -519,7 +534,7 @@ describe("TaskDetail", () => {
     );
 
     await user.click(
-      screen.getByRole("button", { name: "Show commit details for abc1234" })
+      screen.getByRole("button", { name: "Show commit details for abc123456" })
     );
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Move abc1234 to task" }),
@@ -539,7 +554,7 @@ describe("TaskDetail", () => {
     });
 
     await user.click(
-      screen.getByRole("button", { name: "Show commit details for abc1234" })
+      screen.getByRole("button", { name: "Show commit details for abc123456" })
     );
     expect(
       screen.getByRole("combobox", { name: "Move abc1234 to task" })
@@ -588,7 +603,7 @@ describe("TaskDetail", () => {
     );
 
     await user.click(
-      screen.getByRole("button", { name: "Show commit details for abc1234" })
+      screen.getByRole("button", { name: "Show commit details for abc123456" })
     );
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Move abc1234 to task" }),
@@ -600,8 +615,12 @@ describe("TaskDetail", () => {
     expect(
       screen.getByRole("combobox", { name: "Move abc1234 to task" })
     ).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Move abc1234 to task" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Move abc1234 to task" }));
+    expect(
+      screen.getByRole("button", { name: "Move abc123456 to task" })
+    ).toBeDisabled();
+    await user.click(
+      screen.getByRole("button", { name: "Move abc123456 to task" })
+    );
     expect(onCommitMove).not.toHaveBeenCalled();
   });
 
@@ -638,7 +657,7 @@ describe("TaskDetail", () => {
     );
 
     const removeButton = screen.getByRole("button", {
-      name: "Remove abc1234 from task"
+      name: "Remove abc123456 from task"
     });
     await user.click(removeButton);
     expect(removeButton).toBeDisabled();
@@ -689,15 +708,17 @@ describe("TaskDetail", () => {
     );
 
     await user.click(
-      screen.getByRole("button", { name: "Show commit details for abc1234" })
+      screen.getByRole("button", { name: "Show commit details for abc123456" })
     );
     await user.selectOptions(
       screen.getByRole("combobox", { name: "Move abc1234 to task" }),
       "t2"
     );
-    const moveButton = screen.getByRole("button", { name: "Move abc1234 to task" });
+    const moveButton = screen.getByRole("button", {
+      name: "Move abc123456 to task"
+    });
     const removeButton = screen.getByRole("button", {
-      name: "Remove abc1234 from task"
+      name: "Remove abc123456 from task"
     });
 
     await user.click(moveButton);
@@ -716,5 +737,62 @@ describe("TaskDetail", () => {
 
     await user.click(moveButton);
     expect(onCommitMove).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores stale remove completion after rendering another task with the same commit", async () => {
+    const user = userEvent.setup();
+    let rejectRemove: (error: Error) => void = () => {};
+    const onCommitUnlink = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectRemove = reject;
+        })
+    );
+    const commit = gitCommitFixture({ sha: "abc123456" });
+    const props = {
+      checklist: [],
+      notes: [],
+      linkedCommits: [commit],
+      availableTasks: [],
+      workEntries: [],
+      inboxItems: [],
+      onStatusChange: vi.fn(),
+      onChecklistToggle: vi.fn(),
+      onNoteAdd: vi.fn(),
+      onNextStepSave: vi.fn(),
+      onStartFocus: vi.fn(),
+      onCommitUnlink,
+      onCommitMove: vi.fn()
+    };
+    const { rerender } = render(<TaskDetail task={task} {...props} />);
+
+    await user.click(
+      screen.getByRole("button", { name: "Remove abc123456 from task" })
+    );
+    expect(
+      screen.getByRole("button", { name: "Remove abc123456 from task" })
+    ).toBeDisabled();
+
+    rerender(
+      <TaskDetail
+        task={taskFixture({ id: "task-b", title: "Task B" })}
+        {...props}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: "Remove abc123456 from task" })
+      ).toBeEnabled();
+    });
+
+    rejectRemove(new Error("old task failed"));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Remove abc123456 from task" })
+      ).toBeEnabled();
+    });
   });
 });

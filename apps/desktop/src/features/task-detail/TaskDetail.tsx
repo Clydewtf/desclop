@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import type {
   ChecklistItem,
   GitCommit,
@@ -86,6 +86,8 @@ export function TaskDetail({
   const commitIdentitySignature = `${task.id}:${linkedCommits
     .map((commit) => commit.sha)
     .join(",")}`;
+  const commitIdentitySignatureRef = useRef(commitIdentitySignature);
+  commitIdentitySignatureRef.current = commitIdentitySignature;
 
   useEffect(() => {
     setNextStep(task.nextStep);
@@ -94,6 +96,7 @@ export function TaskDetail({
   useEffect(() => {
     setExpandedCommits({});
     setMoveTargets({});
+    setPendingCommitActions({});
     setCommitActionErrors({});
   }, [commitIdentitySignature]);
 
@@ -148,6 +151,7 @@ export function TaskDetail({
   }
 
   async function moveCommit(commitSha: string) {
+    const operationIdentitySignature = commitIdentitySignature;
     const toTaskId = selectedMoveTarget(commitSha);
     if (
       !toTaskId ||
@@ -162,16 +166,22 @@ export function TaskDetail({
     try {
       await onCommitMove(commitSha, task.id, toTaskId);
     } catch {
+      if (commitIdentitySignatureRef.current !== operationIdentitySignature) {
+        return;
+      }
       setCommitActionErrors((errors) => ({
         ...errors,
         [commitSha]: "Could not move commit. Try again."
       }));
     } finally {
-      setPendingCommitActions((actions) => ({ ...actions, [commitSha]: undefined }));
+      if (commitIdentitySignatureRef.current === operationIdentitySignature) {
+        setPendingCommitActions((actions) => ({ ...actions, [commitSha]: undefined }));
+      }
     }
   }
 
   async function removeCommit(commitSha: string) {
+    const operationIdentitySignature = commitIdentitySignature;
     if (pendingCommitActions[commitSha]) {
       return;
     }
@@ -181,12 +191,17 @@ export function TaskDetail({
     try {
       await onCommitUnlink(commitSha, task.id);
     } catch {
+      if (commitIdentitySignatureRef.current !== operationIdentitySignature) {
+        return;
+      }
       setCommitActionErrors((errors) => ({
         ...errors,
         [commitSha]: "Could not remove commit. Try again."
       }));
     } finally {
-      setPendingCommitActions((actions) => ({ ...actions, [commitSha]: undefined }));
+      if (commitIdentitySignatureRef.current === operationIdentitySignature) {
+        setPendingCommitActions((actions) => ({ ...actions, [commitSha]: undefined }));
+      }
     }
   }
 
@@ -348,7 +363,7 @@ export function TaskDetail({
                           variant="secondary"
                           aria-label={`${
                             isExpanded ? "Hide commit details" : "Show commit details"
-                          } for ${displaySha}`}
+                          } for ${commit.sha}`}
                           aria-controls={detailsId}
                           aria-expanded={isExpanded}
                           onClick={() =>
@@ -362,7 +377,7 @@ export function TaskDetail({
                         </Button>
                         <Button
                           variant="secondary"
-                          aria-label={`Remove ${displaySha} from task`}
+                          aria-label={`Remove ${commit.sha} from task`}
                           disabled={Boolean(pendingAction)}
                           onClick={() => removeCommit(commit.sha)}
                         >
@@ -405,7 +420,7 @@ export function TaskDetail({
                             </SelectField>
                             <Button
                               variant="secondary"
-                              aria-label={`Move ${displaySha} to task`}
+                              aria-label={`Move ${commit.sha} to task`}
                               disabled={!moveTarget || Boolean(pendingAction)}
                               onClick={() => moveCommit(commit.sha)}
                             >
