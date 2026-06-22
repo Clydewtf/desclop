@@ -2234,9 +2234,9 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.clear(screen.getByLabelText("Next step"));
-    await user.type(screen.getByLabelText("Next step"), "Review updated spec");
-    await user.click(screen.getByRole("button", { name: "Save next step" }));
+    await user.clear(screen.getByLabelText("Next action"));
+    await user.type(screen.getByLabelText("Next action"), "Review updated spec");
+    await user.click(screen.getByRole("button", { name: "Save next action" }));
     await user.click(screen.getByRole("button", { name: "Today" }));
 
     expect(updateNextStep).toHaveBeenCalledWith("t1", "Review updated spec");
@@ -2437,7 +2437,7 @@ describe("App", () => {
     expect(screen.getByText("Check narrow desktop layout")).toBeInTheDocument();
   });
 
-  it("captures inbox items from Task Detail", async () => {
+  it("captures and attaches inbox items from the global overlay while Task Detail is current", async () => {
     const user = userEvent.setup();
     enableTauriApi();
     listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
@@ -2472,23 +2472,40 @@ describe("App", () => {
       createdAt: "2026-05-20T10:00:00Z",
       updatedAt: "2026-05-20T10:00:00Z"
     });
+    attachInboxItemToTask.mockResolvedValue({
+      id: "i1",
+      projectId: "p1",
+      taskId: "t1",
+      body: "Check task export shape",
+      kind: "question",
+      status: "attached",
+      createdAt: "2026-05-20T10:00:00Z",
+      updatedAt: "2026-05-20T10:00:00Z"
+    });
 
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
     expect(await screen.findByText("Attached inbox context")).toBeInTheDocument();
-    const captureInput = screen.getByLabelText("Capture");
-    await user.type(captureInput, "Check task export shape");
-    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
     await user.click(
-      within(captureInput.closest("form") as HTMLElement).getByRole("button", { name: "Capture" })
+      within(screen.getByRole("complementary", { name: "Application" })).getByRole("button", {
+        name: "Capture"
+      })
     );
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    expect(within(dialog).getByLabelText("Related to")).toHaveValue("t1");
+    await user.type(within(dialog).getByLabelText("Capture"), "Check task export shape");
+    await user.selectOptions(within(dialog).getByLabelText("Type"), "question");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
 
     expect(captureInboxItem).toHaveBeenCalledWith({
       projectId: "p1",
       body: "Check task export shape",
       kind: "question"
     });
+    expect(attachInboxItemToTask).toHaveBeenCalledWith({ itemId: "i1", taskId: "t1" });
+    expect(await screen.findByText("Captured to Task: Create local store")).toBeInTheDocument();
+    expect(screen.getByText("Check task export shape")).toBeInTheDocument();
   });
 
   it("creates a manual work review from Task Detail and refreshes resume context", async () => {
@@ -2527,7 +2544,7 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.click(screen.getByRole("button", { name: "Add manual work review" }));
+    await user.click(screen.getByRole("button", { name: "Add work review" }));
     await user.type(screen.getByLabelText("What was done"), "Reviewed schema");
     await user.type(screen.getByLabelText("What remains"), "Run backend tests");
     await user.type(screen.getByLabelText("Next step"), "Run cargo test");
@@ -2587,14 +2604,15 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.click(screen.getByRole("button", { name: "Add manual work review" }));
+    await user.click(screen.getByRole("button", { name: "Add work review" }));
     await user.type(screen.getByLabelText("What was done"), "Reviewed schema");
     await user.type(screen.getByLabelText("What remains"), "Run backend tests");
     await user.type(screen.getByLabelText("Next step"), "Run cargo test");
     await user.click(screen.getByRole("button", { name: "Save work review" }));
 
-    expect(await screen.findByText("1 work entries")).toBeInTheDocument();
-    expect(screen.queryByText("2 work entries")).not.toBeInTheDocument();
+    expect(await screen.findByText("Reviewed schema")).toBeInTheDocument();
+    expect(screen.getAllByText("Reviewed schema")).toHaveLength(1);
+    expect(listWorkEntriesForTask).toHaveBeenCalledTimes(2);
     expect(updateNextStep).not.toHaveBeenCalled();
   });
 
@@ -2819,7 +2837,7 @@ describe("App", () => {
       nextStep: "Run cargo test"
     });
     await waitFor(() => {
-      expect(screen.getByLabelText("Next step")).toHaveValue("Run cargo test");
+      expect(screen.getByLabelText("Next action")).toHaveValue("Run cargo test");
     });
   });
 
@@ -2961,9 +2979,9 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.clear(screen.getByLabelText("Timebox minutes"));
-    await user.type(screen.getByLabelText("Timebox minutes"), "5");
-    await user.click(screen.getByRole("button", { name: "Start timebox" }));
+    await user.clear(screen.getByLabelText("Timebox"));
+    await user.type(screen.getByLabelText("Timebox"), "5");
+    await user.click(screen.getByRole("button", { name: "Start focus" }));
 
     expect(screen.getByText("05:00 remaining")).toBeInTheDocument();
 
@@ -3257,7 +3275,7 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.click(await screen.findByRole("button", { name: "Unlink abc123" }));
+    await user.click(await screen.findByRole("button", { name: "Remove from task" }));
 
     expect(unlinkCommit).toHaveBeenCalledWith("abc123", "t1");
     await waitFor(() => {
@@ -3267,8 +3285,9 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Today" }));
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.click(await screen.findByRole("button", { name: "Show commit details" }));
     await user.selectOptions(await screen.findByLabelText("Move def456 to task"), "t2");
-    await user.click(screen.getByRole("button", { name: "Move def456" }));
+    await user.click(screen.getByRole("button", { name: "Move to task" }));
 
     expect(moveCommitLink).toHaveBeenCalledWith("def456", "t1", "t2");
     await waitFor(() => {
