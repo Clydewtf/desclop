@@ -516,7 +516,7 @@ describe("App", () => {
     expect(within(currentTask).queryByText("Stale resume stage")).not.toBeInTheDocument();
   });
 
-  it("orders Next up by stage and task position while excluding current and done tasks", async () => {
+  it("orders Up next by stage and task position while excluding current and done tasks", async () => {
     enableTauriApi();
     listProjects.mockResolvedValue([projectFixture({ activeTaskId: "current" })]);
     getResumeBrief.mockResolvedValue(resumeBriefFixture({ taskId: "current", stageId: "stage-b" }));
@@ -606,7 +606,7 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    const nextUp = await screen.findByLabelText("Next up");
+    const nextUp = await screen.findByLabelText("Up next");
     expect(within(nextUp).getAllByRole("strong").map((item) => item.textContent)).toEqual([
       "First stage first",
       "First stage later",
@@ -2373,39 +2373,6 @@ describe("App", () => {
     expect(screen.queryByText("Stale first resume")).not.toBeInTheDocument();
   });
 
-  it("captures inbox items from Today", async () => {
-    const user = userEvent.setup();
-    enableTauriApi();
-    listProjects.mockResolvedValue([projectFixture({ gitEnabled: false })]);
-    getResumeBrief.mockResolvedValue(emptyResumeBrief());
-    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
-    captureInboxItem.mockResolvedValue({
-      id: "i1",
-      projectId: "p1",
-      taskId: null,
-      body: "Check export shape",
-      kind: "question",
-      status: "open",
-      createdAt: "2026-05-20T10:00:00Z",
-      updatedAt: "2026-05-20T10:00:00Z"
-    });
-
-    renderWithRouter(<App />);
-
-    const captureInput = await screen.findByLabelText("Capture");
-    await user.type(captureInput, "Check export shape");
-    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
-    await user.click(
-      within(captureInput.closest("form") as HTMLElement).getByRole("button", { name: "Capture" })
-    );
-
-    expect(captureInboxItem).toHaveBeenCalledWith({
-      projectId: "p1",
-      body: "Check export shape",
-      kind: "question"
-    });
-  });
-
   it("shows open project inbox captures in the Task Detail rail", async () => {
     const user = userEvent.setup();
     enableTauriApi();
@@ -2434,12 +2401,17 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    const captureInput = await screen.findByLabelText("Capture");
-    await user.type(captureInput, "Check narrow desktop layout");
-    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
     await user.click(
-      within(captureInput.closest("form") as HTMLElement).getByRole("button", { name: "Capture" })
+      within(await screen.findByRole("complementary", { name: "Application" })).getByRole(
+        "button",
+        { name: "Capture" }
+      )
     );
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.selectOptions(within(dialog).getByLabelText("Related to"), "__inbox__");
+    await user.selectOptions(within(dialog).getByLabelText("Type"), "question");
+    await user.type(within(dialog).getByLabelText("Capture"), "Check narrow desktop layout");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
     await user.click(screen.getByRole("button", { name: "Continue task" }));
 
     expect(await screen.findByText("1 inbox items")).toBeInTheDocument();

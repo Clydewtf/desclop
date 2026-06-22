@@ -1364,7 +1364,7 @@ export function App() {
       <Today
         view={todayView}
         onPrimaryAction={() => handleTodayPrimaryAction(todayView)}
-        onCaptureInbox={captureInbox}
+        onOpenTask={(taskId) => void openTask(taskId)}
         onStartManualWorkReview={() => startManualWorkReview(todayTask?.id ?? null)}
         canUsePrimaryAction={todayView.state !== "ready" || Boolean(todayTask)}
       />

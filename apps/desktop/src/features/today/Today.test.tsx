@@ -22,7 +22,54 @@ function taskFixture(overrides: Partial<Task> = {}): Task {
 }
 
 describe("Today", () => {
-  it("shows current task, resume facts, quick capture, and next-up tasks", () => {
+  it("focuses Today on next action, recent context, and clickable nearby tasks", async () => {
+    const user = userEvent.setup();
+    const onPrimaryAction = vi.fn();
+    const onOpenTask = vi.fn();
+
+    renderWithRouter(
+      <Today
+        view={{
+          state: "missing-next-step",
+          heading: "Continue Review Today",
+          stageTitle: "UI pass",
+          primaryTaskTitle: "Review Today",
+          primaryActionLabel: "Add next action",
+          nextStep: "No next action yet.",
+          latestNote: "",
+          facts: ["5 commits on main since your last review"],
+          nextTasks: [
+            {
+              id: "task-2",
+              projectId: "project-1",
+              stageId: "stage-1",
+              title: "Polish Focus",
+              description: "",
+              status: "todo",
+              priority: null,
+              dueDate: null,
+              nextStep: "Remove inline capture",
+              position: 1
+            }
+          ],
+          hasPlan: true
+        }}
+        onPrimaryAction={onPrimaryAction}
+        onOpenTask={onOpenTask}
+      />
+    );
+
+    expect(screen.queryByRole("heading", { name: "Quick capture" })).not.toBeInTheDocument();
+    expect(screen.getByText("Add the next action before continuing")).toBeInTheDocument();
+    expect(screen.getByText("Recent context")).toBeInTheDocument();
+    expect(screen.getByText("Up next")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Open Polish Focus" }));
+
+    expect(onOpenTask).toHaveBeenCalledWith("task-2");
+  });
+
+  it("shows current task, recent context, and nearby tasks", () => {
     renderWithRouter(
       <Today
         view={{
@@ -37,7 +84,6 @@ describe("Today", () => {
           primaryActionLabel: "Continue task"
         }}
         onPrimaryAction={vi.fn()}
-        onCaptureInbox={vi.fn()}
         onStartManualWorkReview={vi.fn()}
       />
     );
@@ -46,7 +92,7 @@ describe("Today", () => {
     expect(screen.getByRole("heading", { name: "Create local store" })).toBeInTheDocument();
     expect(screen.getByText("Run repository tests")).toBeInTheDocument();
     expect(screen.getByText("1 recent commit on main")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Next up" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Up next" })).toBeInTheDocument();
     expect(screen.getByText("Wire commands")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue task" })).toBeEnabled();
   });
@@ -84,9 +130,8 @@ describe("Today", () => {
     expect(onPrimaryAction).toHaveBeenCalledTimes(1);
   });
 
-  it("renders inbox capture and starts manual work review", async () => {
+  it("starts manual work review", async () => {
     const user = userEvent.setup();
-    const onCaptureInbox = vi.fn().mockResolvedValue(undefined);
     const onStartManualWorkReview = vi.fn();
 
     renderWithRouter(
@@ -103,20 +148,12 @@ describe("Today", () => {
           primaryActionLabel: "Continue task"
         }}
         onPrimaryAction={vi.fn()}
-        onCaptureInbox={onCaptureInbox}
         onStartManualWorkReview={onStartManualWorkReview}
       />
     );
 
-    await user.type(screen.getByLabelText("Capture"), "Check export shape");
-    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
-    await user.click(screen.getByRole("button", { name: "Capture" }));
     await user.click(screen.getByRole("button", { name: "Add manual work review" }));
 
-    expect(onCaptureInbox).toHaveBeenCalledWith({
-      body: "Check export shape",
-      kind: "question"
-    });
     expect(onStartManualWorkReview).toHaveBeenCalled();
   });
 });

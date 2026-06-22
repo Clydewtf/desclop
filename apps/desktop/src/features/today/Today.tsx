@@ -1,5 +1,4 @@
 import type { ResumeBriefView } from "./resumeEngine";
-import type { InboxKind } from "../../shared/domain/types";
 import {
   Button,
   EmptyState,
@@ -8,12 +7,11 @@ import {
   SectionHeader,
   Surface
 } from "../../shared/ui";
-import { InboxCapture } from "../inbox/InboxCapture";
 
 interface TodayProps {
   view: ResumeBriefView;
   onPrimaryAction: () => void;
-  onCaptureInbox?: (input: { body: string; kind: InboxKind }) => void | Promise<void>;
+  onOpenTask?: (taskId: string) => void;
   onStartManualWorkReview?: () => void;
   canUsePrimaryAction?: boolean;
 }
@@ -21,7 +19,7 @@ interface TodayProps {
 export function Today({
   view,
   onPrimaryAction,
-  onCaptureInbox,
+  onOpenTask,
   onStartManualWorkReview,
   canUsePrimaryAction = true
 }: TodayProps) {
@@ -66,10 +64,15 @@ export function Today({
             {view.latestNote ? <p className="today-current-task__note">{view.latestNote}</p> : null}
           </div>
           {view.state === "missing-next-step" ? (
-            <InlineAlert tone="warning">Set a concrete next step before continuing.</InlineAlert>
+            <InlineAlert tone="warning">
+              <strong>Add the next action before continuing</strong>
+              <span>
+                Write one small action so you can resume this task without rereading everything.
+              </span>
+            </InlineAlert>
           ) : null}
           <div className="today-next-step">
-            <strong>Next step</strong>
+            <strong>Next action</strong>
             <p>{view.nextStep}</p>
           </div>
           <div className="today-current-task__action">
@@ -79,15 +82,8 @@ export function Today({
           </div>
         </Surface>
 
-        {onCaptureInbox ? (
-          <Surface ariaLabel="Quick capture" className="today-quick-capture">
-            <SectionHeader title="Quick capture" />
-            <InboxCapture onCapture={onCaptureInbox} />
-          </Surface>
-        ) : null}
-
-        <Surface ariaLabel="Resume facts" className="today-facts">
-          <SectionHeader title="Resume facts" />
+        <Surface ariaLabel="Recent context" className="today-facts">
+          <SectionHeader title="Recent context" />
           {view.facts.length > 0 ? (
             <ul>
               {view.facts.map((fact) => (
@@ -95,23 +91,30 @@ export function Today({
               ))}
             </ul>
           ) : (
-            <p>No recent resume facts.</p>
+            <p>No recent context yet.</p>
           )}
         </Surface>
 
-        <Surface ariaLabel="Next up" className="today-next-up">
-          <SectionHeader title="Next up" />
+        <Surface ariaLabel="Up next" className="today-next-up">
+          <SectionHeader title="Up next" />
           {view.nextTasks.length > 0 ? (
             <ol>
               {view.nextTasks.map((task) => (
                 <li key={task.id}>
-                  <strong>{task.title}</strong>
-                  {task.nextStep ? <span>{task.nextStep}</span> : null}
+                  <div>
+                    <strong>{task.title}</strong>
+                    {task.nextStep ? <span>{task.nextStep}</span> : null}
+                  </div>
+                  {onOpenTask ? (
+                    <Button variant="secondary" onClick={() => onOpenTask(task.id)}>
+                      Open {task.title}
+                    </Button>
+                  ) : null}
                 </li>
               ))}
             </ol>
           ) : (
-            <p>No upcoming tasks.</p>
+            <p>No nearby tasks.</p>
           )}
         </Surface>
       </div>
