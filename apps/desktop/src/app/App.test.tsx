@@ -3275,7 +3275,9 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.click(await screen.findByRole("button", { name: "Remove from task" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Remove abc123 from task" })
+    );
 
     expect(unlinkCommit).toHaveBeenCalledWith("abc123", "t1");
     await waitFor(() => {
@@ -3285,9 +3287,16 @@ describe("App", () => {
 
     await user.click(screen.getByRole("button", { name: "Today" }));
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
-    await user.click(await screen.findByRole("button", { name: "Show commit details" }));
-    await user.selectOptions(await screen.findByLabelText("Move def456 to task"), "t2");
-    await user.click(screen.getByRole("button", { name: "Move to task" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Show commit details for def456"
+      })
+    );
+    await user.selectOptions(
+      await screen.findByRole("combobox", { name: "Move def456 to task" }),
+      "t2"
+    );
+    await user.click(screen.getByRole("button", { name: "Move def456 to task" }));
 
     expect(moveCommitLink).toHaveBeenCalledWith("def456", "t1", "t2");
     await waitFor(() => {

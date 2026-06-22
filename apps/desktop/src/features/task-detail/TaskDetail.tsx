@@ -11,6 +11,7 @@ import type {
 import {
   ActionBar,
   Button,
+  InlineAlert,
   ScreenHeader,
   SectionHeader,
   SelectField,
@@ -73,13 +74,28 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const [noteBody, setNoteBody] = useState("");
   const [nextStep, setNextStep] = useState(task.nextStep);
-  const [timeboxMinutes, setTimeboxMinutes] = useState(25);
+  const [timeboxMinutes, setTimeboxMinutes] = useState("25");
   const [moveTargets, setMoveTargets] = useState<Record<string, string>>({});
   const [expandedCommits, setExpandedCommits] = useState<Record<string, boolean>>({});
+  const [pendingCommitActions, setPendingCommitActions] = useState<
+    Record<string, "remove" | "move" | undefined>
+  >({});
+  const [commitActionErrors, setCommitActionErrors] = useState<
+    Record<string, string | undefined>
+  >({});
+  const commitIdentitySignature = `${task.id}:${linkedCommits
+    .map((commit) => commit.sha)
+    .join(",")}`;
 
   useEffect(() => {
     setNextStep(task.nextStep);
   }, [task.id, task.nextStep]);
+
+  useEffect(() => {
+    setExpandedCommits({});
+    setMoveTargets({});
+    setCommitActionErrors({});
+  }, [commitIdentitySignature]);
 
   async function addNote(event: FormEvent) {
     event.preventDefault();
@@ -98,7 +114,7 @@ export function TaskDetail({
   }
 
   function startFocus() {
-    const roundedMinutes = Math.floor(timeboxMinutes);
+    const roundedMinutes = Math.floor(Number(timeboxMinutes));
     const hasTimebox = Number.isFinite(roundedMinutes) && roundedMinutes > 0;
     onStartFocus({
       taskId: task.id,
@@ -112,7 +128,10 @@ export function TaskDetail({
   }
 
   function selectedMoveTarget(commitSha: string) {
-    return moveTargets[commitSha] ?? "";
+    const targetId = moveTargets[commitSha] ?? "";
+    return availableTasks.some((availableTask) => availableTask.id === targetId)
+      ? targetId
+      : "";
   }
 
   function fileCountLabel(count: number) {
@@ -130,11 +149,45 @@ export function TaskDetail({
 
   async function moveCommit(commitSha: string) {
     const toTaskId = selectedMoveTarget(commitSha);
-    if (!toTaskId) {
+    if (
+      !toTaskId ||
+      pendingCommitActions[commitSha] ||
+      !availableTasks.some((availableTask) => availableTask.id === toTaskId)
+    ) {
       return;
     }
 
-    await onCommitMove(commitSha, task.id, toTaskId);
+    setPendingCommitActions((actions) => ({ ...actions, [commitSha]: "move" }));
+    setCommitActionErrors((errors) => ({ ...errors, [commitSha]: undefined }));
+    try {
+      await onCommitMove(commitSha, task.id, toTaskId);
+    } catch {
+      setCommitActionErrors((errors) => ({
+        ...errors,
+        [commitSha]: "Could not move commit. Try again."
+      }));
+    } finally {
+      setPendingCommitActions((actions) => ({ ...actions, [commitSha]: undefined }));
+    }
+  }
+
+  async function removeCommit(commitSha: string) {
+    if (pendingCommitActions[commitSha]) {
+      return;
+    }
+
+    setPendingCommitActions((actions) => ({ ...actions, [commitSha]: "remove" }));
+    setCommitActionErrors((errors) => ({ ...errors, [commitSha]: undefined }));
+    try {
+      await onCommitUnlink(commitSha, task.id);
+    } catch {
+      setCommitActionErrors((errors) => ({
+        ...errors,
+        [commitSha]: "Could not remove commit. Try again."
+      }));
+    } finally {
+      setPendingCommitActions((actions) => ({ ...actions, [commitSha]: undefined }));
+    }
   }
 
   return (
@@ -182,7 +235,7 @@ export function TaskDetail({
               min={1}
               type="number"
               value={timeboxMinutes}
-              onChange={(event) => setTimeboxMinutes(Number(event.target.value))}
+              onChange={(event) => setTimeboxMinutes(event.target.value)}
             />
             <Button onClick={startFocus}>Start focus</Button>
           </ActionBar>
@@ -275,6 +328,8 @@ export function TaskDetail({
                   const displaySha = shortSha(commit.sha);
                   const moveTarget = selectedMoveTarget(commit.sha);
                   const isExpanded = expandedCommits[commit.sha] ?? false;
+                  const pendingAction = pendingCommitActions[commit.sha];
+                  const detailsId = `${task.id}-${commit.sha}-commit-details`;
 
                   return (
                     <li className="task-linked-commit" key={commit.sha}>
@@ -291,6 +346,11 @@ export function TaskDetail({
                       <ActionBar>
                         <Button
                           variant="secondary"
+                          aria-label={`${
+                            isExpanded ? "Hide commit details" : "Show commit details"
+                          } for ${displaySha}`}
+                          aria-controls={detailsId}
+                          aria-expanded={isExpanded}
                           onClick={() =>
                             setExpandedCommits((commits) => ({
                               ...commits,
@@ -302,13 +362,20 @@ export function TaskDetail({
                         </Button>
                         <Button
                           variant="secondary"
-                          onClick={() => void onCommitUnlink(commit.sha, task.id)}
+                          aria-label={`Remove ${displaySha} from task`}
+                          disabled={Boolean(pendingAction)}
+                          onClick={() => removeCommit(commit.sha)}
                         >
                           Remove from task
                         </Button>
                       </ActionBar>
+                      {commitActionErrors[commit.sha] ? (
+                        <InlineAlert tone="error">
+                          {commitActionErrors[commit.sha]}
+                        </InlineAlert>
+                      ) : null}
                       {isExpanded ? (
-                        <div className="task-linked-commit__details">
+                        <div className="task-linked-commit__details" id={detailsId}>
                           {commit.changedFiles.length > 0 ? (
                             <ul className="task-linked-commit__files">
                               {commit.changedFiles.map((changedFile) => (
@@ -321,6 +388,7 @@ export function TaskDetail({
                               id={`${task.id}-${commit.sha}-move-target`}
                               label={`Move ${displaySha} to task`}
                               value={moveTarget}
+                              disabled={Boolean(pendingAction)}
                               onChange={(event) =>
                                 setMoveTargets((targets) => ({
                                   ...targets,
@@ -337,8 +405,9 @@ export function TaskDetail({
                             </SelectField>
                             <Button
                               variant="secondary"
-                              disabled={!moveTarget}
-                              onClick={() => void moveCommit(commit.sha)}
+                              aria-label={`Move ${displaySha} to task`}
+                              disabled={!moveTarget || Boolean(pendingAction)}
+                              onClick={() => moveCommit(commit.sha)}
                             >
                               Move to task
                             </Button>

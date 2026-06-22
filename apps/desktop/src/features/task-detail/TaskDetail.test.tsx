@@ -1,5 +1,4 @@
-import { screen } from "@testing-library/react";
-import { render } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
@@ -97,10 +96,30 @@ describe("TaskDetail", () => {
     expect(screen.getByText("abcdef1 · main · 1 file changed")).toBeInTheDocument();
     expect(screen.queryByText("apps/desktop/src/features/today/Today.tsx")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Show commit details" }));
+    const disclosure = screen.getByRole("button", {
+      name: "Show commit details for abcdef1"
+    });
+    expect(disclosure).toHaveTextContent("Show commit details");
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(disclosure).toHaveAttribute(
+      "aria-controls",
+      "task-1-abcdef123456-commit-details"
+    );
+
+    await user.click(disclosure);
+    expect(
+      screen.getByRole("button", { name: "Hide commit details for abcdef1" })
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      document.getElementById("task-1-abcdef123456-commit-details")
+    ).toBeInTheDocument();
     expect(screen.getByText("apps/desktop/src/features/today/Today.tsx")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Remove from task" }));
+    const removeButton = screen.getByRole("button", {
+      name: "Remove abcdef1 from task"
+    });
+    expect(removeButton).toHaveTextContent("Remove from task");
+    await user.click(removeButton);
     expect(onCommitUnlink).toHaveBeenCalledWith("abcdef123456", "task-1");
   });
 
@@ -183,6 +202,7 @@ describe("TaskDetail", () => {
     await user.type(screen.getByLabelText("Next action"), "Write repository tests");
     await user.click(screen.getByRole("button", { name: "Save next action" }));
     await user.clear(screen.getByLabelText("Timebox"));
+    expect(screen.getByLabelText("Timebox")).toHaveValue(null);
     await user.click(screen.getByRole("button", { name: "Start focus" }));
 
     expect(onStatusChange).toHaveBeenCalledWith("t1", "active");
@@ -389,10 +409,12 @@ describe("TaskDetail", () => {
     expect(screen.getByText("Fix import")).toBeInTheDocument();
     expect(screen.queryByText("src/app/App.tsx")).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Show commit details" }));
+    await user.click(
+      screen.getByRole("button", { name: "Show commit details for abc123" })
+    );
     expect(screen.getByText("src/app/App.tsx")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Remove from task" }));
+    await user.click(screen.getByRole("button", { name: "Remove abc123 from task" }));
 
     expect(onCommitUnlink).toHaveBeenCalledWith("abc123", "t1");
   });
@@ -421,10 +443,278 @@ describe("TaskDetail", () => {
       />
     );
 
-    await user.click(screen.getByRole("button", { name: "Show commit details" }));
-    await user.selectOptions(screen.getByLabelText("Move abc123 to task"), "t2");
-    await user.click(screen.getByRole("button", { name: "Move to task" }));
+    await user.click(
+      screen.getByRole("button", { name: "Show commit details for abc123" })
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Move abc123 to task" }),
+      "t2"
+    );
+    const moveButton = screen.getByRole("button", { name: "Move abc123 to task" });
+    expect(moveButton).toHaveTextContent("Move to task");
+    await user.click(moveButton);
 
     expect(onCommitMove).toHaveBeenCalledWith("abc123", "t1", "t2");
+  });
+
+  it("gives each linked commit action a unique accessible name", () => {
+    renderWithRouter(
+      <TaskDetail
+        task={task}
+        checklist={[]}
+        notes={[]}
+        linkedCommits={[
+          gitCommitFixture({ sha: "abc123456", message: "First commit" }),
+          gitCommitFixture({ sha: "def456789", message: "Second commit" })
+        ]}
+        availableTasks={[]}
+        workEntries={[]}
+        inboxItems={[]}
+        onStatusChange={vi.fn()}
+        onChecklistToggle={vi.fn()}
+        onNoteAdd={vi.fn()}
+        onNextStepSave={vi.fn()}
+        onStartFocus={vi.fn()}
+        onCommitUnlink={vi.fn()}
+        onCommitMove={vi.fn()}
+      />
+    );
+
+    expect(
+      screen.getByRole("button", { name: "Show commit details for abc1234" })
+    ).toHaveTextContent("Show commit details");
+    expect(
+      screen.getByRole("button", { name: "Show commit details for def4567" })
+    ).toHaveTextContent("Show commit details");
+    expect(
+      screen.getByRole("button", { name: "Remove abc1234 from task" })
+    ).toHaveTextContent("Remove from task");
+    expect(
+      screen.getByRole("button", { name: "Remove def4567 from task" })
+    ).toHaveTextContent("Remove from task");
+  });
+
+  it("resets commit disclosure and move selection when task or commit identities change", async () => {
+    const user = userEvent.setup();
+    const commit = gitCommitFixture({
+      sha: "abc123456",
+      changedFiles: ["src/app/App.tsx"]
+    });
+    const props = {
+      checklist: [],
+      notes: [],
+      availableTasks: [taskFixture({ id: "t2", title: "Other task" })],
+      workEntries: [],
+      inboxItems: [],
+      onStatusChange: vi.fn(),
+      onChecklistToggle: vi.fn(),
+      onNoteAdd: vi.fn(),
+      onNextStepSave: vi.fn(),
+      onStartFocus: vi.fn(),
+      onCommitUnlink: vi.fn(),
+      onCommitMove: vi.fn()
+    };
+    const { rerender } = render(
+      <TaskDetail task={task} linkedCommits={[commit]} {...props} />
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Show commit details for abc1234" })
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Move abc1234 to task" }),
+      "t2"
+    );
+
+    rerender(
+      <TaskDetail
+        task={taskFixture({ id: "different-task" })}
+        linkedCommits={[commit]}
+        {...props}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("src/app/App.tsx")).not.toBeInTheDocument();
+    });
+
+    await user.click(
+      screen.getByRole("button", { name: "Show commit details for abc1234" })
+    );
+    expect(
+      screen.getByRole("combobox", { name: "Move abc1234 to task" })
+    ).toHaveValue("");
+
+    rerender(
+      <TaskDetail
+        task={taskFixture({ id: "different-task" })}
+        linkedCommits={[
+          commit,
+          gitCommitFixture({ sha: "def456789", message: "Another commit" })
+        ]}
+        {...props}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText("src/app/App.tsx")).not.toBeInTheDocument();
+    });
+  });
+
+  it("disables moving when the selected target is no longer available", async () => {
+    const user = userEvent.setup();
+    const onCommitMove = vi.fn();
+    const commit = gitCommitFixture({ sha: "abc123456" });
+    const baseProps = {
+      task,
+      checklist: [],
+      notes: [],
+      linkedCommits: [commit],
+      workEntries: [],
+      inboxItems: [],
+      onStatusChange: vi.fn(),
+      onChecklistToggle: vi.fn(),
+      onNoteAdd: vi.fn(),
+      onNextStepSave: vi.fn(),
+      onStartFocus: vi.fn(),
+      onCommitUnlink: vi.fn(),
+      onCommitMove
+    };
+    const { rerender } = render(
+      <TaskDetail
+        {...baseProps}
+        availableTasks={[taskFixture({ id: "t2", title: "Other task" })]}
+      />
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Show commit details for abc1234" })
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Move abc1234 to task" }),
+      "t2"
+    );
+
+    rerender(<TaskDetail {...baseProps} availableTasks={[]} />);
+
+    expect(
+      screen.getByRole("combobox", { name: "Move abc1234 to task" })
+    ).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Move abc1234 to task" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Move abc1234 to task" }));
+    expect(onCommitMove).not.toHaveBeenCalled();
+  });
+
+  it("prevents duplicate removes and restores retry controls after failure", async () => {
+    const user = userEvent.setup();
+    let rejectRemove: (error: Error) => void = () => {};
+    const onCommitUnlink = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectRemove = reject;
+          })
+      )
+      .mockResolvedValueOnce(undefined);
+
+    renderWithRouter(
+      <TaskDetail
+        task={task}
+        checklist={[]}
+        notes={[]}
+        linkedCommits={[gitCommitFixture({ sha: "abc123456" })]}
+        availableTasks={[]}
+        workEntries={[]}
+        inboxItems={[]}
+        onStatusChange={vi.fn()}
+        onChecklistToggle={vi.fn()}
+        onNoteAdd={vi.fn()}
+        onNextStepSave={vi.fn()}
+        onStartFocus={vi.fn()}
+        onCommitUnlink={onCommitUnlink}
+        onCommitMove={vi.fn()}
+      />
+    );
+
+    const removeButton = screen.getByRole("button", {
+      name: "Remove abc1234 from task"
+    });
+    await user.click(removeButton);
+    expect(removeButton).toBeDisabled();
+    await user.click(removeButton);
+    expect(onCommitUnlink).toHaveBeenCalledTimes(1);
+
+    rejectRemove(new Error("unlink failed"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not remove commit. Try again."
+    );
+    expect(removeButton).toBeEnabled();
+
+    await user.click(removeButton);
+    expect(onCommitUnlink).toHaveBeenCalledTimes(2);
+  });
+
+  it("prevents duplicate moves and restores retry controls after failure", async () => {
+    const user = userEvent.setup();
+    let rejectMove: (error: Error) => void = () => {};
+    const onCommitMove = vi
+      .fn()
+      .mockImplementationOnce(
+        () =>
+          new Promise<void>((_resolve, reject) => {
+            rejectMove = reject;
+          })
+      )
+      .mockResolvedValueOnce(undefined);
+
+    renderWithRouter(
+      <TaskDetail
+        task={task}
+        checklist={[]}
+        notes={[]}
+        linkedCommits={[gitCommitFixture({ sha: "abc123456" })]}
+        availableTasks={[taskFixture({ id: "t2", title: "Other task" })]}
+        workEntries={[]}
+        inboxItems={[]}
+        onStatusChange={vi.fn()}
+        onChecklistToggle={vi.fn()}
+        onNoteAdd={vi.fn()}
+        onNextStepSave={vi.fn()}
+        onStartFocus={vi.fn()}
+        onCommitUnlink={vi.fn()}
+        onCommitMove={onCommitMove}
+      />
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Show commit details for abc1234" })
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: "Move abc1234 to task" }),
+      "t2"
+    );
+    const moveButton = screen.getByRole("button", { name: "Move abc1234 to task" });
+    const removeButton = screen.getByRole("button", {
+      name: "Remove abc1234 from task"
+    });
+
+    await user.click(moveButton);
+    expect(moveButton).toBeDisabled();
+    expect(removeButton).toBeDisabled();
+    await user.click(moveButton);
+    expect(onCommitMove).toHaveBeenCalledTimes(1);
+
+    rejectMove(new Error("move failed"));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not move commit. Try again."
+    );
+    expect(moveButton).toBeEnabled();
+    expect(removeButton).toBeEnabled();
+
+    await user.click(moveButton);
+    expect(onCommitMove).toHaveBeenCalledTimes(2);
   });
 });
