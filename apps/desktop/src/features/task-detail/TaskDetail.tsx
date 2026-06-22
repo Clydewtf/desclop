@@ -237,21 +237,20 @@ export function TaskDetail({
         </form>
 
         <div className="task-workbench-header__controls">
-          <SelectField
-            className="task-workbench-header__status"
-            id={`${task.id}-status`}
-            label="Task status"
-            value={task.status}
-            onChange={(event) => onStatusChange(task.id, event.target.value as TaskStatus)}
-          >
-            {taskStatuses.map((status) => (
-              <option key={status} value={status}>
-                {taskStatusLabels[status]}
-              </option>
-            ))}
-          </SelectField>
-
           <ActionBar>
+            <SelectField
+              className="task-workbench-header__status"
+              id={`${task.id}-status`}
+              label="Task status"
+              value={task.status}
+              onChange={(event) => onStatusChange(task.id, event.target.value as TaskStatus)}
+            >
+              {taskStatuses.map((status) => (
+                <option key={status} value={status}>
+                  {taskStatusLabels[status]}
+                </option>
+              ))}
+            </SelectField>
             <TextField
               className="task-workbench-header__timebox"
               id={`${task.id}-timebox-minutes`}
