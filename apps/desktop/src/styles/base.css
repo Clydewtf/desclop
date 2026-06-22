@@ -728,7 +728,7 @@ label.inline-field input {
 }
 
 .task-workbench-header {
-  grid-template-columns: minmax(0, 1fr) minmax(460px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr);
   align-items: start;
 }
 
@@ -750,13 +750,12 @@ label.inline-field input {
 
 .task-workbench-header__status,
 .task-workbench-header__timebox {
-  width: 100%;
+  width: min(100%, 220px);
 }
 
 .task-workbench-header__controls .ui-action-bar {
-  display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.72fr) auto;
   align-items: end;
+  justify-content: flex-start;
   gap: var(--space-3);
 }
 
@@ -1211,9 +1210,6 @@ label.inline-field input {
     grid-template-columns: 1fr;
   }
 
-  .task-workbench-header__controls .ui-action-bar {
-    grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.72fr) auto;
-  }
 }
 
 @media (max-width: 560px) {
@@ -1245,10 +1241,6 @@ label.inline-field input {
   .ui-section-header__action,
   .ui-action-bar {
     justify-content: flex-start;
-  }
-
-  .task-workbench-header__controls .ui-action-bar {
-    grid-template-columns: 1fr;
   }
 
   .today-view__grid {
