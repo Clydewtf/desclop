@@ -51,8 +51,7 @@ describe("Today", () => {
               nextStep: "Remove inline capture",
               position: 1
             }
-          ],
-          hasPlan: true
+          ]
         }}
         onPrimaryAction={onPrimaryAction}
         onOpenTask={onOpenTask}
@@ -60,7 +59,11 @@ describe("Today", () => {
     );
 
     expect(screen.queryByRole("heading", { name: "Quick capture" })).not.toBeInTheDocument();
+    expect(screen.getByText("Next action needed")).toBeInTheDocument();
     expect(screen.getByText("Add the next action before continuing")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Add the next action before continuing Write one small action so you can resume this task without rereading everything."
+    );
     expect(screen.getByText("Recent context")).toBeInTheDocument();
     expect(screen.getByText("Up next")).toBeInTheDocument();
 
@@ -151,6 +154,10 @@ describe("Today", () => {
         onStartManualWorkReview={onStartManualWorkReview}
       />
     );
+
+    expect(screen.getByText("No recent context yet.")).toBeInTheDocument();
+    expect(screen.getByText("No nearby tasks.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Open / })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add manual work review" }));
 

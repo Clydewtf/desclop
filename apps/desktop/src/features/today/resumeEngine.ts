@@ -47,7 +47,7 @@ export function buildResumeBriefView(input: ResumeInput): ResumeBriefView {
     "no-project": "Create project",
     "no-plan": "Import a plan",
     "no-active-task": "Pick a task from Plan",
-    "missing-next-step": "Set next step"
+    "missing-next-step": "Set next action"
   };
   const primaryTaskTitles: Record<TodayState, string> = {
     ready: input.task?.title ?? "No active task",
@@ -62,7 +62,7 @@ export function buildResumeBriefView(input: ResumeInput): ResumeBriefView {
       : state === "no-active-task"
         ? "Choose an active task from your plan to make Today resumable."
         : state === "missing-next-step"
-          ? "Set the next concrete step before continuing."
+          ? "Set the next concrete action before continuing."
           : input.task?.nextStep || "Choose the next concrete step before you stop.";
 
   return {

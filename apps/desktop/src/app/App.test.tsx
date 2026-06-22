@@ -616,6 +616,25 @@ describe("App", () => {
     expect(within(nextUp).queryByText("Completed task")).not.toBeInTheDocument();
   });
 
+  it("opens a nearby Today task in Task Detail", async () => {
+    const user = userEvent.setup();
+    const plan = twoTaskPlanFixture({ firstStatus: "active", secondStatus: "todo" });
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({ taskId: "t1", stageId: "s1", nextStep: "Continue first task" })
+    );
+    loadProjectPlan.mockResolvedValue(plan);
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Open Second task" }));
+
+    expect(await screen.findByRole("heading", { name: "Second task" })).toBeInTheDocument();
+  });
+
   it("shows saved projects after closing and can reopen the same project", async () => {
     const user = userEvent.setup();
     const firstProject = projectFixture({
@@ -1356,7 +1375,7 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     expect(await screen.findByRole("heading", { name: "Create local store" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Set next step" }));
+    await user.click(screen.getByRole("button", { name: "Set next action" }));
 
     expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
     expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();

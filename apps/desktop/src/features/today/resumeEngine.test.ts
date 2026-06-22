@@ -97,7 +97,7 @@ describe("buildResumeBriefView", () => {
     expect(view.nextTasks[0].title).toBe("Create shell");
   });
 
-  it("calls out missing next step for the active task", () => {
+  it("calls out a missing next action for the active task", () => {
     const view = buildResumeBriefView({
       task: taskFixture({ title: "Create shell", nextStep: "" }),
       stage: stageFixture({ title: "Alpha UX" }),
@@ -110,8 +110,8 @@ describe("buildResumeBriefView", () => {
     });
 
     expect(view.state).toBe("missing-next-step");
-    expect(view.nextStep).toBe("Set the next concrete step before continuing.");
-    expect(view.primaryActionLabel).toBe("Set next step");
+    expect(view.nextStep).toBe("Set the next concrete action before continuing.");
+    expect(view.primaryActionLabel).toBe("Set next action");
   });
 
   it("keeps the next-up list to the first three tasks", () => {

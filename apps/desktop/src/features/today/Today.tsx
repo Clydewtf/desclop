@@ -28,7 +28,7 @@ export function Today({
     "no-project": "Project setup",
     "no-plan": "Plan required",
     "no-active-task": "No active task",
-    "missing-next-step": "Next step needed"
+    "missing-next-step": "Next action needed"
   }[view.state];
 
   if (view.state === "no-plan") {
@@ -65,7 +65,7 @@ export function Today({
           </div>
           {view.state === "missing-next-step" ? (
             <InlineAlert tone="warning">
-              <strong>Add the next action before continuing</strong>
+              <strong>Add the next action before continuing</strong>{" "}
               <span>
                 Write one small action so you can resume this task without rereading everything.
               </span>
