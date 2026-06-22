@@ -49,6 +49,61 @@ const task: Task = taskFixture({
 });
 
 describe("TaskDetail", () => {
+  it("shows task execution controls without inline capture or expanded commit clutter", async () => {
+    const user = userEvent.setup();
+    const onStartFocus = vi.fn();
+    const onCommitUnlink = vi.fn();
+    const onCommitMove = vi.fn();
+
+    renderWithRouter(
+      <TaskDetail
+        task={taskFixture({
+          id: "task-1",
+          title: "Review Today",
+          nextStep: "Remove inline capture"
+        })}
+        stageTitle="UI pass"
+        checklist={[]}
+        notes={[]}
+        linkedCommits={[
+          {
+            sha: "abcdef123456",
+            projectId: "project-1",
+            branch: "main",
+            message: "fix: remove capture card",
+            authorName: "Clyde",
+            committedAt: "2026-06-16T08:51:07Z",
+            changedFiles: ["apps/desktop/src/features/today/Today.tsx"]
+          }
+        ]}
+        availableTasks={[taskFixture({ id: "task-2", title: "Polish Focus" })]}
+        workEntries={[]}
+        inboxItems={[]}
+        onStatusChange={vi.fn()}
+        onChecklistToggle={vi.fn()}
+        onNoteAdd={vi.fn()}
+        onNextStepSave={vi.fn()}
+        onStartFocus={onStartFocus}
+        onCommitUnlink={onCommitUnlink}
+        onCommitMove={onCommitMove}
+        onStartManualWorkReview={vi.fn()}
+      />
+    );
+
+    expect(screen.getByLabelText("Next action")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Quick capture" })).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Timebox")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start focus" })).toBeInTheDocument();
+    expect(screen.getByText("abcdef1 · main · 1 file changed")).toBeInTheDocument();
+    expect(screen.queryByText("apps/desktop/src/features/today/Today.tsx")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show commit details" }));
+    expect(screen.getByText("apps/desktop/src/features/today/Today.tsx")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Remove from task" }));
+    expect(onCommitUnlink).toHaveBeenCalledWith("abcdef123456", "task-1");
+  });
+
   it("renders task detail as a focused workbench", () => {
     renderWithRouter(
       <TaskDetail
@@ -79,7 +134,6 @@ describe("TaskDetail", () => {
         onStartFocus={vi.fn()}
         onCommitUnlink={vi.fn()}
         onCommitMove={vi.fn()}
-        onCaptureInbox={vi.fn()}
         onStartManualWorkReview={vi.fn()}
       />
     );
@@ -88,7 +142,7 @@ describe("TaskDetail", () => {
     expect(screen.getByText("Foundation task")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start focus" })).toBeInTheDocument();
     expect(screen.getByLabelText("Task status")).toHaveValue("active");
-    expect(screen.getByLabelText("Next step")).toHaveValue("Run cargo test");
+    expect(screen.getByLabelText("Next action")).toHaveValue("Run cargo test");
     expect(screen.getByRole("heading", { name: "Checklist" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Notes" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Linked commits" })).toBeInTheDocument();
@@ -126,8 +180,9 @@ describe("TaskDetail", () => {
     await user.click(screen.getByRole("checkbox", { name: "Add migration" }));
     await user.type(screen.getByLabelText("Quick note"), "Migration is ready");
     await user.click(screen.getByRole("button", { name: "Add note" }));
-    await user.type(screen.getByLabelText("Next step"), "Write repository tests");
-    await user.click(screen.getByRole("button", { name: "Save next step" }));
+    await user.type(screen.getByLabelText("Next action"), "Write repository tests");
+    await user.click(screen.getByRole("button", { name: "Save next action" }));
+    await user.clear(screen.getByLabelText("Timebox"));
     await user.click(screen.getByRole("button", { name: "Start focus" }));
 
     expect(onStatusChange).toHaveBeenCalledWith("t1", "active");
@@ -164,9 +219,9 @@ describe("TaskDetail", () => {
       />
     );
 
-    await user.clear(screen.getByLabelText("Timebox minutes"));
-    await user.type(screen.getByLabelText("Timebox minutes"), "25");
-    await user.click(screen.getByRole("button", { name: "Start timebox" }));
+    await user.clear(screen.getByLabelText("Timebox"));
+    await user.type(screen.getByLabelText("Timebox"), "25.9");
+    await user.click(screen.getByRole("button", { name: "Start focus" }));
 
     expect(onStartFocus).toHaveBeenCalledWith({
       taskId: "t1",
@@ -233,7 +288,7 @@ describe("TaskDetail", () => {
       <TaskDetail task={{ ...task, nextStep: "Write tests" }} {...props} />
     );
 
-    expect(screen.getByLabelText("Next step")).toHaveValue("Write tests");
+    expect(screen.getByLabelText("Next action")).toHaveValue("Write tests");
 
     rerender(
       <TaskDetail
@@ -242,7 +297,7 @@ describe("TaskDetail", () => {
       />
     );
 
-    expect(screen.getByLabelText("Next step")).toHaveValue("Run cargo test");
+    expect(screen.getByLabelText("Next action")).toHaveValue("Run cargo test");
   });
 
   it("renders human-readable task status labels", () => {
@@ -271,9 +326,8 @@ describe("TaskDetail", () => {
     expect(screen.getByRole("option", { name: "Done" })).toHaveValue("done");
   });
 
-  it("renders inbox capture and starts manual work review", async () => {
+  it("starts a manual work review without rendering inline capture", async () => {
     const user = userEvent.setup();
-    const onCaptureInbox = vi.fn().mockResolvedValue(undefined);
     const onStartManualWorkReview = vi.fn();
 
     renderWithRouter(
@@ -292,20 +346,13 @@ describe("TaskDetail", () => {
         onStartFocus={vi.fn()}
         onCommitUnlink={vi.fn()}
         onCommitMove={vi.fn()}
-        onCaptureInbox={onCaptureInbox}
         onStartManualWorkReview={onStartManualWorkReview}
       />
     );
 
-    await user.type(screen.getByLabelText("Capture"), "Check task export shape");
-    await user.selectOptions(screen.getByLabelText("Capture type"), "question");
-    await user.click(screen.getByRole("button", { name: "Capture" }));
-    await user.click(screen.getByRole("button", { name: "Add manual work review" }));
+    expect(screen.queryByRole("heading", { name: "Quick capture" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add work review" }));
 
-    expect(onCaptureInbox).toHaveBeenCalledWith({
-      body: "Check task export shape",
-      kind: "question"
-    });
     expect(onStartManualWorkReview).toHaveBeenCalled();
   });
 
@@ -340,9 +387,12 @@ describe("TaskDetail", () => {
     );
 
     expect(screen.getByText("Fix import")).toBeInTheDocument();
+    expect(screen.queryByText("src/app/App.tsx")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show commit details" }));
     expect(screen.getByText("src/app/App.tsx")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Unlink abc123" }));
+    await user.click(screen.getByRole("button", { name: "Remove from task" }));
 
     expect(onCommitUnlink).toHaveBeenCalledWith("abc123", "t1");
   });
@@ -371,8 +421,9 @@ describe("TaskDetail", () => {
       />
     );
 
+    await user.click(screen.getByRole("button", { name: "Show commit details" }));
     await user.selectOptions(screen.getByLabelText("Move abc123 to task"), "t2");
-    await user.click(screen.getByRole("button", { name: "Move abc123" }));
+    await user.click(screen.getByRole("button", { name: "Move to task" }));
 
     expect(onCommitMove).toHaveBeenCalledWith("abc123", "t1", "t2");
   });

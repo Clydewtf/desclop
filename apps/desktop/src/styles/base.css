@@ -767,13 +767,14 @@ label.inline-field input {
 .task-linked-commits,
 .task-work-reviews,
 .task-inbox-items,
-.task-notes,
-.task-linked-commit__files {
+.task-notes {
   margin: 0;
   padding-left: 1.25rem;
 }
 
 .task-linked-commit,
+.task-linked-commit__summary,
+.task-linked-commit__details,
 .task-work-review,
 .task-inbox-items li {
   display: grid;
@@ -781,6 +782,7 @@ label.inline-field input {
 }
 
 .task-linked-commit p,
+.task-linked-commit time,
 .task-work-review p,
 .task-work-review span,
 .task-inbox-items p,
@@ -788,6 +790,23 @@ label.inline-field input {
   margin: 0;
   color: var(--color-muted);
   line-height: 1.5;
+}
+
+.task-linked-commit time {
+  font-size: 0.86rem;
+}
+
+.task-linked-commit__details {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.task-linked-commit__files {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding-left: 1.25rem;
+  overflow-wrap: anywhere;
 }
 
 .task-work-review span {

@@ -2,7 +2,6 @@ import { type FormEvent, useEffect, useState } from "react";
 import type {
   ChecklistItem,
   GitCommit,
-  InboxKind,
   InboxItem,
   Note,
   Task,
@@ -20,7 +19,6 @@ import {
   TextField
 } from "../../shared/ui";
 import type { FocusModeKind } from "../focus-mode/focusTimer";
-import { InboxCapture } from "../inbox/InboxCapture";
 
 export interface StartFocusInput {
   taskId: string;
@@ -44,7 +42,6 @@ export interface TaskDetailProps {
   onStartFocus: (input: StartFocusInput) => void | Promise<void>;
   onCommitUnlink: (commitSha: string, taskId: string) => void | Promise<void>;
   onCommitMove: (commitSha: string, fromTaskId: string, toTaskId: string) => void | Promise<void>;
-  onCaptureInbox?: (input: { body: string; kind: InboxKind }) => void | Promise<void>;
   onStartManualWorkReview?: () => void;
 }
 
@@ -72,13 +69,13 @@ export function TaskDetail({
   onStartFocus,
   onCommitUnlink,
   onCommitMove,
-  onCaptureInbox,
   onStartManualWorkReview
 }: TaskDetailProps) {
   const [noteBody, setNoteBody] = useState("");
   const [nextStep, setNextStep] = useState(task.nextStep);
   const [timeboxMinutes, setTimeboxMinutes] = useState(25);
   const [moveTargets, setMoveTargets] = useState<Record<string, string>>({});
+  const [expandedCommits, setExpandedCommits] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     setNextStep(task.nextStep);
@@ -100,16 +97,13 @@ export function TaskDetail({
     await onNextStepSave(task.id, nextStep.trim());
   }
 
-  function startAmbientFocus() {
-    onStartFocus({ taskId: task.id, mode: "ambient", timeboxMinutes: null });
-  }
-
-  function startTimeboxFocus() {
+  function startFocus() {
     const roundedMinutes = Math.floor(timeboxMinutes);
+    const hasTimebox = Number.isFinite(roundedMinutes) && roundedMinutes > 0;
     onStartFocus({
       taskId: task.id,
-      mode: "timebox",
-      timeboxMinutes: Number.isFinite(roundedMinutes) ? Math.max(1, roundedMinutes) : 1
+      mode: hasTimebox ? "timebox" : "ambient",
+      timeboxMinutes: hasTimebox ? roundedMinutes : null
     });
   }
 
@@ -118,7 +112,20 @@ export function TaskDetail({
   }
 
   function selectedMoveTarget(commitSha: string) {
-    return moveTargets[commitSha] ?? availableTasks[0]?.id ?? "";
+    return moveTargets[commitSha] ?? "";
+  }
+
+  function fileCountLabel(count: number) {
+    return `${count} ${count === 1 ? "file" : "files"} changed`;
+  }
+
+  function formatCommitTime(timestamp: string) {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(timestamp));
   }
 
   async function moveCommit(commitSha: string) {
@@ -136,19 +143,19 @@ export function TaskDetail({
         eyebrow={stageTitle ? `${stageTitle} task` : "Task detail"}
         title={task.title}
         description={task.description || undefined}
-        actions={<Button onClick={startAmbientFocus}>Start focus</Button>}
       />
 
       <Surface className="task-workbench-header">
         <form className="task-workbench-header__next-step" onSubmit={saveNextStep}>
           <TextArea
             id={`${task.id}-next-step`}
-            label="Next step"
+            label="Next action"
+            hint="What is the next small action needed to continue this task?"
             value={nextStep}
             onChange={(event) => setNextStep(event.target.value)}
           />
           <Button type="submit" variant="secondary">
-            Save next step
+            Save next action
           </Button>
         </form>
 
@@ -168,23 +175,16 @@ export function TaskDetail({
           </SelectField>
 
           <ActionBar>
-            {onStartManualWorkReview ? (
-              <Button variant="secondary" onClick={onStartManualWorkReview}>
-                Add manual work review
-              </Button>
-            ) : null}
             <TextField
               className="task-workbench-header__timebox"
               id={`${task.id}-timebox-minutes`}
-              label="Timebox minutes"
+              label="Timebox"
               min={1}
               type="number"
               value={timeboxMinutes}
               onChange={(event) => setTimeboxMinutes(Number(event.target.value))}
             />
-            <Button variant="secondary" onClick={startTimeboxFocus}>
-              Start timebox
-            </Button>
+            <Button onClick={startFocus}>Start focus</Button>
           </ActionBar>
         </div>
       </Surface>
@@ -236,8 +236,16 @@ export function TaskDetail({
           </Surface>
 
           <Surface ariaLabel="Work reviews">
-            <SectionHeader title="Work reviews" />
-            <p className="task-workbench__empty">{workEntries.length} work entries</p>
+            <SectionHeader
+              title="Work reviews"
+              action={
+                onStartManualWorkReview ? (
+                  <Button variant="secondary" onClick={onStartManualWorkReview}>
+                    Add work review
+                  </Button>
+                ) : undefined
+              }
+            />
             {workEntries.length > 0 ? (
               <ul className="task-work-reviews">
                 {workEntries.map((entry) => (
@@ -250,21 +258,14 @@ export function TaskDetail({
                 ))}
               </ul>
             ) : (
-              <p className="task-workbench__empty">No work reviews yet.</p>
+              <p className="task-workbench__empty">
+                Work you log manually or from focus sessions will appear here.
+              </p>
             )}
           </Surface>
         </main>
 
         <aside className="task-workbench__rail stack">
-          <Surface ariaLabel="Quick capture">
-            <SectionHeader title="Quick capture" />
-            {onCaptureInbox ? (
-              <InboxCapture onCapture={onCaptureInbox} />
-            ) : (
-              <p className="task-workbench__empty">Capture is unavailable.</p>
-            )}
-          </Surface>
-
           <Surface ariaLabel="Linked commits">
             <SectionHeader title="Linked commits" />
             <p className="task-workbench__empty">{linkedCommits.length} linked commits</p>
@@ -273,54 +274,77 @@ export function TaskDetail({
                 {linkedCommits.map((commit) => {
                   const displaySha = shortSha(commit.sha);
                   const moveTarget = selectedMoveTarget(commit.sha);
+                  const isExpanded = expandedCommits[commit.sha] ?? false;
 
                   return (
                     <li className="task-linked-commit" key={commit.sha}>
-                      <div>
+                      <div className="task-linked-commit__summary">
                         <strong>{commit.message}</strong>
                         <p>
-                          {displaySha} on {commit.branch} at {commit.committedAt}
+                          {displaySha} · {commit.branch} ·{" "}
+                          {fileCountLabel(commit.changedFiles.length)}
                         </p>
+                        <time dateTime={commit.committedAt}>
+                          {formatCommitTime(commit.committedAt)}
+                        </time>
                       </div>
-                      {commit.changedFiles.length > 0 ? (
-                        <ul className="task-linked-commit__files">
-                          {commit.changedFiles.map((changedFile) => (
-                            <li key={changedFile}>{changedFile}</li>
-                          ))}
-                        </ul>
-                      ) : null}
                       <ActionBar>
+                        <Button
+                          variant="secondary"
+                          onClick={() =>
+                            setExpandedCommits((commits) => ({
+                              ...commits,
+                              [commit.sha]: !isExpanded
+                            }))
+                          }
+                        >
+                          {isExpanded ? "Hide commit details" : "Show commit details"}
+                        </Button>
                         <Button
                           variant="secondary"
                           onClick={() => void onCommitUnlink(commit.sha, task.id)}
                         >
-                          Unlink {displaySha}
-                        </Button>
-                        <SelectField
-                          id={`${task.id}-${commit.sha}-move-target`}
-                          label={`Move ${displaySha} to task`}
-                          value={moveTarget}
-                          onChange={(event) =>
-                            setMoveTargets((targets) => ({
-                              ...targets,
-                              [commit.sha]: event.target.value
-                            }))
-                          }
-                        >
-                          {availableTasks.map((availableTask) => (
-                            <option key={availableTask.id} value={availableTask.id}>
-                              {availableTask.title}
-                            </option>
-                          ))}
-                        </SelectField>
-                        <Button
-                          variant="secondary"
-                          disabled={!moveTarget}
-                          onClick={() => void moveCommit(commit.sha)}
-                        >
-                          Move {displaySha}
+                          Remove from task
                         </Button>
                       </ActionBar>
+                      {isExpanded ? (
+                        <div className="task-linked-commit__details">
+                          {commit.changedFiles.length > 0 ? (
+                            <ul className="task-linked-commit__files">
+                              {commit.changedFiles.map((changedFile) => (
+                                <li key={changedFile}>{changedFile}</li>
+                              ))}
+                            </ul>
+                          ) : null}
+                          <ActionBar>
+                            <SelectField
+                              id={`${task.id}-${commit.sha}-move-target`}
+                              label={`Move ${displaySha} to task`}
+                              value={moveTarget}
+                              onChange={(event) =>
+                                setMoveTargets((targets) => ({
+                                  ...targets,
+                                  [commit.sha]: event.target.value
+                                }))
+                              }
+                            >
+                              <option value="">Select task</option>
+                              {availableTasks.map((availableTask) => (
+                                <option key={availableTask.id} value={availableTask.id}>
+                                  {availableTask.title}
+                                </option>
+                              ))}
+                            </SelectField>
+                            <Button
+                              variant="secondary"
+                              disabled={!moveTarget}
+                              onClick={() => void moveCommit(commit.sha)}
+                            >
+                              Move to task
+                            </Button>
+                          </ActionBar>
+                        </div>
+                      ) : null}
                     </li>
                   );
                 })}

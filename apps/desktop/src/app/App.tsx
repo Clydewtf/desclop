@@ -1313,7 +1313,6 @@ export function App() {
           onStartFocus={startFocus}
           onCommitUnlink={unlinkCommit}
           onCommitMove={moveCommit}
-          onCaptureInbox={captureInbox}
           onStartManualWorkReview={() => startManualWorkReview(selectedTask.id)}
         />
       );
