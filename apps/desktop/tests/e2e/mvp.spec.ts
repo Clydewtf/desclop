@@ -233,8 +233,8 @@ test("resume-first MVP flow works without Git or Focus Mode", async ({ page }) =
 
   await page.getByRole("button", { name: "Continue Create local store" }).click();
   await page.getByLabel("Task status").selectOption("active");
-  await page.getByLabel("Next step").fill("Run migration tests");
-  await page.getByRole("button", { name: "Save next step" }).click();
+  await page.getByLabel("Next action").fill("Run migration tests");
+  await page.getByRole("button", { name: "Save next action" }).click();
   await page.getByLabel("Quick note").fill("Migration schema drafted");
   await page.getByRole("button", { name: "Add note" }).click();
 

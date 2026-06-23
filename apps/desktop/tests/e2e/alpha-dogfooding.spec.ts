@@ -218,19 +218,23 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
   await page.getByRole("button", { name: "Continue Restructure Today" }).click();
   await expect(page.getByRole("button", { name: "Start focus" })).toBeVisible();
 
-  await page.getByLabel("Next step").fill("Run visual QA");
-  await page.getByRole("button", { name: "Save next step" }).click();
-  const captureInput = page.getByRole("textbox", { name: "Capture" });
+  await page.getByLabel("Next action").fill("Run visual QA");
+  await page.getByRole("button", { name: "Save next action" }).click();
+  await page.getByRole("button", { name: "Capture" }).click();
+  const quickCaptureDialog = page.getByRole("dialog", { name: "Quick capture" });
+  await expect(quickCaptureDialog).toBeVisible();
+  await quickCaptureDialog.getByLabel("Related to").selectOption("__inbox__");
+  const captureInput = quickCaptureDialog.getByRole("textbox", { name: "Capture" });
   await captureInput.fill("Check narrow desktop layout");
-  await page.getByRole("combobox", { name: "Capture type" }).selectOption("question");
-  await page.locator("form", { has: captureInput }).getByRole("button", { name: "Capture" }).click();
+  await quickCaptureDialog.getByRole("combobox", { name: "Type" }).selectOption("question");
+  await quickCaptureDialog.getByRole("button", { name: "Save capture" }).click();
   await expect(page.getByText("Check narrow desktop layout")).toBeVisible();
 
-  await page.getByRole("button", { name: "Add manual work review" }).click();
-  await page.getByLabel("What was done").fill("Reviewed alpha flow");
-  await page.getByLabel("What remains").fill("Run browser screenshots");
-  await page.getByLabel("Next step").fill("Capture final screenshots");
-  await page.getByRole("button", { name: "Save work review" }).click();
+  await page.getByRole("button", { name: "Add work review" }).click();
+  await page.getByLabel("What changed?").fill("Reviewed alpha flow");
+  await page.getByLabel("What remains?").fill("Run browser screenshots");
+  await page.getByLabel("Next action").fill("Capture final screenshots");
+  await page.getByRole("button", { name: "Save review" }).click();
   await page.getByRole("button", { name: "Today" }).click();
 
   const currentTask = page.getByLabel("Current task");
