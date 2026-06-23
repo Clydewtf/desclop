@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
@@ -30,6 +30,17 @@ function checklistFixture(overrides: Partial<ChecklistItem> = {}): ChecklistItem
     position: 0,
     ...overrides
   };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+
+  return { promise, resolve, reject };
 }
 
 describe("FocusMode", () => {
@@ -64,6 +75,74 @@ describe("FocusMode", () => {
 
     await user.click(screen.getByRole("button", { name: "Finish session" }));
     expect(onFinish).toHaveBeenCalledWith({ elapsedSeconds: 300 });
+  });
+
+  it("finishes without implicitly saving an open task note", async () => {
+    const user = userEvent.setup();
+    const onFinish = vi.fn();
+    const onNoteAdd = vi.fn();
+
+    renderWithRouter(
+      <FocusMode
+        task={taskFixture()}
+        checklist={[]}
+        mode="ambient"
+        startedAtMs={0}
+        nowMs={90_000}
+        timeboxMinutes={null}
+        onFinish={onFinish}
+        onNoteAdd={onNoteAdd}
+        onChecklistToggle={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add note" }));
+    await user.type(screen.getByLabelText("Task note"), "Keep this draft unsaved");
+    await user.click(screen.getByRole("button", { name: "Finish session" }));
+
+    expect(onFinish).toHaveBeenCalledWith({ elapsedSeconds: 90 });
+    expect(onNoteAdd).not.toHaveBeenCalled();
+  });
+
+  it("blocks duplicate note saves and finishing while a note save is pending", async () => {
+    const user = userEvent.setup();
+    const pendingSave = deferred<void>();
+    const onNoteAdd = vi.fn().mockReturnValue(pendingSave.promise);
+    const onFinish = vi.fn();
+
+    renderWithRouter(
+      <FocusMode
+        task={taskFixture()}
+        checklist={[]}
+        mode="ambient"
+        startedAtMs={0}
+        nowMs={60_000}
+        timeboxMinutes={null}
+        onFinish={onFinish}
+        onNoteAdd={onNoteAdd}
+        onChecklistToggle={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Add note" }));
+    await user.type(screen.getByLabelText("Task note"), "Save this once");
+    await user.click(screen.getByRole("button", { name: "Save note" }));
+
+    expect(screen.getByLabelText("Task note")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save note" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Finishing session" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Save note" }));
+    await user.click(screen.getByRole("button", { name: "Finishing session" }));
+
+    expect(onNoteAdd).toHaveBeenCalledTimes(1);
+    expect(onFinish).not.toHaveBeenCalled();
+
+    await act(async () => pendingSave.resolve());
+
+    expect(screen.queryByLabelText("Task note")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Finish session" })).toBeEnabled();
   });
 
   it("keeps the note composer open and shows an error when saving fails", async () => {
