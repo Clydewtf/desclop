@@ -1339,7 +1339,6 @@ export function App() {
             nowMs={focusSession.nowMs}
             timeboxMinutes={focusSession.timeboxMinutes}
             onFinish={finishFocus}
-            onCaptureInbox={captureInbox}
             onNoteAdd={(body) => addNote(focusTask.id, body)}
             onChecklistToggle={toggleChecklistItem}
           />

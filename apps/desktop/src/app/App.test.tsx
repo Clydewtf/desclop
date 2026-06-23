@@ -1998,7 +1998,7 @@ describe("App", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Quick capture" });
     expect(within(dialog).getByLabelText("Related to")).toHaveValue("t1");
-    expect(screen.getByRole("button", { name: "Finish focus session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Finish session" })).toBeInTheDocument();
   });
 
   it("does not reinstall the global capture listener on Focus timer ticks", async () => {
@@ -2714,7 +2714,7 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
     await user.click(screen.getByRole("button", { name: "Start focus" }));
-    await user.click(screen.getByRole("button", { name: "Finish focus session" }));
+    await user.click(screen.getByRole("button", { name: "Finish session" }));
     await user.type(screen.getByLabelText("What was done"), "Reviewed alpha flow");
     await user.type(screen.getByLabelText("What remains"), "Run browser screenshots");
     await user.type(screen.getByLabelText("Next step"), "Capture final screenshots");
@@ -2811,11 +2811,15 @@ describe("App", () => {
     act(() => {
       vi.advanceTimersByTime(90000);
     });
-    fireEvent.change(screen.getByLabelText("Quick note"), {
+    fireEvent.click(screen.getByRole("button", { name: "Add note" }));
+    fireEvent.change(screen.getByLabelText("Task note"), {
       target: { value: "Keep this focus note" }
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Finish focus session" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save note" }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Finish session" }));
     });
     vi.useRealTimers();
     expect(screen.getByLabelText("What was done")).toBeInTheDocument();
@@ -2911,7 +2915,7 @@ describe("App", () => {
     });
   });
 
-  it("starts timebox focus and captures inbox items through the API", async () => {
+  it("starts timebox focus and captures through the global Quick Capture overlay", async () => {
     const user = userEvent.setup();
     enableTauriApi();
     listProjects.mockResolvedValue([
@@ -2985,12 +2989,11 @@ describe("App", () => {
 
     expect(screen.getByText("05:00 remaining")).toBeInTheDocument();
 
-    const captureInput = screen.getByLabelText("Capture");
-    await user.type(captureInput, "Remember repository tests");
-    await user.selectOptions(screen.getByLabelText("Capture type"), "note");
-    await user.click(
-      within(captureInput.closest("form") as HTMLElement).getByRole("button", { name: "Capture" })
-    );
+    await user.click(screen.getByRole("button", { name: "Capture" }));
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.type(within(dialog).getByLabelText("Capture"), "Remember repository tests");
+    await user.selectOptions(within(dialog).getByLabelText("Type"), "note");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
 
     expect(captureInboxItem).toHaveBeenCalledWith({
       projectId: "p1",

@@ -33,117 +33,64 @@ function checklistFixture(overrides: Partial<ChecklistItem> = {}): ChecklistItem
 }
 
 describe("FocusMode", () => {
-  it("shows current task, next step, checklist, quick note, capture, and finish action", () => {
+  it("shows focused task controls without inline capture", async () => {
+    const user = userEvent.setup();
+    const onNoteAdd = vi.fn().mockResolvedValue(undefined);
+    const onFinish = vi.fn();
+
     renderWithRouter(
       <FocusMode
-        task={taskFixture({ title: "Create local store", nextStep: "Run cargo test" })}
-        checklist={[{ id: "c1", taskId: "t1", title: "Add migration", completed: false, position: 0 }]}
+        task={taskFixture({ id: "task-1", title: "Review Today", nextStep: "Remove inline capture" })}
+        checklist={[{ id: "check-1", taskId: "task-1", title: "Update test", completed: false, position: 0 }]}
+        mode="timebox"
+        startedAtMs={Date.parse("2026-06-16T10:00:00Z")}
+        nowMs={Date.parse("2026-06-16T10:05:00Z")}
+        timeboxMinutes={25}
+        onFinish={onFinish}
+        onNoteAdd={onNoteAdd}
+        onChecklistToggle={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Review Today" })).toBeInTheDocument();
+    expect(screen.getByText("05:00")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Capture")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Add note" }));
+    await user.type(screen.getByLabelText("Task note"), "Found commit clutter");
+    await user.click(screen.getByRole("button", { name: "Save note" }));
+
+    expect(onNoteAdd).toHaveBeenCalledWith("Found commit clutter");
+
+    await user.click(screen.getByRole("button", { name: "Finish session" }));
+    expect(onFinish).toHaveBeenCalledWith({ elapsedSeconds: 300 });
+  });
+
+  it("keeps the note composer open and shows an error when saving fails", async () => {
+    const user = userEvent.setup();
+    const onNoteAdd = vi.fn().mockRejectedValue(new Error("save failed"));
+
+    renderWithRouter(
+      <FocusMode
+        task={taskFixture()}
+        checklist={[]}
         mode="ambient"
         startedAtMs={0}
         nowMs={60_000}
         timeboxMinutes={null}
         onFinish={vi.fn()}
-        onCaptureInbox={vi.fn()}
-        onNoteAdd={vi.fn()}
-        onChecklistToggle={vi.fn()}
-      />
-    );
-
-    expect(screen.getByRole("heading", { name: "Create local store" })).toBeInTheDocument();
-    expect(screen.getByText("Run cargo test")).toBeInTheDocument();
-    expect(screen.getByLabelText("Quick note")).toBeInTheDocument();
-    expect(screen.getByLabelText("Capture")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Finish focus session" })).toBeInTheDocument();
-  });
-
-  it("shows task, checklist, quick note, inbox capture, and finish control", async () => {
-    const user = userEvent.setup();
-    const onFinish = vi.fn();
-    const onCaptureInbox = vi.fn();
-    const onNoteAdd = vi.fn();
-
-    renderWithRouter(
-      <FocusMode
-        task={{ id: "t1", projectId: "p1", stageId: "s1", title: "Create local store", description: "", status: "active", priority: null, dueDate: null, nextStep: "", position: 0 }}
-        checklist={[{ id: "c1", taskId: "t1", title: "Add migration", completed: false, position: 0 }]}
-        mode="ambient"
-        startedAtMs={0}
-        nowMs={60000}
-        timeboxMinutes={null}
-        onFinish={onFinish}
-        onCaptureInbox={onCaptureInbox}
         onNoteAdd={onNoteAdd}
         onChecklistToggle={vi.fn()}
       />
     );
 
-    expect(screen.getByText("Create local store")).toBeInTheDocument();
-    expect(screen.getByText("01:00")).toBeInTheDocument();
-    expect(screen.getByRole("checkbox", { name: "Add migration" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Quick note")).toBeInTheDocument();
-    expect(screen.getByLabelText("Capture")).toBeInTheDocument();
-
-    await user.click(screen.getByRole("button", { name: "Finish focus session" }));
-
-    expect(onFinish).toHaveBeenCalledWith({ elapsedSeconds: 60 });
-  });
-
-  it("saves a quick note before finishing focus", async () => {
-    const user = userEvent.setup();
-    const onFinish = vi.fn();
-    const onNoteAdd = vi.fn().mockResolvedValue(undefined);
-
-    renderWithRouter(
-      <FocusMode
-        task={{ id: "t1", projectId: "p1", stageId: "s1", title: "Create local store", description: "", status: "active", priority: null, dueDate: null, nextStep: "", position: 0 }}
-        checklist={[]}
-        mode="ambient"
-        startedAtMs={0}
-        nowMs={60000}
-        timeboxMinutes={null}
-        onFinish={onFinish}
-        onCaptureInbox={vi.fn()}
-        onNoteAdd={onNoteAdd}
-        onChecklistToggle={vi.fn()}
-      />
-    );
-
-    await user.type(screen.getByLabelText("Quick note"), "Keep this focus note");
-    await user.click(screen.getByRole("button", { name: "Finish focus session" }));
+    await user.click(screen.getByRole("button", { name: "Add note" }));
+    await user.type(screen.getByLabelText("Task note"), "Keep this focus note");
+    await user.click(screen.getByRole("button", { name: "Save note" }));
 
     expect(onNoteAdd).toHaveBeenCalledWith("Keep this focus note");
-    expect(onFinish).toHaveBeenCalledWith({ elapsedSeconds: 60 });
-  });
-
-  it("captures inbox items during focus", async () => {
-    const user = userEvent.setup();
-    const onCaptureInbox = vi.fn();
-
-    renderWithRouter(
-      <FocusMode
-        task={{ id: "t1", projectId: "p1", stageId: "s1", title: "Create local store", description: "", status: "active", priority: null, dueDate: null, nextStep: "", position: 0 }}
-        checklist={[]}
-        mode="timebox"
-        startedAtMs={0}
-        nowMs={60000}
-        timeboxMinutes={5}
-        onFinish={vi.fn()}
-        onCaptureInbox={onCaptureInbox}
-        onNoteAdd={vi.fn()}
-        onChecklistToggle={vi.fn()}
-      />
-    );
-
-    expect(screen.getByText("04:00 remaining")).toBeInTheDocument();
-
-    await user.type(screen.getByLabelText("Capture"), "Remember repository tests");
-    await user.selectOptions(screen.getByLabelText("Capture type"), "note");
-    await user.click(screen.getByRole("button", { name: "Capture" }));
-
-    expect(onCaptureInbox).toHaveBeenCalledWith({
-      body: "Remember repository tests",
-      kind: "note"
-    });
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not save task note.");
+    expect(screen.getByLabelText("Task note")).toHaveValue("Keep this focus note");
   });
 
   it("persists checklist toggles during focus mode", async () => {
@@ -159,7 +106,6 @@ describe("FocusMode", () => {
         nowMs={Date.parse("2026-05-20T10:00:05Z")}
         timeboxMinutes={null}
         onFinish={vi.fn()}
-        onCaptureInbox={vi.fn()}
         onNoteAdd={vi.fn()}
         onChecklistToggle={onChecklistToggle}
       />
