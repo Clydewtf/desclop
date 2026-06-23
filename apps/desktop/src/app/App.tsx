@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import "../styles/base.css";
 import { exportPlanMarkdown } from "../features/export-import/markdownExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
@@ -47,13 +46,6 @@ function hasTauriInternals() {
 }
 
 const QUICK_CAPTURE_OPEN_EVENT = "quick-capture:open";
-
-function isQuickCaptureWindow() {
-  return (
-    typeof window !== "undefined" &&
-    new URLSearchParams(window.location.search).get("capture") === "1"
-  );
-}
 
 interface ResumeLoadResult {
   brief: ResumeBrief | null;
@@ -213,7 +205,6 @@ function defaultQuickCaptureTaskId({
 }
 
 export function App() {
-  const quickCaptureWindow = isQuickCaptureWindow();
   const projectContextRevision = useRef(0);
   const captureOperationRevision = useRef(0);
   const deleteProjectInFlight = useRef(false);
@@ -264,7 +255,6 @@ export function App() {
   const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
   const [quickCaptureDefaultTaskId, setQuickCaptureDefaultTaskId] = useState<string | null>(null);
   const [captureStatus, setCaptureStatus] = useState<string | null>(null);
-  const [quickCaptureWindowActive, setQuickCaptureWindowActive] = useState(quickCaptureWindow);
 
   function invalidateProjectContext() {
     projectContextRevision.current += 1;
@@ -361,7 +351,7 @@ export function App() {
     } finally {
       setLoading(false);
     }
-  }, [quickCaptureWindow]);
+  }, []);
 
   useEffect(() => {
     void loadProjects();
@@ -470,12 +460,6 @@ export function App() {
   const closeQuickCapture = useCallback(() => {
     invalidateCaptureOperations();
     setQuickCaptureOpen(false);
-    if (quickCaptureWindow) {
-      setQuickCaptureWindowActive(false);
-      if (hasTauriInternals()) {
-        void getCurrentWindow().hide();
-      }
-    }
   }, []);
 
   useEffect(() => {
@@ -503,9 +487,6 @@ export function App() {
     let unlisten: (() => void) | null = null;
 
     void listen(QUICK_CAPTURE_OPEN_EVENT, () => {
-      if (quickCaptureWindow) {
-        setQuickCaptureWindowActive(true);
-      }
       openQuickCapture();
     })
       .then((nextUnlisten) => {
@@ -523,18 +504,6 @@ export function App() {
       unlisten?.();
     };
   }, [openQuickCapture]);
-
-  useEffect(() => {
-    if (quickCaptureWindow && quickCaptureWindowActive && projectId && !quickCaptureOpen) {
-      openQuickCapture();
-    }
-  }, [
-    openQuickCapture,
-    projectId,
-    quickCaptureOpen,
-    quickCaptureWindow,
-    quickCaptureWindowActive
-  ]);
 
   async function loadTaskContext(
     taskId: string,
@@ -1466,44 +1435,6 @@ export function App() {
         onStartManualWorkReview={() => startManualWorkReview(todayTask?.id ?? null)}
         canUsePrimaryAction={todayView.state !== "ready" || Boolean(todayTask)}
       />
-    );
-  }
-
-  if (quickCaptureWindow) {
-    return (
-      <main className="capture-window" aria-label="Quick capture window">
-        {loading ? (
-          <Surface ariaLabel="Loading Quick capture">
-            <ScreenHeader title="Opening Quick capture" description="Loading project context." />
-          </Surface>
-        ) : loadError ? (
-          <Surface ariaLabel="Quick capture unavailable" className="start-flow">
-            <ScreenHeader
-              title="Quick capture unavailable"
-              description="Desclop could not open the local project context."
-            />
-            <InlineAlert tone="error">{loadError}</InlineAlert>
-          </Surface>
-        ) : project ? (
-          <>
-            {captureStatus ? <InlineAlert tone="info">{captureStatus}</InlineAlert> : null}
-            <QuickCaptureOverlay
-              open={quickCaptureOpen}
-              tasks={projectPlan.tasks}
-              defaultTaskId={quickCaptureDefaultTaskId}
-              onSave={saveQuickCapture}
-              onClose={closeQuickCapture}
-            />
-          </>
-        ) : (
-          <Surface ariaLabel="Quick capture unavailable" className="start-flow">
-            <ScreenHeader
-              title="Quick capture unavailable"
-              description="Create or open a project in Desclop before capturing."
-            />
-          </Surface>
-        )}
-      </main>
     );
   }
 

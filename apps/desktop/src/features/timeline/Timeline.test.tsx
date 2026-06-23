@@ -1,8 +1,12 @@
-import { screen, within } from "@testing-library/react";
+import { screen, within, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
 import { Timeline } from "./Timeline";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("Timeline", () => {
   it("renders project history grouped by local date", () => {
@@ -116,6 +120,103 @@ describe("Timeline", () => {
     await user.keyboard("{Enter}");
     expect(disclosure).toHaveAttribute("aria-expanded", "false");
     expect(hiddenFileList).not.toBeVisible();
+  });
+
+  it("clamps the changed-files panel within the viewport", async () => {
+    const user = userEvent.setup();
+    const originalInnerWidth = window.innerWidth;
+    const originalInnerHeight = window.innerHeight;
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 360 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 260 });
+
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement
+    ) {
+      if (this.classList.contains("timeline-changed-files__trigger")) {
+        return {
+          x: 280,
+          y: 180,
+          top: 180,
+          left: 280,
+          right: 340,
+          bottom: 200,
+          width: 60,
+          height: 20,
+          toJSON: () => {}
+        } as DOMRect;
+      }
+
+      if (this.classList.contains("timeline-changed-files__panel")) {
+        return {
+          x: 0,
+          y: 0,
+          top: 0,
+          left: 0,
+          right: 200,
+          bottom: 120,
+          width: 200,
+          height: 120,
+          toJSON: () => {}
+        } as DOMRect;
+      }
+
+      return {
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: 0,
+        height: 0,
+        toJSON: () => {}
+      } as DOMRect;
+    });
+
+    try {
+      renderWithRouter(
+        <Timeline
+          workEntries={[]}
+          commits={[
+            {
+              sha: "abcdef123",
+              projectId: "p1",
+              branch: "main",
+              message: "Wire timeline",
+              authorName: "Clyde",
+              committedAt: new Date(2026, 5, 16, 10, 5).toISOString(),
+              changedFiles: ["very/long/path/to/Timeline.tsx"]
+            }
+          ]}
+          notes={[]}
+          inboxItems={[]}
+          completedTasks={[]}
+          now={new Date(2026, 5, 16, 12)}
+        />
+      );
+
+      await user.tab();
+
+      const fileList = screen.getByRole("list", { name: "Files changed in Wire timeline" });
+
+      await waitFor(() => {
+        expect(fileList).toHaveStyle({
+          left: "152px",
+          top: "132px",
+          position: "fixed"
+        });
+      });
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalInnerWidth
+      });
+      Object.defineProperty(window, "innerHeight", {
+        configurable: true,
+        value: originalInnerHeight
+      });
+    }
   });
 
   it("paginates timeline events without dropping date grouping or sparse hints", async () => {

@@ -309,38 +309,48 @@ select {
   align-items: baseline;
 }
 
-.timeline-changed-files {
-  position: relative;
-}
-
 .timeline-changed-files__trigger {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   margin: 0;
-  padding: 2px var(--space-2);
-  border: 1px solid var(--color-border);
+  padding: 0 6px;
+  border: 1px solid transparent;
   border-radius: 999px;
   color: var(--color-muted);
-  background: var(--color-surface-muted);
+  background: transparent;
   font: inherit;
-  font-size: 0.78rem;
-  line-height: 1.25;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.2;
   cursor: pointer;
+  transition:
+    color 120ms ease,
+    border-color 120ms ease,
+    background-color 120ms ease;
 }
 
 .timeline-changed-files__trigger:hover,
 .timeline-changed-files__trigger:focus-visible {
   color: var(--color-text);
-  background: var(--color-surface);
+  border-color: var(--color-border);
+  background: var(--color-surface-muted);
 }
 
 .timeline-changed-files__panel {
-  position: absolute;
+  position: fixed;
   z-index: 2;
-  top: calc(100% + var(--space-1));
+  top: 0;
   left: 0;
   display: grid;
   gap: 2px;
   width: max-content;
-  max-width: min(360px, 70vw);
+  max-width: min(480px, calc(100vw - var(--space-4) * 2));
+  box-sizing: border-box;
+  max-height: min(360px, calc(100vh - var(--space-4) * 2));
+  overflow-y: auto;
   padding: var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
@@ -357,7 +367,8 @@ select {
   color: inherit;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 0.78rem;
-  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .timeline-pagination {
@@ -1416,24 +1427,4 @@ label.inline-field input {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-}
-
-.capture-window {
-  min-height: 100vh;
-  padding: 16px;
-  box-sizing: border-box;
-  background: var(--background);
-}
-
-.capture-window .quick-capture-overlay {
-  position: static;
-  min-height: calc(100vh - 32px);
-  padding: 0;
-  background: transparent;
-  place-items: center;
-}
-
-.capture-window .quick-capture-dialog {
-  width: min(100%, 640px);
-  box-shadow: none;
 }
