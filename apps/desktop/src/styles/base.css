@@ -301,6 +301,90 @@ select {
   color: var(--color-muted);
 }
 
+.timeline-row__metadata,
+.timeline-changed-files {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  align-items: baseline;
+}
+
+.timeline-changed-files {
+  position: relative;
+}
+
+.timeline-changed-files__trigger {
+  margin: 0;
+  padding: 2px var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  color: var(--color-muted);
+  background: var(--color-surface-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  line-height: 1.25;
+  cursor: pointer;
+}
+
+.timeline-changed-files__trigger:hover,
+.timeline-changed-files__trigger:focus-visible {
+  color: var(--color-text);
+  background: var(--color-surface);
+}
+
+.timeline-changed-files__panel {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + var(--space-1));
+  left: 0;
+  display: grid;
+  gap: 2px;
+  width: max-content;
+  max-width: min(360px, 70vw);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: 0 10px 24px rgba(23, 33, 43, 0.14);
+}
+
+.timeline-changed-files__panel[hidden] {
+  display: none;
+}
+
+.timeline-changed-files__panel span {
+  color: inherit;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.78rem;
+  white-space: normal;
+}
+
+.timeline-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+  color: var(--color-muted);
+}
+
+.timeline-pagination button {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+.timeline-pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .timeline-sparse-note p {
   margin: var(--space-1) 0 var(--space-4);
 }
@@ -1201,6 +1285,17 @@ label.inline-field input {
   justify-self: start;
 }
 
+.focus-mode__note-form {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.focus-mode__note-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 @media (max-width: 980px) {
   .task-workbench {
     grid-template-columns: 1fr;
@@ -1321,4 +1416,24 @@ label.inline-field input {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.capture-window {
+  min-height: 100vh;
+  padding: 16px;
+  box-sizing: border-box;
+  background: var(--background);
+}
+
+.capture-window .quick-capture-overlay {
+  position: static;
+  min-height: calc(100vh - 32px);
+  padding: 0;
+  background: transparent;
+  place-items: center;
+}
+
+.capture-window .quick-capture-dialog {
+  width: min(100%, 640px);
+  box-shadow: none;
 }

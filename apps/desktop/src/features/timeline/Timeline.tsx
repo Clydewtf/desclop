@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from "react";
 import type { GitCommit, InboxItem, Note, WorkEntry } from "../../shared/domain/types";
 import { EmptyState, ScreenHeader, Surface } from "../../shared/ui";
 import { buildTimeline, type TimelineCompletedTask } from "./timelineEngine";
@@ -19,6 +20,7 @@ export function Timeline({
   completedTasks,
   now
 }: TimelineProps) {
+  const [page, setPage] = useState(1);
   const timeline = buildTimeline(
     {
       workEntries,
@@ -27,8 +29,16 @@ export function Timeline({
       inboxItems,
       completedTasks
     },
-    now
+    now,
+    { page }
   );
+  const { pagination } = timeline;
+
+  useEffect(() => {
+    if (page > pagination.page) {
+      setPage(pagination.page);
+    }
+  }, [page, pagination.page]);
 
   return (
     <section className="timeline-screen">
@@ -72,7 +82,7 @@ export function Timeline({
                         <span className="timeline-row__type">{item.typeLabel}</span>
                         <div className="timeline-row__content">
                           <strong>{item.title}</strong>
-                          {item.metadata ? <span>{item.metadata}</span> : null}
+                          <TimelineMetadata item={item} />
                         </div>
                       </li>
                     ))}
@@ -80,6 +90,34 @@ export function Timeline({
                 </section>
               ))}
             </div>
+            {pagination.pageCount > 1 ? (
+              <nav className="timeline-pagination" aria-label="Timeline pages">
+                <button
+                  type="button"
+                  onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+                  disabled={!pagination.hasPreviousPage}
+                  aria-label="Previous page"
+                >
+                  Previous
+                </button>
+                <span>
+                  Page {pagination.page} of {pagination.pageCount}
+                </span>
+                <span className="sr-only" aria-live="polite">
+                  Showing timeline page {pagination.page} of {pagination.pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPage((currentPage) => Math.min(pagination.pageCount, currentPage + 1))
+                  }
+                  disabled={!pagination.hasNextPage}
+                  aria-label="Next page"
+                >
+                  Next
+                </button>
+              </nav>
+            ) : null}
           </>
         ) : (
           <EmptyState
@@ -92,5 +130,96 @@ export function Timeline({
         )}
       </Surface>
     </section>
+  );
+}
+
+type TimelineMetadataItem = ReturnType<typeof buildTimeline>["sections"][number]["items"][number];
+
+function TimelineMetadata({ item }: { item: TimelineMetadataItem }) {
+  const changedFiles = item.changedFiles ?? [];
+
+  if (item.kind === "commit" && item.changedFilesLabel) {
+    return (
+      <span className="timeline-row__metadata">
+        {item.metadata ? <span>{item.metadata}</span> : null}
+        {item.metadata ? <span aria-hidden="true">·</span> : null}
+        <ChangedFilesDisclosure
+          files={changedFiles}
+          label={item.changedFilesLabel}
+          commitId={item.id}
+          commitTitle={item.title}
+        />
+      </span>
+    );
+  }
+
+  return item.metadata ? <span>{item.metadata}</span> : null;
+}
+
+function ChangedFilesDisclosure({
+  files,
+  label,
+  commitId,
+  commitTitle
+}: {
+  files: string[];
+  label: string;
+  commitId: string;
+  commitTitle: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
+  const pointerFocusRef = useRef(false);
+  const isExpanded = isOpen || isHovered;
+  const listId = `timeline-changed-files-${commitId.replace(/[^a-z0-9_-]+/gi, "-")}`;
+
+  return (
+    <span
+      className="timeline-changed-files"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      <button
+        type="button"
+        className="timeline-changed-files__trigger"
+        aria-expanded={isExpanded}
+        aria-controls={listId}
+        onPointerDown={() => {
+          pointerFocusRef.current = true;
+        }}
+        onFocus={() => {
+          if (!pointerFocusRef.current) {
+            setIsOpen(true);
+          }
+        }}
+        onBlur={() => {
+          pointerFocusRef.current = false;
+          setIsOpen(false);
+        }}
+        onClick={() => {
+          pointerFocusRef.current = false;
+          setIsOpen((currentIsOpen) => !currentIsOpen);
+        }}
+      >
+        {label}
+      </button>
+      <span
+        id={listId}
+        className="timeline-changed-files__panel"
+        role="list"
+        aria-label={`Files changed in ${commitTitle}`}
+        hidden={!isExpanded}
+      >
+        {files.length > 0 ? (
+          files.map((file) => (
+            <span key={file} role="listitem">
+              {file}
+            </span>
+          ))
+        ) : (
+          <span role="listitem">No file paths recorded</span>
+        )}
+      </span>
+    </span>
   );
 }

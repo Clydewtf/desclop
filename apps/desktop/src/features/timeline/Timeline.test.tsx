@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
 import { Timeline } from "./Timeline";
@@ -63,7 +64,8 @@ describe("Timeline", () => {
     expect(within(todayGroup!).getByRole("list")).toHaveAttribute("role", "list");
     expect(within(todayGroup!).getByText("Commit")).toBeInTheDocument();
     expect(within(todayGroup!).getByText("Work review")).toBeInTheDocument();
-    expect(within(todayGroup!).getByText("abcdef1 · main · 1 file changed")).toBeInTheDocument();
+    expect(within(todayGroup!).getByText("abcdef1 · main")).toBeInTheDocument();
+    expect(within(todayGroup!).getByRole("button", { name: "1 file changed" })).toBeInTheDocument();
     expect(within(todayGroup!).getByText("Reviewed schema")).toBeInTheDocument();
     expect(within(todayGroup!).getByText("Wire timeline")).toBeInTheDocument();
     expect(within(todayGroup!).queryByText("Yesterday follow-up")).not.toBeInTheDocument();
@@ -71,6 +73,87 @@ describe("Timeline", () => {
     expect(within(yesterdayGroup!).queryByText("Wire timeline")).not.toBeInTheDocument();
     expect(screen.queryByText(workTimestamp)).not.toBeInTheDocument();
     expect(screen.queryByText(commitTimestamp)).not.toBeInTheDocument();
+  });
+
+  it("discloses changed files from commit metadata with keyboard-accessible controls", async () => {
+    const user = userEvent.setup();
+
+    renderWithRouter(
+      <Timeline
+        workEntries={[]}
+        commits={[
+          {
+            sha: "abcdef123",
+            projectId: "p1",
+            branch: "main",
+            message: "Wire timeline",
+            authorName: "Clyde",
+            committedAt: new Date(2026, 5, 16, 10, 5).toISOString(),
+            changedFiles: ["Timeline.tsx", "timelineEngine.ts"]
+          }
+        ]}
+        notes={[]}
+        inboxItems={[]}
+        completedTasks={[]}
+        now={new Date(2026, 5, 16, 12)}
+      />
+    );
+
+    const disclosure = screen.getByRole("button", { name: "2 files changed" });
+    const hiddenFileList = screen.getByText("Timeline.tsx").closest(".timeline-changed-files__panel");
+
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(hiddenFileList).not.toBeVisible();
+
+    await user.tab();
+    const fileList = screen.getByRole("list", { name: "Files changed in Wire timeline" });
+    expect(disclosure).toHaveFocus();
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
+    expect(fileList).toBeVisible();
+    expect(within(fileList).getByText("Timeline.tsx")).toBeInTheDocument();
+    expect(within(fileList).getByText("timelineEngine.ts")).toBeInTheDocument();
+
+    await user.keyboard("{Enter}");
+    expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    expect(hiddenFileList).not.toBeVisible();
+  });
+
+  it("paginates timeline events without dropping date grouping or sparse hints", async () => {
+    const user = userEvent.setup();
+    const commits = Array.from({ length: 26 }, (_, index) => ({
+      sha: `abcdef${String(index).padStart(3, "0")}`,
+      projectId: "p1",
+      branch: "main",
+      message: `Commit ${index + 1}`,
+      authorName: "Clyde",
+      committedAt: new Date(2026, 5, 16, 12, 25 - index).toISOString(),
+      changedFiles: [`file-${index + 1}.ts`]
+    }));
+
+    renderWithRouter(
+      <Timeline
+        workEntries={[]}
+        commits={commits}
+        notes={[]}
+        inboxItems={[]}
+        completedTasks={[]}
+        now={new Date(2026, 5, 16, 13)}
+      />
+    );
+
+    expect(screen.getByText("Only commits so far")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Today, Jun 16" })).toBeInTheDocument();
+    expect(screen.getByText("Commit 1")).toBeInTheDocument();
+    expect(screen.getByText("Commit 25")).toBeInTheDocument();
+    expect(screen.queryByText("Commit 26")).not.toBeInTheDocument();
+    expect(screen.getByText("Page 1 of 2")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next page" }));
+
+    expect(screen.queryByText("Commit 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("Commit 25")).not.toBeInTheDocument();
+    expect(screen.getByText("Commit 26")).toBeInTheDocument();
+    expect(screen.getByText("Page 2 of 2")).toBeInTheDocument();
   });
 
   it("keeps the empty state when production-shaped completed tasks have no timestamp", () => {

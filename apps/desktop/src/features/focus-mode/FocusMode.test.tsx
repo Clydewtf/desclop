@@ -53,6 +53,7 @@ describe("FocusMode", () => {
       <FocusMode
         task={taskFixture({ id: "task-1", title: "Review Today", nextStep: "Remove inline capture" })}
         checklist={[{ id: "check-1", taskId: "task-1", title: "Update test", completed: false, position: 0 }]}
+        notes={[]}
         mode="timebox"
         startedAtMs={Date.parse("2026-06-16T10:00:00Z")}
         nowMs={Date.parse("2026-06-16T10:05:00Z")}
@@ -86,6 +87,7 @@ describe("FocusMode", () => {
       <FocusMode
         task={taskFixture()}
         checklist={[]}
+        notes={[]}
         mode="ambient"
         startedAtMs={0}
         nowMs={90_000}
@@ -114,6 +116,7 @@ describe("FocusMode", () => {
       <FocusMode
         task={taskFixture()}
         checklist={[]}
+        notes={[]}
         mode="ambient"
         startedAtMs={0}
         nowMs={60_000}
@@ -153,6 +156,7 @@ describe("FocusMode", () => {
       <FocusMode
         task={taskFixture()}
         checklist={[]}
+        notes={[]}
         mode="ambient"
         startedAtMs={0}
         nowMs={60_000}
@@ -180,6 +184,7 @@ describe("FocusMode", () => {
       <FocusMode
         task={taskFixture({ id: "t1" })}
         checklist={[checklistFixture({ id: "c1", title: "Add migration", completed: false })]}
+        notes={[]}
         mode="ambient"
         startedAtMs={Date.parse("2026-05-20T10:00:00Z")}
         nowMs={Date.parse("2026-05-20T10:00:05Z")}

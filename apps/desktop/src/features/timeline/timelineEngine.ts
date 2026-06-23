@@ -9,6 +9,8 @@ export interface TimelineItem {
   typeLabel: string;
   title: string;
   metadata: string;
+  changedFiles?: string[];
+  changedFilesLabel?: string;
   timestamp: string;
   time: string;
 }
@@ -24,6 +26,20 @@ export interface TimelineSparseState {
   body: string;
 }
 
+export interface TimelinePagination {
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  totalItems: number;
+  hasPreviousPage: boolean;
+  hasNextPage: boolean;
+}
+
+export interface TimelineOptions {
+  page?: number;
+  pageSize?: number;
+}
+
 export type TimelineCompletedTask = Task & {
   completedAt?: string | null;
   updatedAt?: string | null;
@@ -37,9 +53,12 @@ export interface TimelineInput {
   completedTasks: TimelineCompletedTask[];
 }
 
+export const DEFAULT_TIMELINE_PAGE_SIZE = 25;
+
 export function buildTimeline(
   input: TimelineInput,
-  now = new Date()
+  now = new Date(),
+  options: TimelineOptions = {}
 ) {
   const completedTaskItems = input.completedTasks.flatMap((task) => {
     const timestamp = getCompletedTaskTimestamp(task);
@@ -72,7 +91,9 @@ export function buildTimeline(
       kind: "commit" as const,
       typeLabel: "Commit",
       title: commit.message,
-      metadata: `${commit.sha.slice(0, 7)} · ${commit.branch} · ${formatChangedFiles(commit.changedFiles.length)}`,
+      metadata: `${commit.sha.slice(0, 7)} · ${commit.branch}`,
+      changedFiles: commit.changedFiles,
+      changedFilesLabel: formatChangedFiles(commit.changedFiles.length),
       timestamp: commit.committedAt,
       time: formatTimelineTime(commit.committedAt)
     })),
@@ -97,8 +118,13 @@ export function buildTimeline(
     ...completedTaskItems
   ].sort(compareTimelineItems);
 
+  const pagination = paginateTimelineItems(items.length, options);
+  const visibleItems = items.slice(
+    (pagination.page - 1) * pagination.pageSize,
+    pagination.page * pagination.pageSize
+  );
   const sections: TimelineSection[] = [];
-  for (const item of items) {
+  for (const item of visibleItems) {
     const id = formatTimelineSectionId(item.timestamp);
     const label = formatTimelineDateLabel(item.timestamp, now);
     const currentSection = sections.at(-1);
@@ -121,9 +147,30 @@ export function buildTimeline(
 
   return {
     sections,
+    pagination,
     summary: summaryParts.join(" · "),
     sparseState: buildSparseState(input, completedTaskItems.length)
   };
+}
+
+function paginateTimelineItems(totalItems: number, options: TimelineOptions): TimelinePagination {
+  const pageSize = normalizePositiveInteger(options.pageSize, DEFAULT_TIMELINE_PAGE_SIZE);
+  const pageCount = Math.max(1, Math.ceil(totalItems / pageSize));
+  const requestedPage = normalizePositiveInteger(options.page, 1);
+  const page = Math.min(requestedPage, pageCount);
+
+  return {
+    page,
+    pageCount,
+    pageSize,
+    totalItems,
+    hasPreviousPage: page > 1,
+    hasNextPage: page < pageCount
+  };
+}
+
+function normalizePositiveInteger(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
 function compareTimelineItems(a: TimelineItem, b: TimelineItem) {

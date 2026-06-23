@@ -59,7 +59,9 @@ describe("buildTimeline", () => {
     expect(timeline.sections[0].items.map((item) => item.typeLabel)).toEqual(["Commit", "Work review"]);
     expect(timeline.sections[0].items[0]).toMatchObject({
       title: "fix: timeline grouping",
-      metadata: "abcdef1 · main · 1 file changed"
+      metadata: "abcdef1 · main",
+      changedFiles: ["timelineEngine.ts"],
+      changedFilesLabel: "1 file changed"
     });
     expect(timeline.sections[0].items[0].time).toMatch(/^\d{2}:\d{2}$/);
     expect(timeline.sections[0].items[1]).toMatchObject({
@@ -70,6 +72,63 @@ describe("buildTimeline", () => {
       typeLabel: "Note",
       title: "Check yesterday grouping",
       metadata: "Project note"
+    });
+  });
+
+  it("paginates sorted items before regrouping visible timeline sections", () => {
+    const commits = Array.from({ length: 26 }, (_, index) => ({
+      sha: `abcdef${String(index).padStart(3, "0")}`,
+      projectId: "p1",
+      branch: "main",
+      message: `commit ${index + 1}`,
+      authorName: "Clyde",
+      committedAt: timestamp(2026, 5, index < 25 ? 16 : 15, 12, 25 - index),
+      changedFiles: [`file-${index + 1}.ts`]
+    }));
+
+    const firstPage = buildTimeline(
+      {
+        workEntries: [],
+        commits,
+        notes: [],
+        inboxItems: [],
+        completedTasks: []
+      },
+      new Date(2026, 5, 16, 13),
+      { page: 1 }
+    );
+    const secondPage = buildTimeline(
+      {
+        workEntries: [],
+        commits,
+        notes: [],
+        inboxItems: [],
+        completedTasks: []
+      },
+      new Date(2026, 5, 16, 13),
+      { page: 2 }
+    );
+
+    expect(firstPage.pagination).toEqual({
+      page: 1,
+      pageCount: 2,
+      pageSize: 25,
+      totalItems: 26,
+      hasPreviousPage: false,
+      hasNextPage: true
+    });
+    expect(firstPage.sections.map((section) => section.label)).toEqual(["Today, Jun 16"]);
+    expect(firstPage.sections.flatMap((section) => section.items).map((item) => item.title)).toHaveLength(25);
+    expect(secondPage.pagination).toMatchObject({
+      page: 2,
+      hasPreviousPage: true,
+      hasNextPage: false
+    });
+    expect(secondPage.sections.map((section) => section.label)).toEqual(["Yesterday, Jun 15"]);
+    expect(secondPage.sections[0].items[0]).toMatchObject({
+      title: "commit 26",
+      changedFiles: ["file-26.ts"],
+      changedFilesLabel: "1 file changed"
     });
   });
 

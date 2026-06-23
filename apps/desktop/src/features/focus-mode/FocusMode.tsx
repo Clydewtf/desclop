@@ -1,11 +1,12 @@
 import { type FormEvent, useState } from "react";
-import type { ChecklistItem, Task } from "../../shared/domain/types";
+import type { ChecklistItem, Note, Task } from "../../shared/domain/types";
 import { Button, InlineAlert, SectionHeader, Surface, TextArea } from "../../shared/ui";
 import { getFocusTimerState, type FocusModeKind } from "./focusTimer";
 
 interface FocusModeProps {
   task: Task;
   checklist: ChecklistItem[];
+  notes: Note[];
   mode: FocusModeKind;
   startedAtMs: number;
   nowMs: number;
@@ -135,6 +136,13 @@ export function FocusMode(props: FocusModeProps) {
                 </Button>
               </div>
             </form>
+          ) : null}
+          {props.notes.length > 0 ? (
+            <ul className="task-notes">
+              {props.notes.map((note) => (
+                <li key={note.id}>{note.body}</li>
+              ))}
+            </ul>
           ) : (
             <p className="focus-mode__empty">
               Add task notes when something should stay with this task.

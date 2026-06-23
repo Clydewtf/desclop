@@ -7,6 +7,23 @@ import { api } from "../shared/api/client";
 import { chooseFolder } from "../shared/api/folderDialog";
 import type { ResumeBrief } from "../shared/domain/types";
 
+const tauriEventMock = vi.hoisted(() => {
+  const listeners = new Map<string, Set<() => void>>();
+  const unlisten = vi.fn();
+  const listen = vi.fn((eventName: string, handler: () => void) => {
+    const handlers = listeners.get(eventName) ?? new Set<() => void>();
+    handlers.add(handler);
+    listeners.set(eventName, handlers);
+
+    return Promise.resolve(() => {
+      unlisten(eventName);
+      handlers.delete(handler);
+    });
+  });
+
+  return { listen, listeners, unlisten };
+});
+
 vi.mock("../shared/api/client", () => ({
   api: {
     listProjects: vi.fn(),
@@ -45,6 +62,10 @@ vi.mock("../shared/api/folderDialog", () => ({
   chooseFolder: vi.fn()
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: tauriEventMock.listen
+}));
+
 const listProjects = vi.mocked(api.listProjects);
 const listProjectSummaries = vi.mocked(api.listProjectSummaries);
 const createProject = vi.mocked(api.createProject);
@@ -79,6 +100,12 @@ function enableTauriApi() {
     value: {},
     configurable: true
   });
+}
+
+function emitTauriEvent(eventName: string) {
+  for (const handler of tauriEventMock.listeners.get(eventName) ?? []) {
+    handler();
+  }
 }
 
 function deferred<T>() {
@@ -258,6 +285,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  tauriEventMock.listeners.clear();
   chooseFolderMock.mockReset();
   vi.clearAllMocks();
   delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
@@ -1519,6 +1547,55 @@ describe("App", () => {
 
     expect(screen.getByRole("dialog", { name: "Quick capture" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Foundation" })).toBeInTheDocument();
+  });
+
+  it("opens Quick capture when the native Tauri shortcut event is emitted", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    expect(tauriEventMock.listen).toHaveBeenCalledWith(
+      "quick-capture:open",
+      expect.any(Function)
+    );
+
+    act(() => {
+      emitTauriEvent("quick-capture:open");
+    });
+
+    expect(screen.getByRole("dialog", { name: "Quick capture" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Foundation" })).toBeInTheDocument();
+  });
+
+  it("does not install the native Quick capture listener outside Tauri", () => {
+    renderWithRouter(<App />);
+
+    expect(tauriEventMock.listen).not.toHaveBeenCalled();
+  });
+
+  it("cleans up the native Quick capture listener on unmount", async () => {
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+
+    const { unmount } = renderWithRouter(<App />);
+
+    await waitFor(() => {
+      expect(tauriEventMock.listen).toHaveBeenCalledWith(
+        "quick-capture:open",
+        expect.any(Function)
+      );
+    });
+
+    unmount();
+
+    expect(tauriEventMock.unlisten).toHaveBeenCalledWith("quick-capture:open");
   });
 
   it("saves Quick capture to the Plan active task and reports the task title", async () => {
@@ -2871,6 +2948,7 @@ describe("App", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Save note" }));
     });
+    expect(screen.getByText("Keep this focus note")).toBeInTheDocument();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Finish session" }));
     });

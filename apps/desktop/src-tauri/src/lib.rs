@@ -6,15 +6,95 @@ mod repositories;
 mod services;
 
 use app_state::AppState;
-use tauri::Manager;
+use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+
+const QUICK_CAPTURE_OPEN_EVENT: &str = "quick-capture:open";
+const QUICK_CAPTURE_WINDOW_LABEL: &str = "quick-capture";
+
+fn quick_capture_shortcuts() -> [Shortcut; 2] {
+    [
+        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC),
+        Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyC),
+    ]
+}
+
+fn open_quick_capture(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window(QUICK_CAPTURE_WINDOW_LABEL) {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = app.emit_to(QUICK_CAPTURE_WINDOW_LABEL, QUICK_CAPTURE_OPEN_EVENT, ());
+        return;
+    }
+
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+        let _ = app.emit(QUICK_CAPTURE_OPEN_EVENT, ());
+    }
+}
+
+fn register_quick_capture_shortcuts(app: &tauri::AppHandle) {
+    for shortcut in quick_capture_shortcuts() {
+        if let Err(error) = app.global_shortcut().register(shortcut) {
+            eprintln!("Could not register Quick Capture shortcut: {error}");
+        }
+    }
+}
+
+fn is_quick_capture_shortcut(shortcut: &Shortcut) -> bool {
+    quick_capture_shortcuts()
+        .iter()
+        .any(|quick_capture_shortcut| quick_capture_shortcut == shortcut)
+}
+
+fn create_quick_capture_window(app: &tauri::App) -> tauri::Result<()> {
+    WebviewWindowBuilder::new(
+        app,
+        QUICK_CAPTURE_WINDOW_LABEL,
+        WebviewUrl::App("index.html?capture=1".into()),
+    )
+    .title("Quick Capture")
+    .inner_size(680.0, 500.0)
+    .resizable(false)
+    .always_on_top(true)
+    .center()
+    .visible(false)
+    .build()?;
+
+    Ok(())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    if event.state() == ShortcutState::Pressed
+                        && is_quick_capture_shortcut(shortcut)
+                    {
+                        open_quick_capture(app);
+                    }
+                })
+                .build(),
+        )
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().map_err(|err| err.to_string())?;
             app.manage(AppState::new(app_data_dir)?);
+            create_quick_capture_window(app)?;
+            register_quick_capture_shortcuts(app.handle());
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if window.label() == "main" || window.label() == QUICK_CAPTURE_WINDOW_LABEL {
+                if let WindowEvent::CloseRequested { api, .. } = event {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
