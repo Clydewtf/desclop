@@ -13,19 +13,20 @@ describe("WorkReview", () => {
 
     expect(screen.getByRole("heading", { name: "Work review" })).toBeInTheDocument();
     expect(
-      screen.getByText("Capture what changed and the next step before leaving this task.")
+      screen.getByText("Write enough that you can resume without reconstructing the session.")
     ).toBeInTheDocument();
 
-    await user.type(screen.getByLabelText("What was done"), "Reviewed schema");
-    await user.type(screen.getByLabelText("What remains"), "Run backend tests");
-    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
-    await user.click(screen.getByRole("button", { name: "Save work review" }));
+    await user.type(screen.getByLabelText("What changed?"), "Reviewed schema");
+    await user.type(screen.getByLabelText("What remains?"), "Run backend tests");
+    await user.type(screen.getByLabelText("Next action"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save review" }));
 
     expect(onSave).toHaveBeenCalledWith({
       done: "Reviewed schema",
       remains: "Run backend tests",
       nextStep: "Run cargo test",
-      durationSeconds: null
+      durationSeconds: null,
+      noMeaningfulProgress: false
     });
   });
 
@@ -35,16 +36,17 @@ describe("WorkReview", () => {
 
     renderWithRouter(<WorkReview durationSeconds={900} onSave={onSave} />);
 
-    await user.type(screen.getByLabelText("What was done"), "Added migration");
-    await user.type(screen.getByLabelText("What remains"), "Repository tests");
-    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
-    await user.click(screen.getByRole("button", { name: "Save work review" }));
+    await user.type(screen.getByLabelText("What changed?"), "Added migration");
+    await user.type(screen.getByLabelText("What remains?"), "Repository tests");
+    await user.type(screen.getByLabelText("Next action"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save review" }));
 
     expect(onSave).toHaveBeenCalledWith({
       done: "Added migration",
       remains: "Repository tests",
       nextStep: "Run cargo test",
-      durationSeconds: 900
+      durationSeconds: 900,
+      noMeaningfulProgress: false
     });
   });
 
@@ -60,21 +62,61 @@ describe("WorkReview", () => {
 
     renderWithRouter(<WorkReview durationSeconds={900} onSave={onSave} />);
 
-    await user.type(screen.getByLabelText("What was done"), "Added migration");
-    await user.type(screen.getByLabelText("What remains"), "Repository tests");
-    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
-    await user.click(screen.getByRole("button", { name: "Save work review" }));
+    await user.type(screen.getByLabelText("What changed?"), "Added migration");
+    await user.type(screen.getByLabelText("What remains?"), "Repository tests");
+    await user.type(screen.getByLabelText("Next action"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save review" }));
 
-    expect(screen.getByRole("button", { name: "Saving work review" })).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Saving work review" }));
+    expect(screen.getByRole("button", { name: "Saving review" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Saving review" }));
     expect(onSave).toHaveBeenCalledTimes(1);
 
     rejectSave(new Error("database unavailable"));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not save work review.");
-    expect(screen.getByLabelText("What was done")).toHaveValue("Added migration");
-    expect(screen.getByLabelText("What remains")).toHaveValue("Repository tests");
-    expect(screen.getByLabelText("Next step")).toHaveValue("Run cargo test");
-    expect(screen.getByRole("button", { name: "Save work review" })).toBeEnabled();
+    expect(screen.getByLabelText("What changed?")).toHaveValue("Added migration");
+    expect(screen.getByLabelText("What remains?")).toHaveValue("Repository tests");
+    expect(screen.getByLabelText("Next action")).toHaveValue("Run cargo test");
+    expect(screen.getByRole("button", { name: "Save review" })).toBeEnabled();
+  });
+
+  it("requires meaningful progress or an explicit no-progress choice", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+
+    renderWithRouter(<WorkReview durationSeconds={1500} onSave={onSave} />);
+
+    await user.click(screen.getByRole("button", { name: "Save review" }));
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(
+      screen.getByText("Add what changed or choose No meaningful progress.")
+    ).toBeInTheDocument();
+  });
+
+  it("preserves draft text when saving fails", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockRejectedValue(new Error("disk"));
+
+    renderWithRouter(<WorkReview durationSeconds={1500} onSave={onSave} />);
+
+    await user.type(screen.getByLabelText("What changed?"), "Removed inline capture");
+    await user.click(screen.getByRole("button", { name: "Save review" }));
+
+    expect(await screen.findByText("Could not save work review.")).toBeInTheDocument();
+    expect(screen.getByLabelText("What changed?")).toHaveValue("Removed inline capture");
+  });
+
+  it("can intentionally save a session without review", async () => {
+    const user = userEvent.setup();
+    const onSkip = vi.fn().mockResolvedValue(undefined);
+
+    renderWithRouter(
+      <WorkReview durationSeconds={1500} onSave={vi.fn()} onSkip={onSkip} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save session without review" }));
+
+    expect(onSkip).toHaveBeenCalledWith({ durationSeconds: 1500 });
   });
 });

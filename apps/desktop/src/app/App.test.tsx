@@ -2545,10 +2545,10 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
     await user.click(screen.getByRole("button", { name: "Add work review" }));
-    await user.type(screen.getByLabelText("What was done"), "Reviewed schema");
-    await user.type(screen.getByLabelText("What remains"), "Run backend tests");
-    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
-    await user.click(screen.getByRole("button", { name: "Save work review" }));
+    await user.type(screen.getByLabelText("What changed?"), "Reviewed schema");
+    await user.type(screen.getByLabelText("What remains?"), "Run backend tests");
+    await user.type(screen.getByLabelText("Next action"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save review" }));
 
     expect(createWorkEntry).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2605,10 +2605,10 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
     await user.click(screen.getByRole("button", { name: "Add work review" }));
-    await user.type(screen.getByLabelText("What was done"), "Reviewed schema");
-    await user.type(screen.getByLabelText("What remains"), "Run backend tests");
-    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
-    await user.click(screen.getByRole("button", { name: "Save work review" }));
+    await user.type(screen.getByLabelText("What changed?"), "Reviewed schema");
+    await user.type(screen.getByLabelText("What remains?"), "Run backend tests");
+    await user.type(screen.getByLabelText("Next action"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save review" }));
 
     expect(await screen.findByText("Reviewed schema")).toBeInTheDocument();
     expect(screen.getAllByText("Reviewed schema")).toHaveLength(1);
@@ -2652,10 +2652,10 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Add manual work review" }));
-    await user.type(screen.getByLabelText("What was done"), "Reviewed schema");
-    await user.type(screen.getByLabelText("What remains"), "Run backend tests");
-    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
-    await user.click(screen.getByRole("button", { name: "Save work review" }));
+    await user.type(screen.getByLabelText("What changed?"), "Reviewed schema");
+    await user.type(screen.getByLabelText("What remains?"), "Run backend tests");
+    await user.type(screen.getByLabelText("Next action"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save review" }));
 
     expect(createWorkEntry).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2715,10 +2715,10 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "Continue task" }));
     await user.click(screen.getByRole("button", { name: "Start focus" }));
     await user.click(screen.getByRole("button", { name: "Finish session" }));
-    await user.type(screen.getByLabelText("What was done"), "Reviewed alpha flow");
-    await user.type(screen.getByLabelText("What remains"), "Run browser screenshots");
-    await user.type(screen.getByLabelText("Next step"), "Capture final screenshots");
-    await user.click(screen.getByRole("button", { name: "Save work review" }));
+    await user.type(screen.getByLabelText("What changed?"), "Reviewed alpha flow");
+    await user.type(screen.getByLabelText("What remains?"), "Run browser screenshots");
+    await user.type(screen.getByLabelText("Next action"), "Capture final screenshots");
+    await user.click(screen.getByRole("button", { name: "Save review" }));
     await user.click(screen.getByRole("button", { name: "Today" }));
 
     expect(await screen.findByText("Capture final screenshots")).toBeInTheDocument();
@@ -2822,11 +2822,11 @@ describe("App", () => {
       fireEvent.click(screen.getByRole("button", { name: "Finish session" }));
     });
     vi.useRealTimers();
-    expect(screen.getByLabelText("What was done")).toBeInTheDocument();
-    await user.type(screen.getByLabelText("What was done"), "Added migration");
-    await user.type(screen.getByLabelText("What remains"), "Repository tests");
-    await user.type(screen.getByLabelText("Next step"), "Run cargo test");
-    await user.click(screen.getByRole("button", { name: "Save work review" }));
+    expect(screen.getByLabelText("What changed?")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("What changed?"), "Added migration");
+    await user.type(screen.getByLabelText("What remains?"), "Repository tests");
+    await user.type(screen.getByLabelText("Next action"), "Run cargo test");
+    await user.click(screen.getByRole("button", { name: "Save review" }));
 
     expect(addNote).toHaveBeenCalledWith("p1", "t1", "Keep this focus note");
     expect(createWorkEntry).toHaveBeenCalledWith({

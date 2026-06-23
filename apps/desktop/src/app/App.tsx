@@ -985,6 +985,7 @@ export function App() {
     remains: string;
     nextStep: string;
     durationSeconds: number | null;
+    noMeaningfulProgress: boolean;
   }) {
     if (!project || !focusSession) {
       return;
@@ -1000,7 +1001,7 @@ export function App() {
       startedAt: new Date(focusSession.startedAtMs).toISOString(),
       endedAt: new Date(endedAtMs).toISOString(),
       durationSeconds: input.durationSeconds,
-      done: input.done,
+      done: input.noMeaningfulProgress && !input.done ? "No meaningful progress" : input.done,
       remains: input.remains,
       nextStep: input.nextStep
     });
@@ -1023,11 +1024,39 @@ export function App() {
     setScreen("task-detail");
   }
 
+  async function saveFocusSessionWithoutReview(input: { durationSeconds: number | null }) {
+    if (!project || !focusSession) {
+      return;
+    }
+
+    const revision = projectContextRevision.current;
+    const focusTaskId = focusSession.taskId;
+    const endedAtMs = focusSession.endedAtMs ?? Date.now();
+    const workEntry = await api.createWorkEntry({
+      projectId: project.id,
+      taskId: focusTaskId,
+      source: "focus",
+      startedAt: new Date(focusSession.startedAtMs).toISOString(),
+      endedAt: new Date(endedAtMs).toISOString(),
+      durationSeconds: input.durationSeconds,
+      done: "Unreviewed focus session",
+      remains: "",
+      nextStep: ""
+    });
+
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
+    setSelectedWorkEntries((entries) => [...entries, workEntry]);
+    setScreen("task-detail");
+  }
+
   async function saveManualReview(input: {
     done: string;
     remains: string;
     nextStep: string;
     durationSeconds: number | null;
+    noMeaningfulProgress: boolean;
   }) {
     if (!project) {
       return;
@@ -1042,7 +1071,7 @@ export function App() {
       startedAt: null,
       endedAt: null,
       durationSeconds: null,
-      done: input.done,
+      done: input.noMeaningfulProgress && !input.done ? "No meaningful progress" : input.done,
       remains: input.remains,
       nextStep: input.nextStep
     });
@@ -1351,6 +1380,7 @@ export function App() {
         <WorkReview
           durationSeconds={focusSession.durationSeconds}
           onSave={saveFocusReview}
+          onSkip={saveFocusSessionWithoutReview}
         />
       );
     }
