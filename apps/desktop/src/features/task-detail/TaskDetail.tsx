@@ -19,6 +19,7 @@ import {
   TextArea,
   TextField
 } from "../../shared/ui";
+import { formatTimelineDateLabel, formatTimelineTime } from "../../shared/datetime/displayTime";
 import type { FocusModeKind } from "../focus-mode/focusTimer";
 
 export interface StartFocusInput {
@@ -157,6 +158,11 @@ export function TaskDetail({
       hour: "2-digit",
       minute: "2-digit"
     }).format(new Date(timestamp));
+  }
+
+  function formatWorkReviewTime(timestamp: string) {
+    const time = formatTimelineTime(timestamp);
+    return time ? `${formatTimelineDateLabel(timestamp)}, ${time}` : formatTimelineDateLabel(timestamp);
   }
 
   async function moveCommit(commitSha: string) {
@@ -330,7 +336,7 @@ export function TaskDetail({
                     <strong>{entry.done || "Work reviewed"}</strong>
                     {entry.remains ? <p>Remains: {entry.remains}</p> : null}
                     {entry.nextStep ? <p>Next: {entry.nextStep}</p> : null}
-                    <span>{entry.createdAt}</span>
+                    <span>{formatWorkReviewTime(entry.createdAt)}</span>
                   </li>
                 ))}
               </ul>
