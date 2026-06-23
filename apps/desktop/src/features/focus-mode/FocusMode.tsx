@@ -57,7 +57,6 @@ export function FocusMode(props: FocusModeProps) {
       return;
     }
 
-    setFinishing(true);
     props.onFinish({ elapsedSeconds: timer.elapsedSeconds });
   }
 
