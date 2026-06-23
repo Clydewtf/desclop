@@ -22,6 +22,20 @@ export function WorkReview({ durationSeconds, onSave, onSkip }: WorkReviewProps)
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  function updateDone(value: string) {
+    setDone(value);
+    if (value.trim()) {
+      setValidationError(null);
+    }
+  }
+
+  function updateNoMeaningfulProgress(value: boolean) {
+    setNoMeaningfulProgress(value);
+    if (value || done.trim()) {
+      setValidationError(null);
+    }
+  }
+
   async function saveReview(event: FormEvent) {
     event.preventDefault();
     if (saving) {
@@ -51,6 +65,23 @@ export function WorkReview({ durationSeconds, onSave, onSkip }: WorkReviewProps)
     }
   }
 
+  async function skipReview() {
+    if (saving || !onSkip) {
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    setValidationError(null);
+    try {
+      await onSkip({ durationSeconds });
+    } catch {
+      setError("Could not save work review.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <Surface ariaLabel="Work review" className="work-review">
       <ScreenHeader
@@ -67,14 +98,14 @@ export function WorkReview({ durationSeconds, onSave, onSkip }: WorkReviewProps)
           id="work-review-done"
           label="What changed?"
           value={done}
-          onChange={(event) => setDone(event.target.value)}
+          onChange={(event) => updateDone(event.target.value)}
           disabled={saving}
         />
         <label className="inline-field">
           <input
             type="checkbox"
             checked={noMeaningfulProgress}
-            onChange={(event) => setNoMeaningfulProgress(event.target.checked)}
+            onChange={(event) => updateNoMeaningfulProgress(event.target.checked)}
             disabled={saving}
           />
           No meaningful progress
@@ -102,7 +133,7 @@ export function WorkReview({ durationSeconds, onSave, onSkip }: WorkReviewProps)
               type="button"
               variant="secondary"
               disabled={saving}
-              onClick={() => onSkip({ durationSeconds })}
+              onClick={skipReview}
             >
               Save session without review
             </Button>

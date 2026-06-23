@@ -94,6 +94,44 @@ describe("WorkReview", () => {
     ).toBeInTheDocument();
   });
 
+  it("clears the validation warning when the form becomes valid", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+
+    renderWithRouter(<WorkReview durationSeconds={1500} onSave={onSave} />);
+
+    await user.click(screen.getByRole("button", { name: "Save review" }));
+
+    expect(
+      screen.getByText("Add what changed or choose No meaningful progress.")
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("What changed?"), "Reviewed handoff");
+
+    expect(
+      screen.queryByText("Add what changed or choose No meaningful progress.")
+    ).not.toBeInTheDocument();
+  });
+
+  it("clears the validation warning when no meaningful progress is selected", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+
+    renderWithRouter(<WorkReview durationSeconds={1500} onSave={onSave} />);
+
+    await user.click(screen.getByRole("button", { name: "Save review" }));
+
+    expect(
+      screen.getByText("Add what changed or choose No meaningful progress.")
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("No meaningful progress"));
+
+    expect(
+      screen.queryByText("Add what changed or choose No meaningful progress.")
+    ).not.toBeInTheDocument();
+  });
+
   it("preserves draft text when saving fails", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn().mockRejectedValue(new Error("disk"));
@@ -118,5 +156,33 @@ describe("WorkReview", () => {
     await user.click(screen.getByRole("button", { name: "Save session without review" }));
 
     expect(onSkip).toHaveBeenCalledWith({ durationSeconds: 1500 });
+  });
+
+  it("shows an error and prevents duplicate skip saves while pending", async () => {
+    const user = userEvent.setup();
+    let rejectSkip: (error: Error) => void = () => {};
+    const onSkip = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectSkip = reject;
+        })
+    );
+
+    renderWithRouter(
+      <WorkReview durationSeconds={1500} onSave={vi.fn()} onSkip={onSkip} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save session without review" }));
+
+    expect(screen.getByRole("button", { name: "Saving review" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save session without review" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Save session without review" }));
+    expect(onSkip).toHaveBeenCalledTimes(1);
+
+    rejectSkip(new Error("disk"));
+
+    expect(await screen.findByText("Could not save work review.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save review" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save session without review" })).toBeEnabled();
   });
 });

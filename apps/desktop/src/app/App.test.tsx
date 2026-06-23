@@ -2674,6 +2674,59 @@ describe("App", () => {
     expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
   });
 
+  it("persists no meaningful progress for an empty reviewed manual save", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief
+      .mockResolvedValueOnce({
+        ...emptyResumeBrief(),
+        taskId: "t1",
+        stageId: "s1",
+        nextStep: "Old next step"
+      })
+      .mockResolvedValueOnce({
+        ...emptyResumeBrief(),
+        taskId: "t1",
+        stageId: "s1",
+        nextStep: "Old next step"
+      });
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    createWorkEntry.mockResolvedValue({
+      id: "w1",
+      projectId: "p1",
+      taskId: "t1",
+      source: "manual" as const,
+      startedAt: null,
+      endedAt: null,
+      durationSeconds: null,
+      done: "No meaningful progress",
+      remains: "",
+      nextStep: "",
+      createdAt: "2026-05-20T10:01:30Z"
+    });
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Add manual work review" }));
+    await user.click(screen.getByLabelText("No meaningful progress"));
+    await user.click(screen.getByRole("button", { name: "Save review" }));
+
+    expect(createWorkEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "p1",
+        taskId: "t1",
+        source: "manual" as const,
+        durationSeconds: null,
+        done: "No meaningful progress",
+        remains: "",
+        nextStep: ""
+      })
+    );
+    expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
+  });
+
   it("shows a focus review next step on Today instead of stale resume context", async () => {
     const user = userEvent.setup();
     enableTauriApi();
@@ -2843,6 +2896,77 @@ describe("App", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Next action")).toHaveValue("Run cargo test");
     });
+  });
+
+  it("persists a focus session without review from task detail", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([
+      {
+        id: "p1",
+        name: "Desclop",
+        localPath: "/tmp/desclop",
+        gitEnabled: false,
+        gitRemote: null,
+        activeTaskId: "t1",
+        createdAt: "2026-05-20T10:00:00Z",
+        updatedAt: "2026-05-20T10:00:00Z"
+      }
+    ]);
+    getResumeBrief.mockResolvedValue({
+      id: "rb1",
+      projectId: "p1",
+      taskId: "t1",
+      stageId: "s1",
+      latestNote: "",
+      nextStep: "Run repository tests",
+      facts: [],
+      generatedAt: "2026-05-20T10:00:00Z"
+    });
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    createWorkEntry.mockResolvedValue({
+      id: "w1",
+      projectId: "p1",
+      taskId: "t1",
+      source: "focus",
+      startedAt: "2026-05-20T10:00:00Z",
+      endedAt: "2026-05-20T10:01:30Z",
+      durationSeconds: 90,
+      done: "Unreviewed focus session",
+      remains: "",
+      nextStep: "",
+      createdAt: "2026-05-20T10:01:30Z"
+    });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-20T10:00:00.000Z"));
+    fireEvent.click(screen.getByRole("button", { name: "Start focus" }));
+    act(() => {
+      vi.advanceTimersByTime(90000);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Finish session" }));
+    });
+    vi.useRealTimers();
+    await user.click(screen.getByRole("button", { name: "Save session without review" }));
+
+    expect(createWorkEntry).toHaveBeenCalledWith({
+      projectId: "p1",
+      taskId: "t1",
+      source: "focus",
+      startedAt: "2026-05-20T10:00:00.000Z",
+      endedAt: "2026-05-20T10:01:30.000Z",
+      durationSeconds: 90,
+      done: "Unreviewed focus session",
+      remains: "",
+      nextStep: ""
+    });
+    expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
   });
 
   it("persists checklist toggles during focus mode through the API", async () => {
