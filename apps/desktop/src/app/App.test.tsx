@@ -49,6 +49,7 @@ vi.mock("../shared/api/client", () => ({
     listWorkEntriesForProject: vi.fn(),
     listWorkEntriesForTask: vi.fn(),
     readGitCommits: vi.fn(),
+    readCurrentGitBranch: vi.fn(),
     syncGitCommits: vi.fn(),
     listLinkedCommitsForTask: vi.fn(),
     moveCommitLink: vi.fn(),
@@ -87,6 +88,7 @@ const listNotesForProject = vi.mocked(api.listNotesForProject);
 const listNotesForTask = vi.mocked(api.listNotesForTask);
 const listWorkEntriesForProject = vi.mocked(api.listWorkEntriesForProject);
 const listWorkEntriesForTask = vi.mocked(api.listWorkEntriesForTask);
+const readCurrentGitBranch = vi.mocked(api.readCurrentGitBranch);
 const syncGitCommits = vi.mocked(api.syncGitCommits);
 const listLinkedCommitsForTask = vi.mocked(api.listLinkedCommitsForTask);
 const moveCommitLink = vi.mocked(api.moveCommitLink);
@@ -155,10 +157,19 @@ function resumeBriefFixture(overrides: Partial<ReturnType<typeof emptyResumeBrie
 
 function importedPlanFixture(projectId: string) {
   return {
+    plans: [
+      {
+        id: "plan-1",
+        projectId,
+        title: "Build MVP",
+        position: 0
+      }
+    ],
     stages: [
       {
         id: "s1",
         projectId,
+        planId: "plan-1",
         title: "Foundation",
         description: "",
         position: 0,
@@ -203,10 +214,19 @@ function activeProjectPlanFixture({
   nextStep: string;
 }) {
   return {
+    plans: [
+      {
+        id: `${projectId}-plan`,
+        projectId,
+        title: "Build MVP",
+        position: 0
+      }
+    ],
     stages: [
       {
         id: `${projectId}-stage`,
         projectId,
+        planId: `${projectId}-plan`,
         title: stageTitle,
         description: "",
         position: 0,
@@ -239,10 +259,19 @@ function twoTaskPlanFixture({
   secondStatus: "todo" | "active" | "done";
 }) {
   return {
+    plans: [
+      {
+        id: "plan-1",
+        projectId: "p1",
+        title: "Build MVP",
+        position: 0
+      }
+    ],
     stages: [
       {
         id: "s1",
         projectId: "p1",
+        planId: "plan-1",
         title: "Foundation",
         description: "",
         position: 0,
@@ -281,6 +310,7 @@ function twoTaskPlanFixture({
 
 beforeEach(() => {
   listProjectSummaries.mockResolvedValue([]);
+  readCurrentGitBranch.mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -295,6 +325,22 @@ describe("App", () => {
   it("renders the desktop shell", () => {
     renderWithRouter(<App />);
     expect(screen.getByText("Desclop")).toBeInTheDocument();
+  });
+
+  it("locks document scrolling so only the app content pane scrolls", () => {
+    renderWithRouter(<App />);
+
+    const htmlStyles = getComputedStyle(document.documentElement);
+    const bodyStyles = getComputedStyle(document.body);
+    const shellStyles = getComputedStyle(document.querySelector(".app-shell") as HTMLElement);
+    const contentStyles = getComputedStyle(document.querySelector(".app-content") as HTMLElement);
+
+    expect(htmlStyles.height).toBe("100%");
+    expect(bodyStyles.height).toBe("100%");
+    expect(bodyStyles.overflow).toBe("hidden");
+    expect(shellStyles.height).toBe("100%");
+    expect(shellStyles.overflow).toBe("hidden");
+    expect(contentStyles.overflowY).toBe("auto");
   });
 
   it("renders a calm loading state inside the shell", () => {
@@ -418,7 +464,7 @@ describe("App", () => {
       stageId: "s1",
       latestNote: "Migration passes",
       nextStep: "Run repository tests",
-      facts: ["1 recent commit on main"],
+      facts: ["1 recent commit captured on main"],
       generatedAt: "2026-05-20T10:00:00Z"
     });
     loadProjectPlan.mockResolvedValue({
@@ -454,7 +500,7 @@ describe("App", () => {
     expect(await screen.findByText("Create local store")).toBeInTheDocument();
     expect(screen.getByText("Foundation")).toBeInTheDocument();
     expect(screen.getByText("Migration passes")).toBeInTheDocument();
-    expect(screen.getByText("1 recent commit on main")).toBeInTheDocument();
+    expect(screen.getByText("1 recent commit captured on main")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue task" })).toBeEnabled();
     expect(screen.queryByText("Active task")).not.toBeInTheDocument();
   });
@@ -1260,12 +1306,12 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Import Plan" }));
     fireEvent.change(screen.getByLabelText("Markdown plan"), {
-      target: { value: "## Foundation\n- [ ] Create local store\n  - [x] Add migration" }
+      target: { value: "# Build MVP\n## Foundation\n- [ ] Create local store\n  - [x] Add migration" }
     });
     await user.click(screen.getByRole("button", { name: "Preview import" }));
     await user.click(screen.getByRole("button", { name: "Import plan" }));
 
-    expect(importPlan).toHaveBeenCalledWith("p1", [
+    expect(importPlan).toHaveBeenCalledWith("p1", "Build MVP", [
       {
         title: "Foundation",
         description: "",
@@ -1289,7 +1335,7 @@ describe("App", () => {
     enableTauriApi();
     listProjects.mockResolvedValue([projectFixture({ gitEnabled: false })]);
     getResumeBrief.mockResolvedValue(
-      resumeBriefFixture({ facts: ["1 recent commit on main"] })
+      resumeBriefFixture({ facts: ["1 recent commit captured on main"] })
     );
     loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
 
@@ -1310,6 +1356,7 @@ describe("App", () => {
     listProjects.mockResolvedValue([projectFixture({ gitEnabled: true })]);
     getResumeBrief.mockResolvedValue(resumeBriefFixture({ facts: [] }));
     loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    readCurrentGitBranch.mockResolvedValue("main");
     syncGitCommits.mockResolvedValue([
       {
         sha: "recent1",
@@ -1323,6 +1370,9 @@ describe("App", () => {
     ]);
 
     renderWithRouter(<App />);
+
+    expect(await screen.findByText("Current branch: main")).toBeInTheDocument();
+    expect(readCurrentGitBranch).toHaveBeenCalledWith("p1");
 
     await user.click(await screen.findByRole("button", { name: "Timeline" }));
 
@@ -1472,7 +1522,7 @@ describe("App", () => {
     });
   });
 
-  it("shows destructive re-import errors inline without clearing the draft", async () => {
+  it("shows import errors inline without clearing the draft", async () => {
     const user = userEvent.setup();
     enableTauriApi();
     listProjects.mockResolvedValue([projectFixture({ id: "p1" })]);
@@ -1489,9 +1539,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Preview import" }));
     await user.click(screen.getByRole("button", { name: "Import plan" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Could not import plan without losing existing task history."
-    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not import plan.");
     expect(screen.getByLabelText("Markdown plan")).toHaveValue("## New plan\n- [ ] New task");
   });
 
@@ -2141,6 +2189,7 @@ describe("App", () => {
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Show plan Build MVP" }));
     await user.click(
       screen.getByRole("button", { name: "Open Publish release notes" })
     );
@@ -3390,7 +3439,7 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    expect(await screen.findByText("2 recent commits on main")).toBeInTheDocument();
+    expect(await screen.findByText("2 recent commits captured on main")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Continue task" }));
 
     expect(listLinkedCommitsForTask).toHaveBeenCalledWith("p1", "t1");

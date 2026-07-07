@@ -2,12 +2,13 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::app_state::AppState;
-use crate::domain::{ChecklistItem, Stage, Task};
+use crate::domain::{ChecklistItem, Plan, Stage, Task};
 use crate::repositories::tasks::TaskRepository;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectPlanPayload {
+    pub plans: Vec<Plan>,
     pub stages: Vec<Stage>,
     pub tasks: Vec<Task>,
     pub checklist_items: Vec<ChecklistItem>,
@@ -22,6 +23,9 @@ pub fn load_project_plan(
     let repository = TaskRepository::new(&conn);
 
     Ok(ProjectPlanPayload {
+        plans: repository
+            .list_plans(&project_id)
+            .map_err(|err| err.to_string())?,
         stages: repository
             .list_stages(&project_id)
             .map_err(|err| err.to_string())?,

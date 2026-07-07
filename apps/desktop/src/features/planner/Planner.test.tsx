@@ -163,6 +163,12 @@ describe("Planner", () => {
 
     renderWithRouter(<Planner frames={frames} onOpenTask={onOpenTask} />);
 
+    expect(screen.queryByRole("button", {
+      name: "Open Publish release notes"
+    })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show plan Imported plan" }));
+
     const openButton = screen.getByRole("button", {
       name: "Open Publish release notes"
     });

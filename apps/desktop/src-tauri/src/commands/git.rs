@@ -7,12 +7,28 @@ use crate::repositories::tasks::TaskRepository;
 use crate::services::commit_linker::{
     list_linked_commits_for_task as list_linked_commits_for_task_rows, sync_commits,
 };
-use crate::services::git_adapter::{read_recent_commits, GitCommitMetadata};
+use crate::services::git_adapter::{read_current_branch, read_recent_commits, GitCommitMetadata};
 use rusqlite::Connection;
 
 #[tauri::command]
 pub fn read_git_commits(local_path: String) -> Result<Vec<GitCommitMetadata>, String> {
     read_recent_commits(&local_path, 25)
+}
+
+#[tauri::command]
+pub fn read_current_git_branch(
+    project_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let local_path = {
+        let conn = state.conn.lock().map_err(|err| err.to_string())?;
+        project_git_path_for_sync(&conn, &project_id).map_err(|err| err.to_string())?
+    };
+
+    match local_path {
+        Some(path) => read_current_branch(&path).map(Some),
+        None => Ok(None),
+    }
 }
 
 fn project_git_path_for_sync(

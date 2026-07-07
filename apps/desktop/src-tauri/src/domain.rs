@@ -34,9 +34,19 @@ pub struct CreateProjectInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct Plan {
+    pub id: Id,
+    pub project_id: Id,
+    pub title: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Stage {
     pub id: Id,
     pub project_id: Id,
+    pub plan_id: Option<Id>,
     pub title: String,
     pub description: String,
     pub position: i64,

@@ -15,6 +15,9 @@ export function MarkdownImportPreview({
   return (
     <section className="stack" aria-labelledby="preview-title">
       <h2 id="preview-title">Import preview</h2>
+      {parsed.planTitle ? (
+        <p className="markdown-preview__plan-title">{parsed.planTitle}</p>
+      ) : null}
       {parsed.warnings.length > 0 ? (
         <InlineAlert tone="warning">
           {parsed.warnings.map((warning) => (

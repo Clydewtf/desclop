@@ -43,6 +43,12 @@ pub fn read_recent_commits(path: &str, limit: usize) -> Result<Vec<GitCommitMeta
     Ok(commits)
 }
 
+pub fn read_current_branch(path: &str) -> Result<String, String> {
+    let repo = Repository::discover(path).map_err(|err| err.to_string())?;
+    let head = repo.head().map_err(|err| err.to_string())?;
+    Ok(head.shorthand().unwrap_or("HEAD").to_string())
+}
+
 fn changed_files_for_commit(repo: &Repository, commit: &Commit<'_>) -> Result<Vec<String>, String> {
     let new_tree = commit.tree().map_err(|err| err.to_string())?;
     let old_tree = if commit.parent_count() > 0 {
@@ -147,6 +153,30 @@ mod tests {
             .expect("root commit");
         assert_eq!(child.changed_files, vec!["src/main.ts".to_string()]);
         assert_eq!(root.changed_files, vec!["README.md".to_string()]);
+
+        fs::remove_dir_all(&repo_path).expect("remove test repo");
+    }
+
+    #[test]
+    fn read_current_branch_returns_checked_out_branch_name() {
+        let repo_path = test_repo_path("git-adapter-current-branch");
+        reset_test_dir(&repo_path);
+        let repo = Repository::init(&repo_path).expect("init repo");
+        commit_file(&repo, "README.md", "# Desclop\n", "Initial commit");
+        let head_commit = repo
+            .head()
+            .expect("head")
+            .peel_to_commit()
+            .expect("head commit");
+        repo.branch("work-t3", &head_commit, false)
+            .expect("create branch");
+        repo.set_head("refs/heads/work-t3").expect("switch head");
+        repo.checkout_head(None).expect("checkout head");
+
+        let branch = read_current_branch(repo_path.to_str().expect("repo path"))
+            .expect("read current branch");
+
+        assert_eq!(branch, "work-t3");
 
         fs::remove_dir_all(&repo_path).expect("remove test repo");
     }

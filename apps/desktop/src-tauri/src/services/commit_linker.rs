@@ -70,7 +70,6 @@ pub fn sync_commits(
             "insert into commits (sha, project_id, branch, message, author_name, committed_at, changed_files_json)
              values (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              on conflict(project_id, sha) do update set
-               branch = excluded.branch,
                message = excluded.message,
                author_name = excluded.author_name,
                committed_at = excluded.committed_at,
@@ -90,6 +89,7 @@ pub fn sync_commits(
             ],
         )?;
         let changed_files = load_changed_files(conn, project_id, &commit.sha)?;
+        let branch = load_branch(conn, project_id, &commit.sha)?;
 
         if !has_link_for_commit(conn, project_id, &commit.sha)? {
             let focus_interval = WorkEntryRepository::new(conn)
@@ -116,7 +116,7 @@ pub fn sync_commits(
         synced_commits.push(GitCommit {
             sha: commit.sha,
             project_id: project_id.to_string(),
-            branch: commit.branch,
+            branch,
             message: commit.message,
             author_name: commit.author_name,
             committed_at: commit.committed_at,
@@ -125,6 +125,14 @@ pub fn sync_commits(
     }
 
     Ok(synced_commits)
+}
+
+fn load_branch(conn: &Connection, project_id: &str, sha: &str) -> rusqlite::Result<String> {
+    conn.query_row(
+        "select branch from commits where project_id = ?1 and sha = ?2",
+        params![project_id, sha],
+        |row| row.get(0),
+    )
 }
 
 fn load_changed_files(
@@ -479,6 +487,50 @@ mod tests {
             .expect("stored changed files");
         assert_eq!(stored_changed_files_json, "[\"src/main.ts\"]");
         assert_eq!(synced[0].changed_files, vec!["src/main.ts".to_string()]);
+    }
+
+    #[test]
+    fn sync_commits_preserves_first_seen_branch_for_existing_commit() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let (project_id, _focused_task_id, _active_task_id) = seed_project_with_tasks(&mut conn);
+
+        sync_commits(
+            &conn,
+            &project_id,
+            vec![GitCommitMetadata {
+                sha: "abc123".to_string(),
+                branch: "work-t3".to_string(),
+                message: "Implement timeline context".to_string(),
+                author_name: "Clyde".to_string(),
+                committed_at: "2026-05-20T10:10:00Z".to_string(),
+                changed_files: vec!["src/main.ts".to_string()],
+            }],
+        )
+        .expect("initial sync");
+        let synced = sync_commits(
+            &conn,
+            &project_id,
+            vec![GitCommitMetadata {
+                sha: "abc123".to_string(),
+                branch: "main".to_string(),
+                message: "Implement timeline context".to_string(),
+                author_name: "Clyde".to_string(),
+                committed_at: "2026-05-20T10:10:00Z".to_string(),
+                changed_files: vec!["src/main.ts".to_string()],
+            }],
+        )
+        .expect("second sync");
+
+        let stored_branch: String = conn
+            .query_row(
+                "select branch from commits where project_id = ?1 and sha = 'abc123'",
+                params![project_id],
+                |row| row.get(0),
+            )
+            .expect("stored branch");
+        assert_eq!(stored_branch, "work-t3");
+        assert_eq!(synced[0].branch, "work-t3");
     }
 
     #[test]

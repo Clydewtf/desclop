@@ -8,6 +8,7 @@ import type {
   InboxKind,
   LicenseState,
   Note,
+  Plan,
   Project,
   ProjectSummary,
   ResumeBrief,
@@ -25,6 +26,7 @@ export interface CreateProjectInput {
 }
 
 export interface ProjectPlanPayload {
+  plans?: Plan[];
   stages: Stage[];
   tasks: Task[];
   checklistItems: ChecklistItem[];
@@ -84,8 +86,8 @@ export const api = {
     invoke<void>("delete_project", { projectId }),
   loadProjectPlan: (projectId: string) =>
     invoke<ProjectPlanPayload>("load_project_plan", { projectId }),
-  importPlan: (projectId: string, stages: ParsedStage[]) =>
-    invoke<void>("import_plan", { projectId, stages }),
+  importPlan: (projectId: string, title: string | null, stages: ParsedStage[]) =>
+    invoke<void>("import_plan", { projectId, title, stages }),
   updateTaskStatus: (taskId: string, status: TaskStatus) =>
     invoke<void>("update_task_status", { taskId, status }),
   setActiveTask: (projectId: string, taskId: string) =>
@@ -127,6 +129,8 @@ export const api = {
     invoke<Entitlement>("set_entitlement", { input }),
   readGitCommits: (localPath: string) =>
     invoke<GitCommitMetadata[]>("read_git_commits", { localPath }),
+  readCurrentGitBranch: (projectId: string) =>
+    invoke<string | null>("read_current_git_branch", { projectId }),
   syncGitCommits: (projectId: string) =>
     invoke<GitCommit[]>("sync_git_commits", { projectId }),
   listLinkedCommitsForTask: (projectId: string, taskId: string) =>

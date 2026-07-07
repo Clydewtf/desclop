@@ -11,7 +11,70 @@ pub fn open_connection(path: &std::path::Path) -> rusqlite::Result<Connection> {
 
 pub fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(include_str!("../migrations/001_init.sql"))?;
+    migrate_plans_schema(conn)?;
     migrate_commit_tables_to_project_scoped_keys(conn)
+}
+
+fn migrate_plans_schema(conn: &Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "create table if not exists plans (
+           id text primary key,
+           project_id text not null references projects(id) on delete cascade,
+           title text not null,
+           position integer not null,
+           created_at text not null,
+           updated_at text not null,
+           unique(project_id, id)
+         );",
+    )?;
+
+    if !table_has_column(conn, "stages", "plan_id")? {
+        conn.execute("alter table stages add column plan_id text", [])?;
+    }
+
+    conn.execute_batch(
+        "insert or ignore into plans (id, project_id, title, position, created_at, updated_at)
+         select 'legacy-plan-' || projects.id,
+                projects.id,
+                'Imported plan',
+                0,
+                projects.created_at,
+                projects.updated_at
+         from projects
+         where exists (
+           select 1 from stages where stages.project_id = projects.id
+         )
+           and not exists (
+             select 1 from plans where plans.project_id = projects.id
+           );
+
+         update stages
+         set plan_id = (
+           select plans.id
+           from plans
+           where plans.project_id = stages.project_id
+           order by plans.position asc, plans.id asc
+           limit 1
+         )
+         where plan_id is null;",
+    )
+}
+
+fn table_has_column(
+    conn: &Connection,
+    table_name: &str,
+    column_name: &str,
+) -> rusqlite::Result<bool> {
+    let mut stmt = conn.prepare(&format!("pragma table_info({table_name})"))?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+
+    for row in rows {
+        if row? == column_name {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
 }
 
 fn migrate_commit_tables_to_project_scoped_keys(conn: &Connection) -> rusqlite::Result<()> {
@@ -122,6 +185,7 @@ mod tests {
             .collect();
 
         assert!(names.contains(&"projects".to_string()));
+        assert!(names.contains(&"plans".to_string()));
         assert!(names.contains(&"stages".to_string()));
         assert!(names.contains(&"tasks".to_string()));
         assert!(names.contains(&"checklist_items".to_string()));

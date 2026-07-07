@@ -26,9 +26,17 @@ export interface ProjectSummary {
   activeTaskTitle: string | null;
 }
 
+export interface Plan {
+  id: Id;
+  projectId: Id;
+  title: string;
+  position: number;
+}
+
 export interface Stage {
   id: Id;
   projectId: Id;
+  planId?: Id | null;
   title: string;
   description: string;
   position: number;

@@ -1,6 +1,7 @@
 .DS_Store
 .superpowers/
 .worktrees/
+docs/
 node_modules/
 dist/
 target/

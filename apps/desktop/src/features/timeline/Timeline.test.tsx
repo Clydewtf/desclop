@@ -68,7 +68,7 @@ describe("Timeline", () => {
     expect(within(todayGroup!).getByRole("list")).toHaveAttribute("role", "list");
     expect(within(todayGroup!).getByText("Commit")).toBeInTheDocument();
     expect(within(todayGroup!).getByText("Work review")).toBeInTheDocument();
-    expect(within(todayGroup!).getByText("abcdef1 · main")).toBeInTheDocument();
+    expect(within(todayGroup!).getByText("abcdef1 · captured on main")).toBeInTheDocument();
     expect(within(todayGroup!).getByRole("button", { name: "1 file changed" })).toBeInTheDocument();
     expect(within(todayGroup!).getByText("Reviewed schema")).toBeInTheDocument();
     expect(within(todayGroup!).getByText("Wire timeline")).toBeInTheDocument();

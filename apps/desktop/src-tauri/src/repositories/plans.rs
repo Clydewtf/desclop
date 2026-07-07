@@ -1,13 +1,15 @@
 use chrono::Utc;
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Transaction};
 use thiserror::Error;
 use uuid::Uuid;
 
 use super::tasks::recalculate_stage_statuses;
 
+#[allow(dead_code)]
 pub const PLAN_HAS_TASK_HISTORY_ERROR: &str = "Plan already has task history";
 
 #[derive(Debug, Error)]
+#[allow(dead_code)]
 pub enum ReplacePlanError {
     #[error("Plan already has task history")]
     TaskHistoryExists,
@@ -24,6 +26,7 @@ impl<'a> PlanRepository<'a> {
         Self { conn }
     }
 
+    #[allow(dead_code)]
     pub fn replace_plan(
         &mut self,
         project_id: &str,
@@ -58,71 +61,122 @@ impl<'a> PlanRepository<'a> {
             params![project_id],
         )?;
         tx.execute(
+            "delete from plans where project_id = ?1",
+            params![project_id],
+        )?;
+        tx.execute(
             "update projects set active_task_id = null where id = ?1",
             params![project_id],
         )?;
 
-        for stage in stages {
-            let stage_id = Uuid::new_v4().to_string();
-            tx.execute(
-                "insert into stages (id, project_id, title, description, position, status, created_at, updated_at)
-                 values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![
-                    stage_id,
-                    project_id,
-                    stage.title,
-                    stage.description,
-                    stage.position,
-                    "future",
-                    now,
-                    now
-                ],
-            )?;
-
-            for task in stage.tasks {
-                let task_id = Uuid::new_v4().to_string();
-                let task_status = if task.status == "done" {
-                    "done"
-                } else {
-                    "todo"
-                };
-                tx.execute(
-                    "insert into tasks (id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at)
-                     values (?1, ?2, ?3, ?4, '', ?5, null, null, '', ?6, ?7, ?8)",
-                    params![
-                        task_id,
-                        project_id,
-                        stage_id,
-                        task.title,
-                        task_status,
-                        task.position,
-                        now,
-                        now
-                    ],
-                )?;
-
-                for item in task.checklist {
-                    tx.execute(
-                        "insert into checklist_items (id, task_id, title, completed, position, created_at, updated_at)
-                         values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                        params![
-                            Uuid::new_v4().to_string(),
-                            task_id,
-                            item.title,
-                            item.completed as i32,
-                            item.position,
-                            now,
-                            now
-                        ],
-                    )?;
-                }
-            }
-        }
+        insert_plan_with_stages(&tx, project_id, "Imported plan", 0, stages, &now)?;
 
         recalculate_stage_statuses(&tx, project_id)?;
 
         Ok(tx.commit()?)
     }
+
+    pub fn import_plan(
+        &mut self,
+        project_id: &str,
+        title: &str,
+        stages: Vec<ImportStage>,
+    ) -> rusqlite::Result<()> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self.conn.transaction()?;
+        let position: i64 = tx.query_row(
+            "select coalesce(max(position) + 1, 0) from plans where project_id = ?1",
+            params![project_id],
+            |row| row.get(0),
+        )?;
+        let trimmed_title = title.trim();
+        let plan_title = if trimmed_title.is_empty() {
+            format!("Plan {}", position + 1)
+        } else {
+            trimmed_title.to_string()
+        };
+
+        insert_plan_with_stages(&tx, project_id, &plan_title, position, stages, &now)?;
+        recalculate_stage_statuses(&tx, project_id)?;
+
+        tx.commit()
+    }
+}
+
+fn insert_plan_with_stages(
+    tx: &Transaction<'_>,
+    project_id: &str,
+    title: &str,
+    position: i64,
+    stages: Vec<ImportStage>,
+    now: &str,
+) -> rusqlite::Result<()> {
+    let plan_id = Uuid::new_v4().to_string();
+    tx.execute(
+        "insert into plans (id, project_id, title, position, created_at, updated_at)
+         values (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![plan_id, project_id, title, position, now, now],
+    )?;
+
+    for stage in stages {
+        let stage_id = Uuid::new_v4().to_string();
+        tx.execute(
+            "insert into stages (id, project_id, plan_id, title, description, position, status, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![
+                stage_id,
+                project_id,
+                plan_id,
+                stage.title,
+                stage.description,
+                stage.position,
+                "future",
+                now,
+                now
+            ],
+        )?;
+
+        for task in stage.tasks {
+            let task_id = Uuid::new_v4().to_string();
+            let task_status = if task.status == "done" {
+                "done"
+            } else {
+                "todo"
+            };
+            tx.execute(
+                "insert into tasks (id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at)
+                 values (?1, ?2, ?3, ?4, '', ?5, null, null, '', ?6, ?7, ?8)",
+                params![
+                    task_id,
+                    project_id,
+                    stage_id,
+                    task.title,
+                    task_status,
+                    task.position,
+                    now,
+                    now
+                ],
+            )?;
+
+            for item in task.checklist {
+                tx.execute(
+                    "insert into checklist_items (id, task_id, title, completed, position, created_at, updated_at)
+                     values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    params![
+                        Uuid::new_v4().to_string(),
+                        task_id,
+                        item.title,
+                        item.completed as i32,
+                        item.position,
+                        now,
+                        now
+                    ],
+                )?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -183,6 +237,126 @@ mod tests {
                 position: 0,
             }],
         }]
+    }
+
+    #[test]
+    fn import_plan_appends_a_new_plan_without_removing_existing_work() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = ProjectRepository::new(&conn)
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), false)
+            .expect("create project");
+
+        PlanRepository::new(&mut conn)
+            .import_plan(&project.id, "Main plan", initial_plan())
+            .expect("initial import");
+        PlanRepository::new(&mut conn)
+            .import_plan(&project.id, "Fix plan", replacement_plan())
+            .expect("second import");
+
+        let plan_titles: Vec<String> = {
+            let mut stmt = conn
+                .prepare("select title from plans where project_id = ?1 order by position asc")
+                .expect("prepare plans");
+            stmt.query_map(params![project.id], |row| row.get(0))
+                .expect("query plans")
+                .collect::<rusqlite::Result<_>>()
+                .expect("collect plans")
+        };
+        let task_titles: Vec<String> = {
+            let mut stmt = conn
+                .prepare("select title from tasks where project_id = ?1 order by title asc")
+                .expect("prepare tasks");
+            stmt.query_map(params![project.id], |row| row.get(0))
+                .expect("query tasks")
+                .collect::<rusqlite::Result<_>>()
+                .expect("collect tasks")
+        };
+
+        assert_eq!(plan_titles, vec!["Main plan", "Fix plan"]);
+        assert_eq!(task_titles, vec!["Keep task", "New task"]);
+    }
+
+    #[test]
+    fn import_plan_recalculates_current_stage_inside_each_plan() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = ProjectRepository::new(&conn)
+            .create_project("Desclop".to_string(), "/tmp/desclop".to_string(), false)
+            .expect("create project");
+
+        PlanRepository::new(&mut conn)
+            .import_plan(
+                &project.id,
+                "Main plan",
+                vec![
+                    ImportStage {
+                        title: "Main done".to_string(),
+                        description: "".to_string(),
+                        position: 0,
+                        tasks: vec![ImportTask {
+                            title: "Done task".to_string(),
+                            status: "done".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                    ImportStage {
+                        title: "Main next".to_string(),
+                        description: "".to_string(),
+                        position: 1,
+                        tasks: vec![ImportTask {
+                            title: "Open task".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                ],
+            )
+            .expect("main import");
+        PlanRepository::new(&mut conn)
+            .import_plan(&project.id, "Fix plan", replacement_plan())
+            .expect("fix import");
+
+        let statuses: Vec<(String, String, String)> = {
+            let mut stmt = conn
+                .prepare(
+                    "select plans.title, stages.title, stages.status
+                     from stages
+                     inner join plans on plans.id = stages.plan_id
+                     where stages.project_id = ?1
+                     order by plans.position asc, stages.position asc",
+                )
+                .expect("prepare statuses");
+            stmt.query_map(params![project.id], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .expect("query statuses")
+            .collect::<rusqlite::Result<_>>()
+            .expect("collect statuses")
+        };
+
+        assert_eq!(
+            statuses,
+            vec![
+                (
+                    "Main plan".to_string(),
+                    "Main done".to_string(),
+                    "completed".to_string()
+                ),
+                (
+                    "Main plan".to_string(),
+                    "Main next".to_string(),
+                    "current".to_string()
+                ),
+                (
+                    "Fix plan".to_string(),
+                    "Replacement".to_string(),
+                    "current".to_string()
+                )
+            ]
+        );
     }
 
     #[test]

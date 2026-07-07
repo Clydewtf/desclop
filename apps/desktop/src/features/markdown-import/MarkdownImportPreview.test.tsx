@@ -8,6 +8,7 @@ describe("MarkdownImportPreview", () => {
     renderWithRouter(
       <MarkdownImportPreview
         parsed={{
+          planTitle: "Build MVP",
           stages: [
             {
               title: "Foundation",
@@ -32,6 +33,7 @@ describe("MarkdownImportPreview", () => {
     );
 
     expect(screen.getByText("Foundation")).toBeInTheDocument();
+    expect(screen.getByText("Build MVP")).toBeInTheDocument();
     expect(screen.getByText("Create local store")).toBeInTheDocument();
     expect(screen.getByText("1 checklist item")).toBeInTheDocument();
     expect(screen.getByText(/Line 1:/)).toBeInTheDocument();

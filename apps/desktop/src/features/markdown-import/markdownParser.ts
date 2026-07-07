@@ -21,19 +21,28 @@ export interface ParsedStage {
 }
 
 export interface ParsedMarkdownPlan {
+  planTitle: string | null;
   stages: ParsedStage[];
   warnings: string[];
 }
 
+const planHeadingPattern = /^#\s+(.+)$/;
 const headingPattern = /^(#{2,3})\s+(.+)$/;
 const checkboxPattern = /^(\s*)-\s+\[( |x|X)\]\s+(.+)$/;
 
 export function parseMarkdownPlan(markdown: string): ParsedMarkdownPlan {
+  let planTitle: string | null = null;
   const stages: ParsedStage[] = [];
   const warnings: string[] = [];
 
   markdown.split(/\r?\n/).forEach((line, index) => {
     const lineNumber = index + 1;
+    const planHeading = line.match(planHeadingPattern);
+    if (planHeading) {
+      planTitle ??= planHeading[1].trim();
+      return;
+    }
+
     const heading = line.match(headingPattern);
     if (heading) {
       stages.push({
@@ -87,5 +96,5 @@ export function parseMarkdownPlan(markdown: string): ParsedMarkdownPlan {
     });
   });
 
-  return { stages, warnings };
+  return { planTitle, stages, warnings };
 }

@@ -11,9 +11,20 @@ create table if not exists projects (
   updated_at text not null
 );
 
+create table if not exists plans (
+  id text primary key,
+  project_id text not null references projects(id) on delete cascade,
+  title text not null,
+  position integer not null,
+  created_at text not null,
+  updated_at text not null,
+  unique(project_id, id)
+);
+
 create table if not exists stages (
   id text primary key,
   project_id text not null references projects(id) on delete cascade,
+  plan_id text references plans(id) on delete cascade,
   title text not null,
   description text not null default '',
   position integer not null,

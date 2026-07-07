@@ -6,10 +6,16 @@ mod repositories;
 mod services;
 
 use app_state::AppState;
-use tauri::{Emitter, Manager, WindowEvent};
+use tauri::{
+    menu::{Menu, MenuItem, PredefinedMenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    Emitter, Manager, WindowEvent,
+};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
 const QUICK_CAPTURE_OPEN_EVENT: &str = "quick-capture:open";
+const TRAY_SHOW_ID: &str = "show_desclop";
+const TRAY_QUIT_ID: &str = "quit_desclop";
 
 fn quick_capture_shortcuts() -> [Shortcut; 2] {
     [
@@ -18,13 +24,16 @@ fn quick_capture_shortcuts() -> [Shortcut; 2] {
     ]
 }
 
-fn open_quick_capture(app: &tauri::AppHandle) {
+fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
     }
+}
 
+fn open_quick_capture(app: &tauri::AppHandle) {
+    show_main_window(app);
     let _ = app.emit(QUICK_CAPTURE_OPEN_EVENT, ());
 }
 
@@ -40,6 +49,40 @@ fn is_quick_capture_shortcut(shortcut: &Shortcut) -> bool {
     quick_capture_shortcuts()
         .iter()
         .any(|quick_capture_shortcut| quick_capture_shortcut == shortcut)
+}
+
+fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
+    let show = MenuItem::with_id(app, TRAY_SHOW_ID, "Show Desclop", true, None::<&str>)?;
+    let separator = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItem::with_id(app, TRAY_QUIT_ID, "Quit Desclop", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &separator, &quit])?;
+
+    let mut tray = TrayIconBuilder::with_id("main")
+        .menu(&menu)
+        .tooltip("Desclop")
+        .show_menu_on_left_click(false)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            TRAY_SHOW_ID => show_main_window(app),
+            TRAY_QUIT_ID => app.exit(0),
+            _ => {}
+        })
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                ..
+            } = event
+            {
+                show_main_window(tray.app_handle());
+            }
+        });
+
+    if let Some(icon) = app.default_window_icon() {
+        tray = tray.icon(icon.clone());
+    }
+
+    tray.build(app)?;
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -60,6 +103,7 @@ pub fn run() {
             let app_data_dir = app.path().app_data_dir().map_err(|err| err.to_string())?;
             app.manage(AppState::new(app_data_dir)?);
             register_quick_capture_shortcuts(app.handle());
+            setup_tray(app)?;
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -70,6 +114,7 @@ pub fn run() {
                 }
             }
         })
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -100,6 +145,7 @@ pub fn run() {
             commands::entitlements::get_entitlement,
             commands::entitlements::set_entitlement,
             commands::git::read_git_commits,
+            commands::git::read_current_git_branch,
             commands::git::sync_git_commits,
             commands::git::list_linked_commits_for_task,
             commands::git::move_commit_link,

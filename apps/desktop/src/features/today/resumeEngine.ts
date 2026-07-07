@@ -19,6 +19,7 @@ interface ResumeInput {
   stage: Stage | null;
   latestNote: string;
   precomputedFacts?: string[];
+  currentBranch?: string | null;
   commits: GitCommit[];
   workEntries: WorkEntry[];
   inboxItems: InboxItem[];
@@ -28,12 +29,16 @@ interface ResumeInput {
 
 export function buildResumeBriefView(input: ResumeInput): ResumeBriefView {
   const branch = input.commits[0]?.branch;
-  const facts = input.precomputedFacts ?? [
+  const activityFacts = input.precomputedFacts ?? [
     input.commits.length > 0
-      ? `${input.commits.length} recent ${input.commits.length === 1 ? "commit" : "commits"} on ${branch}`
+      ? `${input.commits.length} recent ${input.commits.length === 1 ? "commit" : "commits"} captured on ${branch}`
       : "",
     input.workEntries.length > 0 ? `${input.workEntries.length} recent work entries` : "",
     input.inboxItems.length > 0 ? `${input.inboxItems.length} open inbox captures` : ""
+  ].filter(Boolean);
+  const facts = [
+    input.currentBranch ? `Current branch: ${input.currentBranch}` : "",
+    ...activityFacts
   ].filter(Boolean);
   const state: TodayState = !input.hasPlan
     ? "no-plan"

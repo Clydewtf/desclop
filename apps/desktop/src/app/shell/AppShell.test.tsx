@@ -117,6 +117,23 @@ describe("AppShell", () => {
     expect(projectActionStyles.color).toBe("var(--color-muted)");
   });
 
+  it("keeps the sidebar fixed while application content scrolls", () => {
+    render(
+      <AppShell activeDestination="today" projectName="Desclop">
+        <div style={{ height: "1800px" }}>Long plan content</div>
+      </AppShell>
+    );
+
+    const shellStyles = getComputedStyle(document.querySelector(".app-shell") as HTMLElement);
+    const sidebarStyles = getComputedStyle(screen.getByLabelText("Application"));
+    const contentStyles = getComputedStyle(document.querySelector(".app-content") as HTMLElement);
+
+    expect(shellStyles.height).toBe("100%");
+    expect(shellStyles.overflow).toBe("hidden");
+    expect(sidebarStyles.overflowY).toBe("auto");
+    expect(contentStyles.overflowY).toBe("auto");
+  });
+
   it("renders setup state without project-only destinations", () => {
     render(
       <AppShell activeDestination="setup">

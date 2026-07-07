@@ -15,6 +15,7 @@ describe("parseMarkdownPlan", () => {
 
     const result = parseMarkdownPlan(markdown);
 
+    expect(result.planTitle).toBe("Build MVP");
     expect(result.warnings).toEqual([]);
     expect(result.stages).toHaveLength(2);
     expect(result.stages[0]).toMatchObject({ title: "Foundation", position: 0 });
@@ -36,6 +37,7 @@ describe("parseMarkdownPlan", () => {
   it("warns when a task appears before a stage", () => {
     const result = parseMarkdownPlan("- [ ] Floating task");
 
+    expect(result.planTitle).toBeNull();
     expect(result.stages).toEqual([]);
     expect(result.warnings).toEqual([
       "Line 1: task checkbox appears before any stage heading and was not imported."

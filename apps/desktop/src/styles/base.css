@@ -1,4 +1,5 @@
 :root {
+  height: 100%;
   color: #17212b;
   background: #f4f6f8;
   font-family:
@@ -44,9 +45,16 @@
 
 body {
   margin: 0;
+  height: 100%;
   min-width: 320px;
+  overflow: hidden;
   background: var(--color-bg);
   color: var(--color-text);
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
 }
 
 button,
@@ -63,23 +71,34 @@ select {
 }
 
 .app-root {
-  min-height: 100vh;
+  height: 100vh;
+  box-sizing: border-box;
+  overflow: hidden;
   padding: var(--space-6);
 }
 
 .app-shell {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .app-sidebar {
   display: grid;
   align-content: start;
   gap: var(--space-4);
+  min-height: 0;
+  overflow-y: auto;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
   padding: var(--space-4);
+}
+
+.app-content {
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .app-sidebar__identity {
@@ -1042,14 +1061,56 @@ label.inline-field input {
   font-size: 1rem;
 }
 
+.plan-list,
 .stage-list {
   display: grid;
   gap: var(--space-4);
 }
 
+.markdown-preview__plan-title {
+  margin: 0;
+  color: var(--color-muted);
+  font-weight: 700;
+}
+
 .markdown-import__action,
 .markdown-preview__action {
   justify-self: start;
+}
+
+.plan-frame {
+  display: grid;
+  gap: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: var(--space-5);
+}
+
+.plan-frame--collapsed {
+  background: var(--color-surface-muted);
+}
+
+.plan-frame__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.plan-frame__header h2 {
+  margin: 0;
+}
+
+.plan-frame__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  justify-content: flex-end;
+}
+
+.plan-frame__header .stage-frame__progress-bar {
+  grid-column: 1 / -1;
 }
 
 .stage-frame {
@@ -1326,11 +1387,17 @@ label.inline-field input {
 
   .app-shell {
     grid-template-columns: 1fr;
+    overflow-y: auto;
   }
 
   .app-sidebar {
+    overflow-y: visible;
     border-right: 0;
     border-bottom: 1px solid var(--color-border);
+  }
+
+  .app-content {
+    overflow-y: visible;
   }
 
   .ui-screen-header,

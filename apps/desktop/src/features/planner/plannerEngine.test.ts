@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ChecklistItem, Stage, Task } from "../../shared/domain/types";
-import { buildPlannerFrames } from "./plannerEngine";
+import { buildPlanFrames, buildPlannerFrames } from "./plannerEngine";
 
 describe("buildPlannerFrames", () => {
   it("collapses completed stages and expands the current stage", () => {
@@ -109,9 +109,48 @@ describe("buildPlannerFrames", () => {
   });
 });
 
-function stageFixture(overrides: Pick<Stage, "id" | "title" | "status" | "position">): Stage {
+describe("buildPlanFrames", () => {
+  it("groups stages by plan and collapses completed plans", () => {
+    const frames = buildPlanFrames(
+      [
+        { id: "plan-1", projectId: "project-1", title: "Main plan", position: 0 },
+        { id: "plan-2", projectId: "project-1", title: "Fix plan", position: 1 }
+      ],
+      [
+        stageFixture({
+          id: "s1",
+          planId: "plan-1",
+          title: "Completed main stage",
+          status: "completed",
+          position: 0
+        }),
+        stageFixture({
+          id: "s2",
+          planId: "plan-2",
+          title: "Fix current stage",
+          status: "current",
+          position: 0
+        })
+      ],
+      [
+        taskFixture({ id: "t1", stageId: "s1", status: "done", position: 0 }),
+        taskFixture({ id: "t2", stageId: "s2", status: "todo", position: 0 })
+      ],
+      []
+    );
+
+    expect(frames.map((frame) => frame.plan.title)).toEqual(["Main plan", "Fix plan"]);
+    expect(frames[0].collapsed).toBe(true);
+    expect(frames[1].collapsed).toBe(false);
+    expect(frames[0].stageFrames.map((frame) => frame.stage.id)).toEqual(["s1"]);
+    expect(frames[1].stageFrames.map((frame) => frame.stage.id)).toEqual(["s2"]);
+  });
+});
+
+function stageFixture(overrides: Pick<Stage, "id" | "title" | "status" | "position"> & Partial<Pick<Stage, "planId">>): Stage {
   return {
     projectId: "project-1",
+    planId: "plan-1",
     description: "",
     ...overrides
   };

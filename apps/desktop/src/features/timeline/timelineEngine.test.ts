@@ -59,7 +59,7 @@ describe("buildTimeline", () => {
     expect(timeline.sections[0].items.map((item) => item.typeLabel)).toEqual(["Commit", "Work review"]);
     expect(timeline.sections[0].items[0]).toMatchObject({
       title: "fix: timeline grouping",
-      metadata: "abcdef1 · main",
+      metadata: "abcdef1 · captured on main",
       changedFiles: ["timelineEngine.ts"],
       changedFilesLabel: "1 file changed"
     });

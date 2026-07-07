@@ -59,8 +59,35 @@ describe("buildResumeBriefView", () => {
     expect(view.stageTitle).toBe("Foundation");
     expect(view.latestNote).toBe("Migration passes");
     expect(view.nextStep).toBe("Run repository tests");
-    expect(view.facts).toContain("1 recent commit on main");
+    expect(view.facts).toContain("1 recent commit captured on main");
     expect(view.primaryActionLabel).toBe("Continue task");
+  });
+
+  it("shows the current branch separately from captured commit branch context", () => {
+    const view = buildResumeBriefView({
+      task: taskFixture(),
+      stage: stageFixture(),
+      latestNote: "",
+      currentBranch: "main",
+      commits: [
+        {
+          sha: "abc123",
+          projectId: "p1",
+          branch: "work-t3",
+          message: "Add migration",
+          authorName: "Clyde",
+          committedAt: "2026-05-20T10:00:00Z",
+          changedFiles: ["src-tauri/migrations/001_init.sql"]
+        }
+      ],
+      workEntries: [],
+      inboxItems: [],
+      nextTasks: [],
+      hasPlan: true
+    });
+
+    expect(view.facts).toContain("Current branch: main");
+    expect(view.facts).toContain("1 recent commit captured on work-t3");
   });
 
   it("builds setup guidance when no plan exists", () => {

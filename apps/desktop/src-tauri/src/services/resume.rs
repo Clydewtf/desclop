@@ -28,7 +28,7 @@ pub fn build_resume_brief(conn: &Connection, project_id: &str) -> rusqlite::Resu
     if commit_count > 0 {
         let branch = commit_branch.unwrap_or_else(|| "unknown branch".to_string());
         facts.push(format!(
-            "{commit_count} recent {} on {branch}",
+            "{commit_count} recent {} captured on {branch}",
             if commit_count == 1 {
                 "commit"
             } else {
@@ -358,7 +358,9 @@ mod tests {
         assert_ne!(brief.task_id.as_deref(), Some(later_task_id.as_str()));
         assert_eq!(brief.latest_note, "Migration passes");
         assert_eq!(brief.next_step, "Run repository tests");
-        assert!(brief.facts.contains(&"1 recent commit on main".to_string()));
+        assert!(brief
+            .facts
+            .contains(&"1 recent commit captured on main".to_string()));
         assert!(brief.facts.contains(&"1 recent work entries".to_string()));
         assert!(brief.facts.contains(&"1 open inbox captures".to_string()));
         assert!(!brief.facts.contains(&"Latest note is ready".to_string()));

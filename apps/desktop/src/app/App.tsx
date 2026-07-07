@@ -6,7 +6,7 @@ import { FocusMode } from "../features/focus-mode/FocusMode";
 import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImportPreview";
 import { parseMarkdownPlan, type ParsedMarkdownPlan } from "../features/markdown-import/markdownParser";
 import { Planner } from "../features/planner/Planner";
-import { buildPlannerFrames } from "../features/planner/plannerEngine";
+import { buildPlanFrames } from "../features/planner/plannerEngine";
 import { QuickCaptureOverlay } from "../features/quick-capture/QuickCaptureOverlay";
 import {
   ProjectPicker,
@@ -54,6 +54,7 @@ interface ResumeLoadResult {
 
 interface GitLoadResult {
   commits: GitCommit[];
+  currentBranch: string | null;
   unavailable: boolean;
 }
 
@@ -89,13 +90,17 @@ async function loadResumeBrief(projectId: string): Promise<ResumeLoadResult> {
 
 async function loadGitCommits(project: Project): Promise<GitLoadResult> {
   if (!project.gitEnabled) {
-    return { commits: [], unavailable: false };
+    return { commits: [], currentBranch: null, unavailable: false };
   }
 
   try {
-    return { commits: await api.syncGitCommits(project.id), unavailable: false };
+    const [commits, currentBranch] = await Promise.all([
+      api.syncGitCommits(project.id),
+      api.readCurrentGitBranch(project.id)
+    ]);
+    return { commits, currentBranch: currentBranch ?? null, unavailable: false };
   } catch {
-    return { commits: [], unavailable: true };
+    return { commits: [], currentBranch: null, unavailable: true };
   }
 }
 
@@ -123,7 +128,8 @@ function buildTodayView(
   resumeBrief: ResumeBrief | null,
   plan: ProjectPlanPayload,
   currentTask: ProjectPlanPayload["tasks"][number] | null,
-  commits: GitCommit[]
+  commits: GitCommit[],
+  currentBranch: string | null
 ): ResumeBriefView {
   const task = currentTask;
   const resumeMatchesTask = task !== null && resumeBrief !== null && resumeBrief.taskId === task.id;
@@ -156,6 +162,7 @@ function buildTodayView(
     latestNote: resumeMatchesTask ? resumeBrief.latestNote : "",
     precomputedFacts:
       resumeMatchesTask && resumeBrief.facts.length ? resumeBrief.facts : undefined,
+    currentBranch,
     commits,
     workEntries: [],
     inboxItems: [],
@@ -223,8 +230,10 @@ export function App() {
   const [resumeError, setResumeError] = useState<string | null>(null);
   const [gitError, setGitError] = useState<string | null>(null);
   const [gitCommits, setGitCommits] = useState<GitCommit[]>([]);
+  const [gitCurrentBranch, setGitCurrentBranch] = useState<string | null>(null);
   const [resumeBrief, setResumeBrief] = useState<ResumeBrief | null>(null);
   const [projectPlan, setProjectPlan] = useState<ProjectPlanPayload>({
+    plans: [],
     stages: [],
     tasks: [],
     checklistItems: []
@@ -279,7 +288,7 @@ export function App() {
     setGitError(null);
     setGitCommits([]);
     setResumeBrief(null);
-    setProjectPlan({ stages: [], tasks: [], checklistItems: [] });
+    setProjectPlan({ plans: [], stages: [], tasks: [], checklistItems: [] });
     setCreateError(null);
     setScreen("today");
     setSelectedTaskId(null);
@@ -586,6 +595,7 @@ export function App() {
     setResumeBrief(resumeResult.brief);
     setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
     setGitCommits(gitResult.commits);
+    setGitCurrentBranch(gitResult.currentBranch);
     setGitError(gitResult.unavailable ? "Git unavailable." : null);
     setProjectPlan(plan);
     setSelectedTaskId(null);
@@ -1136,7 +1146,7 @@ export function App() {
     setImporting(true);
     setImportError(null);
     try {
-      await api.importPlan(project.id, parsedPlan.stages);
+      await api.importPlan(project.id, parsedPlan.planTitle, parsedPlan.stages);
       if (!isCurrentProjectContext(revision)) {
         return;
       }
@@ -1155,12 +1165,7 @@ export function App() {
       if (!isCurrentProjectContext(revision)) {
         return;
       }
-      const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("Plan already has task history")) {
-        setImportError("Could not import plan without losing existing task history.");
-      } else {
-        setImportError("Could not import plan.");
-      }
+      setImportError("Could not import plan.");
     } finally {
       if (isCurrentProjectContext(revision)) {
         setImporting(false);
@@ -1315,7 +1320,8 @@ export function App() {
     if (screen === "plan") {
       return (
         <Planner
-          frames={buildPlannerFrames(
+          planFrames={buildPlanFrames(
+            projectPlan.plans,
             projectPlan.stages,
             projectPlan.tasks,
             projectPlan.checklistItems,
@@ -1425,7 +1431,7 @@ export function App() {
       );
     }
 
-    const todayView = buildTodayView(resumeBrief, projectPlan, todayTask, gitCommits);
+    const todayView = buildTodayView(resumeBrief, projectPlan, todayTask, gitCommits, gitCurrentBranch);
 
     return (
       <Today

@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection};
 
-use crate::domain::{ChecklistItem, Stage, Task};
+use crate::domain::{ChecklistItem, Plan, Stage, Task};
 
 pub(crate) fn recalculate_stage_statuses(
     conn: &Connection,
@@ -19,6 +19,7 @@ pub(crate) fn recalculate_stage_statuses(
              select candidate.id
              from stages candidate
              where candidate.project_id = ?1
+               and candidate.plan_id is stages.plan_id
                and exists (
                  select 1 from tasks
                  where tasks.project_id = candidate.project_id
@@ -46,9 +47,29 @@ impl<'a> TaskRepository<'a> {
         Self { conn }
     }
 
+    pub fn list_plans(&self, project_id: &str) -> rusqlite::Result<Vec<Plan>> {
+        let mut stmt = self.conn.prepare(
+            "select id, project_id, title, position
+             from plans
+             where project_id = ?1
+             order by position asc, id asc",
+        )?;
+
+        let rows = stmt.query_map(params![project_id], |row| {
+            Ok(Plan {
+                id: row.get(0)?,
+                project_id: row.get(1)?,
+                title: row.get(2)?,
+                position: row.get(3)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
     pub fn list_stages(&self, project_id: &str) -> rusqlite::Result<Vec<Stage>> {
         let mut stmt = self.conn.prepare(
-            "select id, project_id, title, description, position, status
+            "select id, project_id, plan_id, title, description, position, status
              from stages
              where project_id = ?1
              order by position asc, id asc",
@@ -58,10 +79,11 @@ impl<'a> TaskRepository<'a> {
             Ok(Stage {
                 id: row.get(0)?,
                 project_id: row.get(1)?,
-                title: row.get(2)?,
-                description: row.get(3)?,
-                position: row.get(4)?,
-                status: row.get(5)?,
+                plan_id: row.get(2)?,
+                title: row.get(3)?,
+                description: row.get(4)?,
+                position: row.get(5)?,
+                status: row.get(6)?,
             })
         })?;
 

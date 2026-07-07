@@ -91,7 +91,7 @@ export function buildTimeline(
       kind: "commit" as const,
       typeLabel: "Commit",
       title: commit.message,
-      metadata: `${commit.sha.slice(0, 7)} · ${commit.branch}`,
+      metadata: `${commit.sha.slice(0, 7)} · captured on ${commit.branch}`,
       changedFiles: commit.changedFiles,
       changedFilesLabel: formatChangedFiles(commit.changedFiles.length),
       timestamp: commit.committedAt,
@@ -169,8 +169,8 @@ function paginateTimelineItems(totalItems: number, options: TimelineOptions): Ti
   };
 }
 
-function normalizePositiveInteger(value: number | undefined, fallback: number) {
-  return Number.isInteger(value) && value > 0 ? value : fallback;
+function normalizePositiveInteger(value: number | undefined, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
 function compareTimelineItems(a: TimelineItem, b: TimelineItem) {
