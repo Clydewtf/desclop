@@ -10,10 +10,21 @@ on:
         description: "Release tag to build, for example v0.1.0-alpha.1"
         required: true
         type: string
+      platform:
+        description: "Platform to build"
+        default: all
+        required: true
+        type: choice
+        options:
+          - all
+          - macos-latest
+          - ubuntu-22.04
+          - windows-latest
 
 jobs:
   publish-tauri:
     name: Build ${{ matrix.platform }}
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
     permissions:
       contents: write
     strategy:
@@ -25,7 +36,7 @@ jobs:
           - platform: ubuntu-22.04
             args: ""
           - platform: windows-latest
-            args: ""
+            args: "--bundles nsis"
     runs-on: ${{ matrix.platform }}
     env:
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
@@ -62,7 +73,7 @@ jobs:
           projectPath: apps/desktop
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: Desclop ${{ env.RELEASE_TAG }}
-          releaseBody: See `CHANGELOG.md` for the release notes.
+          generateReleaseNotes: true
           prerelease: ${{ contains(env.RELEASE_TAG, '-') }}
           releaseDraft: false
           uploadUpdaterJson: false
