@@ -42,6 +42,49 @@ describe("FirstRunHelp", () => {
     expect(within(dialog).getByRole("button", { name: "Got it" })).toBeInTheDocument();
   });
 
+  it("moves initial focus to the dialog action", () => {
+    renderWithRouter(<FirstRunHelp />);
+
+    const dialog = screen.getByRole("dialog", { name: "First-run help" });
+
+    expect(within(dialog).getByRole("button", { name: "Got it" })).toHaveFocus();
+  });
+
+  it("traps forward and backward Tab focus within the dialog", async () => {
+    const user = userEvent.setup();
+
+    renderWithRouter(
+      <>
+        <button type="button">Background action</button>
+        <FirstRunHelp />
+      </>
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "First-run help" });
+    const dismissButton = within(dialog).getByRole("button", { name: "Got it" });
+    const backgroundAction = screen.getByRole("button", { name: "Background action" });
+
+    dismissButton.focus();
+    await user.tab();
+    expect(dismissButton).toHaveFocus();
+    expect(backgroundAction).not.toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(dismissButton).toHaveFocus();
+    expect(backgroundAction).not.toHaveFocus();
+  });
+
+  it("dismisses when Escape is pressed", async () => {
+    const user = userEvent.setup();
+
+    renderWithRouter(<FirstRunHelp />);
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.queryByRole("dialog", { name: "First-run help" })).not.toBeInTheDocument();
+    expect(window.localStorage.getItem(FIRST_RUN_HELP_STORAGE_KEY)).toBe("dismissed");
+  });
+
   it("dismisses immediately and stays dismissed on a later mount", async () => {
     const user = userEvent.setup();
 

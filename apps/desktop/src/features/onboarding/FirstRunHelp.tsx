@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { Button } from "../../shared/ui";
 
 const FIRST_RUN_HELP_STORAGE_KEY = "desclop.first-run-help.dismissed";
@@ -15,6 +15,15 @@ function hasBeenDismissed() {
 export function FirstRunHelp() {
   const [visible, setVisible] = useState(() => !hasBeenDismissed());
   const descriptionId = useId();
+  const dialogRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (visible) {
+      dialogRef.current
+        ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+        ?.focus();
+    }
+  }, [visible]);
 
   function dismiss() {
     try {
@@ -28,6 +37,37 @@ export function FirstRunHelp() {
     setVisible(false);
   }
 
+  function handleDialogKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      dismiss();
+      return;
+    }
+
+    if (event.key !== "Tab") {
+      return;
+    }
+
+    const focusableButtons = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")
+    );
+    const firstButton = focusableButtons[0];
+    const lastButton = focusableButtons.at(-1);
+    if (!firstButton || !lastButton) {
+      event.preventDefault();
+      event.currentTarget.focus();
+      return;
+    }
+
+    if (event.shiftKey && document.activeElement === firstButton) {
+      event.preventDefault();
+      lastButton.focus();
+    } else if (!event.shiftKey && document.activeElement === lastButton) {
+      event.preventDefault();
+      firstButton.focus();
+    }
+  }
+
   if (!visible) {
     return null;
   }
@@ -35,11 +75,14 @@ export function FirstRunHelp() {
   return (
     <div className="first-run-help-overlay" role="presentation">
       <section
+        ref={dialogRef}
         aria-describedby={descriptionId}
         aria-label="First-run help"
         aria-modal="true"
         className="first-run-help"
+        onKeyDown={handleDialogKeyDown}
         role="dialog"
+        tabIndex={-1}
       >
         <header className="first-run-help__header">
           <h2>Welcome to Desclop</h2>
