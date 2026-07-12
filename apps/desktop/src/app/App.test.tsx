@@ -96,6 +96,14 @@ const unlinkCommit = vi.mocked(api.unlinkCommit);
 const exportProjectBundle = vi.mocked(api.exportProjectBundle);
 const importProjectBundle = vi.mocked(api.importProjectBundle);
 const chooseFolderMock = vi.mocked(chooseFolder);
+const FIRST_RUN_HELP_STORAGE_KEY = "desclop.first-run-help.dismissed";
+const onboardingStorage = new Map<string, string>();
+
+const onboardingStorageMock = {
+  getItem: (key: string) => onboardingStorage.get(key) ?? null,
+  setItem: (key: string, value: string) => onboardingStorage.set(key, value),
+  removeItem: (key: string) => onboardingStorage.delete(key)
+};
 
 function enableTauriApi() {
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -309,11 +317,19 @@ function twoTaskPlanFixture({
 }
 
 beforeEach(() => {
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: onboardingStorageMock
+  });
+  onboardingStorage.clear();
+  window.localStorage.removeItem(FIRST_RUN_HELP_STORAGE_KEY);
   listProjectSummaries.mockResolvedValue([]);
   readCurrentGitBranch.mockResolvedValue(null);
 });
 
 afterEach(() => {
+  onboardingStorage.clear();
+  window.localStorage.removeItem(FIRST_RUN_HELP_STORAGE_KEY);
   vi.useRealTimers();
   tauriEventMock.listeners.clear();
   chooseFolderMock.mockReset();
@@ -322,6 +338,13 @@ afterEach(() => {
 });
 
 describe("App", () => {
+  it("mounts first-run help after loading reaches project setup", async () => {
+    renderWithRouter(<App />);
+
+    expect(await screen.findByRole("dialog", { name: "First-run help" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Create a local project" })).toBeInTheDocument();
+  });
+
   it("renders the desktop shell", () => {
     renderWithRouter(<App />);
     expect(screen.getByText("Desclop")).toBeInTheDocument();

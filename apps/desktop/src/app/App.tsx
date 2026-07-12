@@ -4,6 +4,7 @@ import "../styles/base.css";
 import { exportPlanMarkdown } from "../features/export-import/markdownExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
 import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImportPreview";
+import { FirstRunHelp } from "../features/onboarding/FirstRunHelp";
 import { parseMarkdownPlan, type ParsedMarkdownPlan } from "../features/markdown-import/markdownParser";
 import { Planner } from "../features/planner/Planner";
 import { buildPlanFrames } from "../features/planner/plannerEngine";
@@ -1479,6 +1480,7 @@ export function App() {
           error={createError}
           onCreate={createProject}
         />
+        <FirstRunHelp />
       </AppShell>
     );
   }
@@ -1515,6 +1517,7 @@ export function App() {
             />
           </>
         )}
+        <FirstRunHelp />
       </AppShell>
     );
   }
@@ -1543,6 +1546,7 @@ export function App() {
         onSave={saveQuickCapture}
         onClose={closeQuickCapture}
       />
+      <FirstRunHelp />
     </AppShell>
   );
 }
