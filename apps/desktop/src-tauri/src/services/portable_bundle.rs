@@ -75,6 +75,8 @@ pub struct BundleChecklistItemRow {
     pub id: String,
     pub task_id: String,
     pub title: String,
+    #[serde(default)]
+    pub description: String,
     pub completed: bool,
     pub position: i64,
     pub created_at: String,
@@ -335,12 +337,13 @@ fn import_bundle(
 
     for item in bundle.checklist_items {
         tx.execute(
-            "insert into checklist_items (id, task_id, title, completed, position, created_at, updated_at)
-             values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "insert into checklist_items (id, task_id, title, description, completed, position, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 Uuid::new_v4().to_string(),
                 remap_required(&task_ids, &item.task_id, "task_id")?,
                 item.title,
+                item.description,
                 item.completed as i32,
                 item.position,
                 item.created_at,
@@ -706,7 +709,7 @@ fn list_checklist_item_rows(
 ) -> rusqlite::Result<Vec<BundleChecklistItemRow>> {
     let mut stmt = conn.prepare(
         "select checklist_items.id, checklist_items.task_id, checklist_items.title,
-                checklist_items.completed, checklist_items.position,
+                checklist_items.description, checklist_items.completed, checklist_items.position,
                 checklist_items.created_at, checklist_items.updated_at
          from checklist_items
          inner join tasks on tasks.id = checklist_items.task_id
@@ -718,10 +721,11 @@ fn list_checklist_item_rows(
             id: row.get(0)?,
             task_id: row.get(1)?,
             title: row.get(2)?,
-            completed: row.get::<_, i32>(3)? == 1,
-            position: row.get(4)?,
-            created_at: row.get(5)?,
-            updated_at: row.get(6)?,
+            description: row.get(3)?,
+            completed: row.get::<_, i32>(4)? == 1,
+            position: row.get(5)?,
+            created_at: row.get(6)?,
+            updated_at: row.get(7)?,
         })
     })?;
     rows.collect()
@@ -925,9 +929,11 @@ mod tests {
                     position: 0,
                     tasks: vec![ImportTask {
                         title: "Create store".to_string(),
+                        description: "".to_string(),
                         status: "todo".to_string(),
                         checklist: vec![ImportChecklistItem {
                             title: "Add migration".to_string(),
+                            description: "".to_string(),
                             completed: true,
                             position: 0,
                         }],
@@ -1009,9 +1015,11 @@ mod tests {
                     tasks: vec![
                         ImportTask {
                             title: "Older open task".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![ImportChecklistItem {
                                 title: "Timed checklist".to_string(),
+                                description: "".to_string(),
                                 completed: false,
                                 position: 0,
                             }],
@@ -1019,6 +1027,7 @@ mod tests {
                         },
                         ImportTask {
                             title: "Newer open task".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![],
                             position: 1,

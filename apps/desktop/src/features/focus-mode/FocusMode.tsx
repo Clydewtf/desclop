@@ -5,6 +5,7 @@ import { getFocusTimerState, type FocusModeKind } from "./focusTimer";
 
 interface FocusModeProps {
   task: Task;
+  stageDescription?: string;
   checklist: ChecklistItem[];
   notes: Note[];
   mode: FocusModeKind;
@@ -66,6 +67,18 @@ export function FocusMode(props: FocusModeProps) {
       <header className="focus-mode__header">
         <div className="focus-mode__task">
           <h1 id="focus-title">{props.task.title}</h1>
+          {props.task.description ? (
+            <details className="task-description-details">
+              <summary>Task details</summary>
+              <p>{props.task.description}</p>
+            </details>
+          ) : null}
+          {props.stageDescription ? (
+            <details className="stage-description-details">
+              <summary>Stage context</summary>
+              <p>{props.stageDescription}</p>
+            </details>
+          ) : null}
           {props.task.nextStep ? <p>{props.task.nextStep}</p> : null}
         </div>
         <div className="focus-mode__timer" aria-label="Focus timer">
@@ -82,14 +95,22 @@ export function FocusMode(props: FocusModeProps) {
           {props.checklist.length > 0 ? (
             <div className="focus-mode__checklist-items">
               {props.checklist.map((item) => (
-                <label className="inline-field" key={item.id}>
-                  <input
-                    type="checkbox"
-                    checked={item.completed}
-                    onChange={(event) => props.onChecklistToggle(item.id, event.target.checked)}
-                  />
-                  {item.title}
-                </label>
+                <div className="focus-mode__checklist-item" key={item.id}>
+                  <label className="inline-field">
+                    <input
+                      type="checkbox"
+                      checked={item.completed}
+                      onChange={(event) => props.onChecklistToggle(item.id, event.target.checked)}
+                    />
+                    {item.title}
+                  </label>
+                  {item.description ? (
+                    <details className="focus-mode__checklist-details">
+                      <summary>Details</summary>
+                      <p>{item.description}</p>
+                    </details>
+                  ) : null}
+                </div>
               ))}
             </div>
           ) : (

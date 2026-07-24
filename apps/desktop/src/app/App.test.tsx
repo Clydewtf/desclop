@@ -337,6 +337,7 @@ afterEach(() => {
   tauriEventMock.listeners.clear();
   chooseFolderMock.mockReset();
   vi.clearAllMocks();
+  Reflect.deleteProperty(navigator, "clipboard");
   delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
 });
 
@@ -1341,7 +1342,7 @@ describe("App", () => {
       target: { value: "# Build MVP\n## Foundation\n- [ ] Create local store\n  - [x] Add migration" }
     });
     await user.click(screen.getByRole("button", { name: "Preview import" }));
-    await user.click(screen.getByRole("button", { name: "Import plan" }));
+    await user.click(screen.getByRole("button", { name: "Import 1 task" }));
 
     expect(importPlan).toHaveBeenCalledWith("p1", "Build MVP", [
       {
@@ -1350,16 +1351,76 @@ describe("App", () => {
         position: 0,
         tasks: [
           {
-            title: "Create local store",
-            status: "todo",
+          title: "Create local store",
+          description: "",
+          status: "todo",
             position: 0,
-            checklist: [{ title: "Add migration", completed: true, position: 0 }]
+            checklist: [
+              { title: "Add migration", description: "", completed: true, position: 0 }
+            ]
           }
         ]
       }
     ]);
     expect(await screen.findByRole("heading", { name: "Foundation" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue Create local store" })).toBeEnabled();
+  });
+
+  it("shows the import template, placeholder, insert action, and clipboard copy", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: scrollIntoView
+    });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ plans: [], stages: [], tasks: [], checklistItems: [] });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Import Plan" }));
+
+    expect(screen.getByPlaceholderText(/Optional plan name/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Import preview" })).toBeInTheDocument();
+    expect(screen.getByText("Nothing to preview yet")).toBeInTheDocument();
+    const planGuide = screen.getByRole("heading", { name: "Plan structure" }).closest("details");
+    expect(planGuide).not.toHaveAttribute("open");
+
+    await user.click(screen.getByRole("heading", { name: "Plan structure" }));
+    expect(planGuide).toHaveAttribute("open");
+    expect(screen.getByText(/Why this stage matters/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Insert example" }));
+    expect((screen.getByLabelText("Markdown plan") as HTMLTextAreaElement).value).toContain(
+      "## Этап 1 — Основа"
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Example inserted");
+
+    await user.click(screen.getByRole("button", { name: "Copy template" }));
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("status")).toHaveTextContent("Template copied to clipboard");
+
+    await user.click(screen.getByRole("button", { name: "Preview import" }));
+    await waitFor(() =>
+      expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" })
+    );
+
+    if (originalScrollIntoView) {
+      Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+        configurable: true,
+        value: originalScrollIntoView
+      });
+    } else {
+      Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
   });
 
   it("navigates to Timeline and Utilities from the shell", async () => {
@@ -1543,7 +1604,7 @@ describe("App", () => {
       target: { value: "## Foundation\n- [ ] Create local store" }
     });
     await user.click(screen.getByRole("button", { name: "Preview import" }));
-    await user.click(screen.getByRole("button", { name: "Import plan" }));
+    await user.click(screen.getByRole("button", { name: "Import 1 task" }));
 
     expect(screen.getByRole("button", { name: "Importing plan" })).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Importing plan" }));
@@ -1569,7 +1630,7 @@ describe("App", () => {
       target: { value: "## New plan\n- [ ] New task" }
     });
     await user.click(screen.getByRole("button", { name: "Preview import" }));
-    await user.click(screen.getByRole("button", { name: "Import plan" }));
+    await user.click(screen.getByRole("button", { name: "Import 1 task" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not import plan.");
     expect(screen.getByLabelText("Markdown plan")).toHaveValue("## New plan\n- [ ] New task");

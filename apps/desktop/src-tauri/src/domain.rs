@@ -74,6 +74,7 @@ pub struct ChecklistItem {
     pub id: Id,
     pub task_id: Id,
     pub title: String,
+    pub description: String,
     pub completed: bool,
     pub position: i64,
 }

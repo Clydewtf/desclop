@@ -145,27 +145,29 @@ fn insert_plan_with_stages(
             };
             tx.execute(
                 "insert into tasks (id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at)
-                 values (?1, ?2, ?3, ?4, '', ?5, null, null, '', ?6, ?7, ?8)",
+                 values (?1, ?2, ?3, ?4, ?5, ?6, null, null, '', ?7, ?8, ?9)",
                 params![
                     task_id,
                     project_id,
                     stage_id,
                     task.title,
+                    task.description,
                     task_status,
                     task.position,
                     now,
-                    now
+                    now,
                 ],
             )?;
 
             for item in task.checklist {
                 tx.execute(
-                    "insert into checklist_items (id, task_id, title, completed, position, created_at, updated_at)
-                     values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                    "insert into checklist_items (id, task_id, title, description, completed, position, created_at, updated_at)
+                     values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     params![
                         Uuid::new_v4().to_string(),
                         task_id,
                         item.title,
+                        item.description,
                         item.completed as i32,
                         item.position,
                         now,
@@ -183,6 +185,7 @@ fn insert_plan_with_stages(
 #[serde(rename_all = "camelCase")]
 pub struct ImportStage {
     pub title: String,
+    #[serde(default)]
     pub description: String,
     pub tasks: Vec<ImportTask>,
     pub position: i64,
@@ -192,6 +195,8 @@ pub struct ImportStage {
 #[serde(rename_all = "camelCase")]
 pub struct ImportTask {
     pub title: String,
+    #[serde(default)]
+    pub description: String,
     pub status: String,
     pub checklist: Vec<ImportChecklistItem>,
     pub position: i64,
@@ -201,6 +206,8 @@ pub struct ImportTask {
 #[serde(rename_all = "camelCase")]
 pub struct ImportChecklistItem {
     pub title: String,
+    #[serde(default)]
+    pub description: String,
     pub completed: bool,
     pub position: i64,
 }
@@ -218,6 +225,7 @@ mod tests {
             position: 0,
             tasks: vec![ImportTask {
                 title: "Keep task".to_string(),
+                description: "".to_string(),
                 status: "todo".to_string(),
                 checklist: vec![],
                 position: 0,
@@ -232,6 +240,7 @@ mod tests {
             position: 0,
             tasks: vec![ImportTask {
                 title: "New task".to_string(),
+                description: "".to_string(),
                 status: "todo".to_string(),
                 checklist: vec![],
                 position: 0,
@@ -296,6 +305,7 @@ mod tests {
                         position: 0,
                         tasks: vec![ImportTask {
                             title: "Done task".to_string(),
+                            description: "".to_string(),
                             status: "done".to_string(),
                             checklist: vec![],
                             position: 0,
@@ -307,6 +317,7 @@ mod tests {
                         position: 1,
                         tasks: vec![ImportTask {
                             title: "Open task".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![],
                             position: 0,
@@ -377,6 +388,7 @@ mod tests {
                         position: 0,
                         tasks: vec![ImportTask {
                             title: "Done task".to_string(),
+                            description: "".to_string(),
                             status: "done".to_string(),
                             checklist: vec![],
                             position: 0,
@@ -388,6 +400,7 @@ mod tests {
                         position: 1,
                         tasks: vec![ImportTask {
                             title: "Next task".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![],
                             position: 0,
@@ -399,6 +412,7 @@ mod tests {
                         position: 2,
                         tasks: vec![ImportTask {
                             title: "Later task".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![],
                             position: 0,
@@ -470,13 +484,15 @@ mod tests {
                 &project.id,
                 vec![ImportStage {
                     title: "Old stage".to_string(),
-                    description: "".to_string(),
+                    description: "Old context".to_string(),
                     position: 0,
                     tasks: vec![ImportTask {
                         title: "Old task".to_string(),
+                        description: "Old task context".to_string(),
                         status: "todo".to_string(),
                         checklist: vec![ImportChecklistItem {
                             title: "Old checklist item".to_string(),
+                            description: "Old checklist context".to_string(),
                             completed: false,
                             position: 0,
                         }],
@@ -501,13 +517,15 @@ mod tests {
                 &project.id,
                 vec![ImportStage {
                     title: "Foundation".to_string(),
-                    description: "".to_string(),
+                    description: "Stage context".to_string(),
                     position: 0,
                     tasks: vec![ImportTask {
                         title: "Create local store".to_string(),
+                        description: "Task context".to_string(),
                         status: "todo".to_string(),
                         checklist: vec![ImportChecklistItem {
                             title: "Add migration".to_string(),
+                            description: "Checklist context".to_string(),
                             completed: true,
                             position: 0,
                         }],
@@ -528,6 +546,16 @@ mod tests {
                 row.get(0)
             })
             .expect("checklist completed");
+        let descriptions: (String, String, String) = conn
+            .query_row(
+                "select stages.description, tasks.description, checklist_items.description
+                 from stages
+                 inner join tasks on tasks.stage_id = stages.id
+                 inner join checklist_items on checklist_items.task_id = tasks.id",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("imported descriptions");
         let old_stage_count: i64 = conn
             .query_row(
                 "select count(*) from stages where title = 'Old stage'",
@@ -560,6 +588,14 @@ mod tests {
         assert_eq!(stage_count, 1);
         assert_eq!(task_title, "Create local store");
         assert_eq!(checklist_completed, 1);
+        assert_eq!(
+            descriptions,
+            (
+                "Stage context".to_string(),
+                "Task context".to_string(),
+                "Checklist context".to_string()
+            )
+        );
         assert_eq!(old_stage_count, 0);
         assert_eq!(old_task_count, 0);
         assert_eq!(old_checklist_count, 0);

@@ -12,13 +12,20 @@ export function exportPlanMarkdown(input: {
     .slice()
     .sort((a, b) => a.position - b.position)
     .forEach((stage) => {
-      lines.push(`## ${oneLine(stage.title)}`, "");
+      lines.push(`## ${oneLine(stage.title)}`);
+      if (stage.description) {
+        lines.push(`> ${oneLine(stage.description)}`);
+      }
+      lines.push("");
       input.tasks
         .filter((task) => task.stageId === stage.id)
         .sort((a, b) => a.position - b.position)
         .forEach((task) => {
           const checked = task.status === "done" ? "x" : " ";
           lines.push(`- [${checked}] ${oneLine(task.title)}`);
+          if (task.description) {
+            lines.push(`  > ${oneLine(task.description)}`);
+          }
           input.checklistItems
             .filter((item) => item.taskId === task.id)
             .sort((a, b) => a.position - b.position)
@@ -26,6 +33,9 @@ export function exportPlanMarkdown(input: {
               lines.push(
                 `  - [${item.completed ? "x" : " "}] ${oneLine(item.title)}`
               );
+              if (item.description) {
+                lines.push(`    > ${oneLine(item.description)}`);
+              }
             });
           if (task.nextStep) {
             lines.push(`  - Next step: ${oneLine(task.nextStep)}`);

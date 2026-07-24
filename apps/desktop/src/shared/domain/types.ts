@@ -60,6 +60,7 @@ export interface ChecklistItem {
   id: Id;
   taskId: Id;
   title: string;
+  description?: string;
   completed: boolean;
   position: number;
 }

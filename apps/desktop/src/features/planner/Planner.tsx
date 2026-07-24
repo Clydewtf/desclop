@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ChecklistItem } from "../../shared/domain/types";
 import type { PlanFrame, PlannerFrame } from "./plannerEngine";
 import { Button, ScreenHeader, TaskStatusBadge } from "../../shared/ui";
 
@@ -160,6 +161,12 @@ function renderStageFrame(
         <div>
           <p className="stage-frame__status">{stageStatusLabel(frame.stage.status)}</p>
           <h2 id={`${frame.stage.id}-title`}>{frame.stage.title}</h2>
+          {frame.stage.description ? (
+            <details className="stage-description-details">
+              <summary>Stage context</summary>
+              <p>{frame.stage.description}</p>
+            </details>
+          ) : null}
         </div>
         <div
           className="stage-frame__progress"
@@ -191,9 +198,18 @@ function renderStageFrame(
           <div className="task-list task-list--collapsed">
             {frame.tasks.map((task) => (
               <div className="task-row task-row--summary" key={task.id}>
-                <div className="task-row__title">
-                  <span>{task.title}</span>
-                  <TaskStatusBadge status={task.status} />
+                <div className="task-row__content">
+                  <div className="task-row__title">
+                    <span>{task.title}</span>
+                    <TaskStatusBadge status={task.status} />
+                  </div>
+                  {task.description ? (
+                    <details className="task-description-details">
+                      <summary>Task details</summary>
+                      <p>{task.description}</p>
+                    </details>
+                  ) : null}
+                  <ChecklistDescriptions items={task.checklist} />
                 </div>
                 <Button
                   variant="secondary"
@@ -236,6 +252,13 @@ function renderStageFrame(
                       {completedChecklist}/{task.checklist.length} checklist
                     </small>
                   ) : null}
+                  {task.description ? (
+                    <details className="task-description-details">
+                      <summary>Task details</summary>
+                      <p>{task.description}</p>
+                    </details>
+                  ) : null}
+                  <ChecklistDescriptions items={task.checklist} />
                 </div>
                 <Button
                   variant="secondary"
@@ -252,6 +275,27 @@ function renderStageFrame(
         </div>
       )}
     </article>
+  );
+}
+
+function ChecklistDescriptions({ items }: { items: ChecklistItem[] }) {
+  const describedItems = items.filter((item) => item.description);
+  if (describedItems.length === 0) {
+    return null;
+  }
+
+  return (
+    <details className="task-checklist__details">
+      <summary>Checklist details</summary>
+      <ul className="task-checklist__description-list">
+        {describedItems.map((item) => (
+          <li key={item.id}>
+            <strong>{item.title}</strong>
+            <p>{item.description}</p>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 

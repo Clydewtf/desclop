@@ -61,6 +61,18 @@ export function Today({
           </div>
           <div className="today-current-task__content">
             <h2>{view.primaryTaskTitle}</h2>
+            {view.primaryTaskDescription ? (
+              <details className="today-current-task__details">
+                <summary>Task details</summary>
+                <p>{view.primaryTaskDescription}</p>
+              </details>
+            ) : null}
+            {view.stageDescription ? (
+              <details className="today-current-task__details">
+                <summary>Stage context</summary>
+                <p>{view.stageDescription}</p>
+              </details>
+            ) : null}
             {view.latestNote ? <p className="today-current-task__note">{view.latestNote}</p> : null}
           </div>
           {view.state === "missing-next-step" ? (
@@ -103,6 +115,12 @@ export function Today({
                 <li key={task.id}>
                   <div>
                     <strong>{task.title}</strong>
+                    {task.description ? (
+                      <details className="today-current-task__details">
+                        <summary>Task details</summary>
+                        <p>{task.description}</p>
+                      </details>
+                    ) : null}
                     {task.nextStep ? <span>{task.nextStep}</span> : null}
                   </div>
                   {onOpenTask ? (

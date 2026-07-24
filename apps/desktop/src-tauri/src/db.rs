@@ -12,7 +12,19 @@ pub fn open_connection(path: &std::path::Path) -> rusqlite::Result<Connection> {
 pub fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(include_str!("../migrations/001_init.sql"))?;
     migrate_plans_schema(conn)?;
+    migrate_checklist_descriptions_schema(conn)?;
     migrate_commit_tables_to_project_scoped_keys(conn)
+}
+
+fn migrate_checklist_descriptions_schema(conn: &Connection) -> rusqlite::Result<()> {
+    if !table_has_column(conn, "checklist_items", "description")? {
+        conn.execute(
+            "alter table checklist_items add column description text not null default ''",
+            [],
+        )?;
+    }
+
+    Ok(())
 }
 
 fn migrate_plans_schema(conn: &Connection) -> rusqlite::Result<()> {

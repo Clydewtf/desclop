@@ -15,7 +15,7 @@ describe("Planner", () => {
           id: "stage-1",
           projectId: "project-1",
           title: "Completed foundation",
-          description: "",
+          description: "The completed storage foundation.",
           position: 0,
           status: "completed"
         },
@@ -36,7 +36,7 @@ describe("Planner", () => {
             projectId: "project-1",
             stageId: "stage-1",
             title: "Import markdown plan",
-            description: "",
+            description: "Use the explicit import contract.",
             status: "done",
             priority: "normal",
             dueDate: null,
@@ -51,7 +51,7 @@ describe("Planner", () => {
           id: "stage-2",
           projectId: "project-1",
           title: "Restructure Today",
-          description: "",
+          description: "The stage that makes resume context actionable.",
           position: 1,
           status: "current"
         },
@@ -72,7 +72,7 @@ describe("Planner", () => {
             projectId: "project-1",
             stageId: "stage-2",
             title: "Restructure Today",
-            description: "",
+            description: "Keep the task small and resumable.",
             status: "active",
             priority: "normal",
             dueDate: null,
@@ -90,6 +90,7 @@ describe("Planner", () => {
                 id: "c2",
                 taskId: "t2",
                 title: "Run component tests",
+                description: "Use the focused test command before opening the task.",
                 completed: false,
                 position: 1
               }
@@ -103,6 +104,11 @@ describe("Planner", () => {
 
     expect(screen.getByRole("heading", { name: "Plan" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Completed foundation" })).toBeInTheDocument();
+    expect(screen.getByText("The completed storage foundation.")).toBeInTheDocument();
+    expect(screen.getByText("Keep the task small and resumable.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Use the focused test command before opening the task.")
+    ).toBeInTheDocument();
     expect(screen.getByText("1/3 tasks")).toBeInTheDocument();
     expect(screen.getByText("Next")).toBeInTheDocument();
     expect(screen.getByText("Next: Run Today component tests")).toBeInTheDocument();

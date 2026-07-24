@@ -4,6 +4,7 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
   await page.addInitScript(() => {
     const state = {
       projects: [],
+      plans: [],
       stages: [],
       tasks: [],
       checklistItems: [],
@@ -72,6 +73,49 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
             updatedAt: now()
           };
           state.projects = [project];
+          state.plans = [
+            {
+              id: "existing-plan",
+              projectId: project.id,
+              title: "Existing plan",
+              position: 0
+            }
+          ];
+          state.stages = [
+            {
+              id: "existing-stage",
+              projectId: project.id,
+              planId: "existing-plan",
+              title: "Existing foundation",
+              description: "Keep this existing context.",
+              position: 0,
+              status: "current"
+            }
+          ];
+          state.tasks = [
+            {
+              id: "existing-task",
+              projectId: project.id,
+              stageId: "existing-stage",
+              title: "Keep existing work",
+              description: "This task must survive a new import.",
+              status: "todo",
+              priority: null,
+              dueDate: null,
+              nextStep: "Do not replace this task",
+              position: 0
+            }
+          ];
+          state.checklistItems = [
+            {
+              id: "existing-checklist",
+              taskId: "existing-task",
+              title: "Keep existing checklist",
+              description: "This checklist item must survive too.",
+              completed: false,
+              position: 0
+            }
+          ];
           return project;
         }
 
@@ -85,6 +129,7 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
 
         if (cmd === "load_project_plan") {
           return {
+            plans: state.plans.filter((plan) => plan.projectId === args.projectId),
             stages: state.stages.filter((stage) => stage.projectId === args.projectId),
             tasks: state.tasks.filter((task) => task.projectId === args.projectId),
             checklistItems: state.checklistItems.filter((item) =>
@@ -94,21 +139,32 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
         }
 
         if (cmd === "import_plan") {
-          state.stages = args.stages.map((stage, stageIndex) => ({
-            id: `s${stageIndex + 1}`,
+          const planPosition = state.plans.length;
+          const planId = `plan-${planPosition + 1}`;
+          state.plans.push({
+            id: planId,
             projectId: args.projectId,
+            title: args.title,
+            position: planPosition
+          });
+          const stageOffset = state.stages.length;
+          const taskOffset = state.tasks.length;
+          const newStages = args.stages.map((stage, stageIndex) => ({
+            id: `s${stageOffset + stageIndex + 1}`,
+            projectId: args.projectId,
+            planId,
             title: stage.title,
             description: stage.description,
             position: stage.position,
             status: stageIndex === 0 ? "current" : "future"
           }));
-          state.tasks = args.stages.flatMap((stage, stageIndex) =>
+          const newTasks = args.stages.flatMap((stage, stageIndex) =>
             stage.tasks.map((task, taskIndex) => ({
-              id: `t${stageIndex + 1}-${taskIndex + 1}`,
+              id: `t${taskOffset + stageIndex + 1}-${taskIndex + 1}`,
               projectId: args.projectId,
-              stageId: `s${stageIndex + 1}`,
+              stageId: newStages[stageIndex].id,
               title: task.title,
-              description: "",
+              description: task.description,
               status: task.status,
               priority: null,
               dueDate: null,
@@ -116,17 +172,25 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
               position: task.position
             }))
           );
-          state.checklistItems = args.stages.flatMap((stage, stageIndex) =>
+          const newChecklistItems = args.stages.flatMap((stage, stageIndex) =>
             stage.tasks.flatMap((task, taskIndex) =>
               task.checklist.map((item, itemIndex) => ({
-                id: `c${stageIndex + 1}-${taskIndex + 1}-${itemIndex + 1}`,
-                taskId: `t${stageIndex + 1}-${taskIndex + 1}`,
+                id: `c${state.checklistItems.length + stageIndex + 1}-${taskIndex + 1}-${itemIndex + 1}`,
+                taskId: newTasks.find(
+                  (candidate) =>
+                    candidate.stageId === newStages[stageIndex].id &&
+                    candidate.position === task.position
+                )?.id,
                 title: item.title,
+                description: item.description,
                 completed: item.completed,
                 position: item.position
               }))
             )
           );
+          state.stages.push(...newStages);
+          state.tasks.push(...newTasks);
+          state.checklistItems.push(...newChecklistItems);
           return undefined;
         }
 
@@ -222,14 +286,16 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
   await expect(page.getByText("Folder path: /tmp/desclop-alpha-e2e")).toBeVisible();
   await page.getByRole("button", { name: "Create project" }).click();
 
-  await page.getByRole("button", { name: "Import a plan" }).click();
+  await page.getByRole("button", { name: "Import Plan", exact: true }).click();
   await page
     .getByLabel("Markdown plan")
     .fill("## Alpha UX\n- [ ] Restructure Today\n  - [ ] Add current task card");
   await page.getByRole("button", { name: "Preview import" }).click();
   await page.locator(".markdown-preview__action").click();
 
+  await expect(page.getByRole("heading", { name: "Existing plan" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Alpha UX" })).toBeVisible();
+  await expect(page.getByText("Keep existing work")).toBeVisible();
   await page.getByRole("button", { name: "Continue Restructure Today" }).click();
   await expect(page.getByRole("button", { name: "Start focus" })).toBeVisible();
 

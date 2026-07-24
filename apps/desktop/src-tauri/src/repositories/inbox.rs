@@ -300,6 +300,7 @@ mod tests {
                     position: 0,
                     tasks: vec![ImportTask {
                         title: "Create local store".to_string(),
+                        description: "".to_string(),
                         status: "todo".to_string(),
                         checklist: vec![],
                         position: 0,
@@ -569,6 +570,7 @@ mod tests {
                         position: 0,
                         tasks: vec![ImportTask {
                             title: "Done task".to_string(),
+                            description: "".to_string(),
                             status: "done".to_string(),
                             checklist: vec![],
                             position: 0,
@@ -580,6 +582,7 @@ mod tests {
                         position: 1,
                         tasks: vec![ImportTask {
                             title: "Todo task".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![],
                             position: 0,

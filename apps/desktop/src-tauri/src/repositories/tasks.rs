@@ -118,7 +118,8 @@ impl<'a> TaskRepository<'a> {
 
     pub fn list_checklist_items(&self, project_id: &str) -> rusqlite::Result<Vec<ChecklistItem>> {
         let mut stmt = self.conn.prepare(
-            "select checklist_items.id, checklist_items.task_id, checklist_items.title, checklist_items.completed, checklist_items.position
+            "select checklist_items.id, checklist_items.task_id, checklist_items.title, checklist_items.description,
+                    checklist_items.completed, checklist_items.position
              from checklist_items
              inner join tasks on tasks.id = checklist_items.task_id
              where tasks.project_id = ?1
@@ -130,8 +131,9 @@ impl<'a> TaskRepository<'a> {
                 id: row.get(0)?,
                 task_id: row.get(1)?,
                 title: row.get(2)?,
-                completed: row.get::<_, i32>(3)? == 1,
-                position: row.get(4)?,
+                description: row.get(3)?,
+                completed: row.get::<_, i32>(4)? == 1,
+                position: row.get(5)?,
             })
         })?;
 
@@ -286,9 +288,11 @@ mod tests {
                     tasks: vec![
                         ImportTask {
                             title: "Create local store".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![ImportChecklistItem {
                                 title: "Add migration".to_string(),
+                                description: "".to_string(),
                                 completed: false,
                                 position: 0,
                             }],
@@ -296,6 +300,7 @@ mod tests {
                         },
                         ImportTask {
                             title: "Finished task".to_string(),
+                            description: "".to_string(),
                             status: "done".to_string(),
                             checklist: vec![],
                             position: 1,
@@ -367,9 +372,11 @@ mod tests {
                     position: 0,
                     tasks: vec![ImportTask {
                         title: "Create local store".to_string(),
+                        description: "".to_string(),
                         status: "todo".to_string(),
                         checklist: vec![ImportChecklistItem {
                             title: "Add migration".to_string(),
+                            description: "".to_string(),
                             completed: false,
                             position: 0,
                         }],
@@ -387,9 +394,11 @@ mod tests {
                     position: 0,
                     tasks: vec![ImportTask {
                         title: "Other task".to_string(),
+                        description: "".to_string(),
                         status: "todo".to_string(),
                         checklist: vec![ImportChecklistItem {
                             title: "Other checklist item".to_string(),
+                            description: "".to_string(),
                             completed: true,
                             position: 0,
                         }],
@@ -835,6 +844,7 @@ mod tests {
                         position: 0,
                         tasks: vec![ImportTask {
                             title: "Final task".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![],
                             position: 0,
@@ -846,6 +856,7 @@ mod tests {
                         position: 1,
                         tasks: vec![ImportTask {
                             title: "Next task".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![],
                             position: 0,

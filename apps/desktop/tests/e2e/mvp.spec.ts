@@ -237,7 +237,7 @@ test("resume-first MVP flow works without Git or Focus Mode", async ({ page }) =
   ].join("\n"));
   await page.getByRole("button", { name: "Preview import" }).click();
   await expect(page.getByRole("heading", { name: "Foundation" })).toBeVisible();
-  await page.getByRole("button", { name: "Import plan", exact: true }).click();
+  await page.getByRole("button", { name: "Import 2 tasks", exact: true }).click();
 
   await page.getByRole("button", { name: "Continue Create local store" }).click();
   await page.getByLabel("Task status").selectOption("active");

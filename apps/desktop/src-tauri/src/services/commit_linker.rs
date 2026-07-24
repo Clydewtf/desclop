@@ -258,12 +258,14 @@ mod tests {
                     tasks: vec![
                         ImportTask {
                             title: "Focused task".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![],
                             position: 0,
                         },
                         ImportTask {
                             title: "Active task".to_string(),
+                            description: "".to_string(),
                             status: "todo".to_string(),
                             checklist: vec![],
                             position: 1,

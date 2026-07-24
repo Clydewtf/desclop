@@ -10,7 +10,7 @@ describe("exportPlanMarkdown", () => {
           id: "s1",
           projectId: "p1",
           title: "Foundation",
-          description: "",
+          description: "The storage boundary for the project.",
           position: 0,
           status: "current"
         }
@@ -21,7 +21,7 @@ describe("exportPlanMarkdown", () => {
           projectId: "p1",
           stageId: "s1",
           title: "Create store",
-          description: "",
+          description: "Keep the local data path inspectable.",
           status: "active",
           priority: null,
           dueDate: null,
@@ -34,6 +34,7 @@ describe("exportPlanMarkdown", () => {
           id: "c1",
           taskId: "t1",
           title: "Add migration",
+          description: "Apply it before repository tests.",
           completed: true,
           position: 0
         }
@@ -42,8 +43,11 @@ describe("exportPlanMarkdown", () => {
 
     expect(markdown).toContain("# Desclop Plan");
     expect(markdown).toContain("## Foundation");
+    expect(markdown).toContain("> The storage boundary for the project.");
     expect(markdown).toContain("- [ ] Create store");
+    expect(markdown).toContain("  > Keep the local data path inspectable.");
     expect(markdown).toContain("  - [x] Add migration");
+    expect(markdown).toContain("    > Apply it before repository tests.");
     expect(markdown).toContain("  - Next step: Run tests");
   });
 

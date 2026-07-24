@@ -55,6 +55,7 @@ create table if not exists checklist_items (
   id text primary key,
   task_id text not null references tasks(id) on delete cascade,
   title text not null,
+  description text not null default '',
   completed integer not null default 0,
   position integer not null,
   created_at text not null,

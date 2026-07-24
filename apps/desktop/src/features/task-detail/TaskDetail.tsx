@@ -31,6 +31,7 @@ export interface StartFocusInput {
 export interface TaskDetailProps {
   task: Task;
   stageTitle?: string;
+  stageDescription?: string;
   checklist: ChecklistItem[];
   notes: Note[];
   linkedCommits: GitCommit[];
@@ -58,6 +59,7 @@ const taskStatusLabels: Record<TaskStatus, string> = {
 export function TaskDetail({
   task,
   stageTitle,
+  stageDescription,
   checklist,
   notes,
   linkedCommits,
@@ -225,8 +227,19 @@ export function TaskDetail({
       <ScreenHeader
         eyebrow={stageTitle ? `${stageTitle} task` : "Task detail"}
         title={task.title}
-        description={task.description || undefined}
       />
+      {task.description ? (
+        <details className="task-description-details">
+          <summary>Task details</summary>
+          <p>{task.description}</p>
+        </details>
+      ) : null}
+      {stageDescription ? (
+        <details className="stage-description-details">
+          <summary>Stage context</summary>
+          <p>{stageDescription}</p>
+        </details>
+      ) : null}
 
       <Surface className="task-workbench-header">
         <form className="task-workbench-header__next-step" onSubmit={saveNextStep}>
@@ -279,14 +292,22 @@ export function TaskDetail({
             {checklist.length > 0 ? (
               <div className="task-checklist">
                 {checklist.map((item) => (
-                  <label className="inline-field" key={item.id}>
-                    <input
-                      type="checkbox"
-                      checked={item.completed}
-                      onChange={(event) => onChecklistToggle(item.id, event.target.checked)}
-                    />
-                    {item.title}
-                  </label>
+                  <div className="task-checklist__item" key={item.id}>
+                    <label className="inline-field">
+                      <input
+                        type="checkbox"
+                        checked={item.completed}
+                        onChange={(event) => onChecklistToggle(item.id, event.target.checked)}
+                      />
+                      {item.title}
+                    </label>
+                    {item.description ? (
+                      <details className="task-checklist__details">
+                        <summary>Details</summary>
+                        <p>{item.description}</p>
+                      </details>
+                    ) : null}
+                  </div>
                 ))}
               </div>
             ) : (

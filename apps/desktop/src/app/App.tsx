@@ -5,7 +5,12 @@ import { exportPlanMarkdown } from "../features/export-import/markdownExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
 import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImportPreview";
 import { FirstRunHelp } from "../features/onboarding/FirstRunHelp";
-import { parseMarkdownPlan, type ParsedMarkdownPlan } from "../features/markdown-import/markdownParser";
+import {
+  CANONICAL_MARKDOWN_TEMPLATE,
+  canImportParsedPlan,
+  parseMarkdownPlan,
+  type ParsedMarkdownPlan
+} from "../features/markdown-import/markdownParser";
 import { Planner } from "../features/planner/Planner";
 import { buildPlanFrames } from "../features/planner/plannerEngine";
 import { QuickCaptureOverlay } from "../features/quick-capture/QuickCaptureOverlay";
@@ -174,6 +179,10 @@ function buildTodayView(
   });
 }
 
+function nextPlanTitle(plan: ProjectPlanPayload) {
+  return `Plan ${(plan.plans?.length ?? 0) + 1}`;
+}
+
 function activeDestinationForScreen(screen: AppScreen): AppDestination {
   if (screen === "plan" || screen === "timeline" || screen === "import" || screen === "utilities") {
     return screen;
@@ -260,6 +269,7 @@ export function App() {
   const [parsedPlan, setParsedPlan] = useState<ParsedMarkdownPlan | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
+  const [templateActionStatus, setTemplateActionStatus] = useState<string | null>(null);
   const [bundleDestination, setBundleDestination] = useState("");
   const [bundleFolder, setBundleFolder] = useState("");
   const [reselectedLocalPath, setReselectedLocalPath] = useState("");
@@ -311,6 +321,7 @@ export function App() {
     setParsedPlan(null);
     setImportError(null);
     setImporting(false);
+    setTemplateActionStatus(null);
     setBundleDestination("");
     setBundleFolder("");
     setReselectedLocalPath("");
@@ -386,6 +397,18 @@ export function App() {
 
     return () => window.clearInterval(timerId);
   }, [screen]);
+
+  useEffect(() => {
+    if (!templateActionStatus) {
+      return;
+    }
+
+    const timerId = window.setTimeout(() => {
+      setTemplateActionStatus(null);
+    }, 1500);
+
+    return () => window.clearTimeout(timerId);
+  }, [templateActionStatus]);
 
   async function createProject(input: CreateProjectInput) {
     if (creating) {
@@ -1141,6 +1164,51 @@ export function App() {
   function previewImport() {
     setImportError(null);
     setParsedPlan(parseMarkdownPlan(markdownDraft));
+
+    const scrollToPreview = () => {
+      const preview = document.getElementById("markdown-import-preview");
+      if (!preview || typeof preview.scrollIntoView !== "function") {
+        return;
+      }
+
+      const prefersReducedMotion =
+        typeof window.matchMedia === "function" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      preview.scrollIntoView({
+        behavior: prefersReducedMotion ? "auto" : "smooth",
+        block: "start"
+      });
+    };
+
+    if (typeof window.requestAnimationFrame === "function") {
+      window.requestAnimationFrame(scrollToPreview);
+    } else {
+      window.setTimeout(scrollToPreview, 0);
+    }
+  }
+
+  function updateMarkdownDraft(nextDraft: string) {
+    setMarkdownDraft(nextDraft);
+    setParsedPlan(null);
+    setImportError(null);
+    setTemplateActionStatus(null);
+  }
+
+  function insertMarkdownExample() {
+    updateMarkdownDraft(CANONICAL_MARKDOWN_TEMPLATE);
+    setTemplateActionStatus("Example inserted");
+  }
+
+  async function copyMarkdownTemplate() {
+    try {
+      if (!navigator.clipboard) {
+        throw new Error("Clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(CANONICAL_MARKDOWN_TEMPLATE);
+      setTemplateActionStatus("Template copied to clipboard");
+    } catch {
+      setTemplateActionStatus("Could not copy template");
+    }
   }
 
   async function importMarkdownPlan() {
@@ -1148,11 +1216,16 @@ export function App() {
       return;
     }
 
+    if (!canImportParsedPlan(parsedPlan)) {
+      return;
+    }
+
     const revision = projectContextRevision.current;
+    const planTitle = parsedPlan.planTitle ?? nextPlanTitle(projectPlan);
     setImporting(true);
     setImportError(null);
     try {
-      await api.importPlan(project.id, parsedPlan.planTitle, parsedPlan.stages);
+      await api.importPlan(project.id, planTitle, parsedPlan.stages);
       if (!isCurrentProjectContext(revision)) {
         return;
       }
@@ -1166,6 +1239,7 @@ export function App() {
       }
       setMarkdownDraft("");
       setParsedPlan(null);
+      setTemplateActionStatus(null);
       setScreen("plan");
     } catch (error) {
       if (!isCurrentProjectContext(revision)) {
@@ -1295,30 +1369,95 @@ export function App() {
             description="Preview a Markdown task plan before writing it to the local project."
           />
           {importError ? <InlineAlert tone="error">{importError}</InlineAlert> : null}
-          <Surface ariaLabel="Markdown import" className="markdown-import">
-            <TextArea
-              id="markdown-plan"
-              label="Markdown plan"
-              value={markdownDraft}
-              disabled={importing}
-              onChange={(event) => setMarkdownDraft(event.target.value)}
-            />
-            <Button
-              type="button"
-              className="markdown-import__action"
-              disabled={importing}
-              onClick={previewImport}
+          <div className="markdown-import__layout">
+            <Surface ariaLabel="Markdown import" className="markdown-import">
+              <TextArea
+                id="markdown-plan"
+                label="Markdown plan"
+                hint="Use the supported structure below. Preview must be run again after edits."
+                value={markdownDraft}
+                placeholder={`# Optional plan name\n\n## Stage name\n- [ ] Task title\n  - [ ] Checklist item`}
+                disabled={importing}
+                onChange={(event) => updateMarkdownDraft(event.target.value)}
+              />
+              <Button
+                type="button"
+                className="markdown-import__action"
+                disabled={importing}
+                onClick={previewImport}
+              >
+                Preview import
+              </Button>
+            </Surface>
+
+            <details className="ui-surface markdown-import__guide" aria-label="Plan structure">
+              <summary className="markdown-import__guide-summary">
+                <span className="markdown-import__guide-summary-copy">
+                  <h2>Plan structure</h2>
+                  <p>Show the supported format and example.</p>
+                </span>
+                <span className="markdown-import__guide-toggle" aria-hidden="true">
+                  <span className="markdown-import__guide-toggle-open">Show</span>
+                  <span className="markdown-import__guide-toggle-close">Hide</span>
+                </span>
+              </summary>
+              <div className="markdown-import__guide-content">
+                <div className="markdown-import__guide-header">
+                  <p>Descriptions are optional and stay attached to the stage, task, or checklist item above them.</p>
+                  <div className="markdown-import__guide-actions">
+                    <Button type="button" variant="secondary" onClick={insertMarkdownExample}>
+                      Insert example
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => void copyMarkdownTemplate()}>
+                      Copy template
+                    </Button>
+                  </div>
+                </div>
+                <pre className="markdown-import__template">
+                  <code>{CANONICAL_MARKDOWN_TEMPLATE}</code>
+                </pre>
+                <div className="markdown-import__description-example">
+                  <p>Optional explanation example:</p>
+                  <pre className="markdown-import__template markdown-import__template--compact">
+                    <code>
+                      {[
+                        "## Stage",
+                        "> Why this stage matters",
+                        "- [ ] Task",
+                        "  > What the task should achieve",
+                        "  - [ ] Checklist item",
+                        "    > How to verify this item"
+                      ].join("\n")}
+                    </code>
+                  </pre>
+                </div>
+                <ul className="markdown-import__rules">
+                  <li><code>##</code> is a stage; <code>###</code> is accepted for legacy plans.</li>
+                  <li><code>- [ ]</code>/<code>- [x]</code> is a task; two spaces make a checklist item.</li>
+                  <li><span className="markdown-import__rule-label">Stage:</span> <code>&gt; text</code> directly below its heading.</li>
+                  <li><span className="markdown-import__rule-label">Task:</span> <code>  &gt; text</code> directly below the task.</li>
+                  <li><span className="markdown-import__rule-label">Checklist:</span> <code>    &gt; text</code> directly below the checklist item.</li>
+                  <li>Other Markdown is shown as a line warning and is not imported.</li>
+                </ul>
+              </div>
+            </details>
+          </div>
+          {templateActionStatus ? (
+            <p
+              key={templateActionStatus}
+              className="markdown-import__feedback"
+              role="status"
+              aria-live="polite"
             >
-              Preview import
-            </Button>
-          </Surface>
-          {parsedPlan ? (
-            <MarkdownImportPreview
-              parsed={parsedPlan}
-              onImport={() => void importMarkdownPlan()}
-              importing={importing}
-            />
+              {templateActionStatus}
+            </p>
           ) : null}
+          <MarkdownImportPreview
+            parsed={parsedPlan}
+            fallbackPlanTitle={nextPlanTitle(projectPlan)}
+            onImport={() => void importMarkdownPlan()}
+            importing={importing}
+          />
         </section>
       );
     }
@@ -1379,6 +1518,7 @@ export function App() {
         <TaskDetail
           task={selectedTask}
           stageTitle={selectedStage?.title}
+          stageDescription={selectedStage?.description}
           checklist={projectPlan.checklistItems.filter((item) => item.taskId === selectedTask.id)}
           notes={selectedNotes}
           linkedCommits={selectedLinkedCommits}
@@ -1401,9 +1541,12 @@ export function App() {
       const focusTask =
         projectPlan.tasks.find((candidate) => candidate.id === focusSession.taskId) ?? null;
       if (focusTask) {
+        const focusStage =
+          projectPlan.stages.find((stage) => stage.id === focusTask.stageId) ?? null;
         return (
           <FocusMode
             task={focusTask}
+            stageDescription={focusStage?.description}
             checklist={projectPlan.checklistItems.filter((item) => item.taskId === focusTask.id)}
             notes={selectedNotes}
             mode={focusSession.mode}

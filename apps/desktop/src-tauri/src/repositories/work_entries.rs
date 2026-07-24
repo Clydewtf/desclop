@@ -233,6 +233,7 @@ mod tests {
                     position: 0,
                     tasks: vec![ImportTask {
                         title: "Create local store".to_string(),
+                        description: "".to_string(),
                         status: "todo".to_string(),
                         checklist: vec![],
                         position: 0,

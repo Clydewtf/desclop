@@ -1133,6 +1133,11 @@ label.inline-field input {
   gap: var(--space-2);
 }
 
+.today-current-task__details {
+  display: grid;
+  gap: var(--space-2);
+}
+
 .today-current-task h2,
 .today-current-task p,
 .today-next-step p,
@@ -1222,10 +1227,342 @@ label.inline-field input {
   gap: var(--space-4);
 }
 
+.markdown-import__layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.markdown-import__guide {
+  gap: 0;
+}
+
+.markdown-import__guide[open] {
+  gap: var(--space-4);
+}
+
+.markdown-import__guide > summary {
+  list-style: none;
+}
+
+.markdown-import__guide > summary::-webkit-details-marker {
+  display: none;
+}
+
+.markdown-import__guide-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.markdown-import__guide-summary-copy {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.markdown-import__guide-summary h2,
+.markdown-import__guide-summary p {
+  margin: 0;
+}
+
+.markdown-import__guide-summary p {
+  color: var(--color-muted);
+  line-height: 1.45;
+}
+
+.markdown-import__guide-toggle {
+  flex: 0 0 auto;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 6px 10px;
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.markdown-import__guide-toggle-close,
+.markdown-import__guide[open] .markdown-import__guide-toggle-open {
+  display: none;
+}
+
+.markdown-import__guide[open] .markdown-import__guide-toggle-close {
+  display: inline;
+}
+
+.markdown-import__guide-content {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.markdown-import__guide-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.markdown-import__guide-header h2,
+.markdown-import__guide-header p,
+.markdown-import__guide p,
+.markdown-import__guide ul {
+  margin: 0;
+}
+
+.markdown-import__guide-header p,
+.markdown-import__guide > p,
+.markdown-import__rules {
+  color: var(--color-muted);
+  line-height: 1.45;
+}
+
+.markdown-import__guide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.markdown-import__guide-actions .ui-button {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.markdown-import__template {
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: auto;
+  margin: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-muted);
+  padding: var(--space-3);
+  color: var(--color-text);
+  font-size: 0.82rem;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.markdown-import__template--compact {
+  font-size: 0.78rem;
+}
+
+.markdown-import__description-example {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.markdown-import__description-example > p {
+  color: var(--color-muted);
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.markdown-import__rules {
+  display: grid;
+  gap: var(--space-2);
+  padding-left: 1.25rem;
+  font-size: 0.9rem;
+}
+
+.markdown-import__rules code {
+  color: var(--color-text);
+  white-space: pre;
+}
+
+.markdown-import__rule-label {
+  font-weight: 800;
+}
+
+.markdown-import__feedback {
+  position: fixed;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  z-index: 50;
+  display: flex;
+  max-width: min(320px, calc(100vw - 32px));
+  box-sizing: border-box;
+  align-items: center;
+  margin: 0;
+  border: 1px solid var(--color-accent-strong);
+  border-radius: 12px;
+  background: var(--color-text);
+  padding: 10px 14px;
+  color: var(--color-surface);
+  font-size: 0.84rem;
+  font-weight: 800;
+  line-height: 1.3;
+  pointer-events: none;
+  box-shadow: 0 14px 30px rgba(23, 33, 43, 0.22);
+  animation: markdown-import-feedback-in 150ms ease-out,
+    markdown-import-feedback-out 220ms ease-in 1.05s forwards;
+}
+
+.markdown-import-preview {
+  scroll-margin-top: var(--space-5);
+}
+
+@keyframes markdown-import-feedback-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes markdown-import-feedback-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markdown-import__feedback {
+    animation: none;
+  }
+}
+
 .markdown-preview__plan-title {
   margin: 0;
   color: var(--color-muted);
   font-weight: 700;
+}
+
+.markdown-preview__summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.8fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.markdown-preview__label {
+  color: var(--color-muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.markdown-preview__append-note,
+.markdown-preview__empty-stage,
+.markdown-preview__footer p {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+}
+
+.markdown-preview__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.markdown-preview__counts div {
+  display: grid;
+  min-width: 100px;
+  gap: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-muted);
+  padding: var(--space-3);
+}
+
+.markdown-preview__counts dt {
+  color: var(--color-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.markdown-preview__counts dd {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.markdown-preview__warnings {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding-left: 1.25rem;
+}
+
+.markdown-preview__stage-heading,
+.markdown-preview__tasks,
+.markdown-preview__checklist,
+.markdown-preview__details {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.markdown-preview__stage-heading h3 {
+  margin: 0;
+}
+
+.markdown-preview__checklist {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: var(--color-muted);
+}
+
+.markdown-preview__checklist li {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.markdown-preview__details {
+  color: var(--color-muted);
+}
+
+.markdown-preview__details summary,
+.task-description-details summary,
+.stage-description-details summary,
+.task-checklist__details summary,
+.focus-mode__checklist-details summary,
+.today-current-task__details summary {
+  width: fit-content;
+  color: var(--color-muted);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.markdown-preview__details p,
+.task-description-details p,
+.stage-description-details p,
+.task-checklist__details p,
+.focus-mode__checklist-details p,
+.today-current-task__details p {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.markdown-preview__footer {
+  position: sticky;
+  bottom: var(--space-4);
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.96);
+  padding: var(--space-3) var(--space-4);
+  box-shadow: 0 10px 24px rgba(23, 33, 43, 0.1);
 }
 
 .markdown-import__action,
@@ -1422,6 +1759,35 @@ label.inline-field input {
   line-height: 1.45;
 }
 
+.task-description-details,
+.stage-description-details {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.task-checklist__item,
+.focus-mode__checklist-item {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.task-checklist__details,
+.focus-mode__checklist-details {
+  margin-left: 30px;
+}
+
+.task-checklist__description-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.task-checklist__description-list li {
+  display: grid;
+  gap: var(--space-1);
+}
+
 .work-review {
   max-width: 760px;
 }
@@ -1524,6 +1890,11 @@ label.inline-field input {
 }
 
 @media (max-width: 980px) {
+  .markdown-import__layout,
+  .markdown-preview__summary {
+    grid-template-columns: 1fr;
+  }
+
   .task-workbench {
     grid-template-columns: 1fr;
   }
@@ -1587,6 +1958,14 @@ label.inline-field input {
   .ui-screen-header__actions,
   .ui-section-header__action,
   .ui-action-bar {
+    justify-content: flex-start;
+  }
+
+  .markdown-import__guide-header {
+    flex-direction: column;
+  }
+
+  .markdown-import__guide-actions {
     justify-content: flex-start;
   }
 

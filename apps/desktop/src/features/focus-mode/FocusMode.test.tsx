@@ -51,8 +51,23 @@ describe("FocusMode", () => {
 
     renderWithRouter(
       <FocusMode
-        task={taskFixture({ id: "task-1", title: "Review Today", nextStep: "Remove inline capture" })}
-        checklist={[{ id: "check-1", taskId: "task-1", title: "Update test", completed: false, position: 0 }]}
+        task={taskFixture({
+          id: "task-1",
+          title: "Review Today",
+          description: "Keep the focused path small.",
+          nextStep: "Remove inline capture"
+        })}
+        stageDescription="Keep this stage focused on the resume path."
+        checklist={[
+          {
+            id: "check-1",
+            taskId: "task-1",
+            title: "Update test",
+            description: "Cover the resume path.",
+            completed: false,
+            position: 0
+          }
+        ]}
         notes={[]}
         mode="timebox"
         startedAtMs={Date.parse("2026-06-16T10:00:00Z")}
@@ -65,6 +80,9 @@ describe("FocusMode", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Review Today" })).toBeInTheDocument();
+    expect(screen.getByText("Keep the focused path small.")).toBeInTheDocument();
+    expect(screen.getByText("Keep this stage focused on the resume path.")).toBeInTheDocument();
+    expect(screen.getByText("Cover the resume path.")).toBeInTheDocument();
     expect(screen.getByText("05:00")).toBeInTheDocument();
     expect(screen.queryByLabelText("Capture")).not.toBeInTheDocument();
 

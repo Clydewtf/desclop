@@ -33,8 +33,8 @@ function stageFixture(overrides: Partial<Stage> = {}): Stage {
 describe("buildResumeBriefView", () => {
   it("prioritizes active task, latest note, recent commits, and next step", () => {
     const view = buildResumeBriefView({
-      task: taskFixture(),
-      stage: stageFixture(),
+      task: taskFixture({ description: "Keep the task focused." }),
+      stage: stageFixture({ description: "The current delivery stage." }),
       latestNote: "Migration passes",
       commits: [
         {
@@ -56,7 +56,9 @@ describe("buildResumeBriefView", () => {
     expect(view.state).toBe("ready");
     expect(view.heading).toBe("Continue where you left off");
     expect(view.primaryTaskTitle).toBe("Create local store");
+    expect(view.primaryTaskDescription).toBe("Keep the task focused.");
     expect(view.stageTitle).toBe("Foundation");
+    expect(view.stageDescription).toBe("The current delivery stage.");
     expect(view.latestNote).toBe("Migration passes");
     expect(view.nextStep).toBe("Run repository tests");
     expect(view.facts).toContain("1 recent commit captured on main");

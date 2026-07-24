@@ -6,7 +6,9 @@ export interface ResumeBriefView {
   state: TodayState;
   heading: string;
   primaryTaskTitle: string;
+  primaryTaskDescription?: string;
   stageTitle: string;
+  stageDescription?: string;
   latestNote: string;
   nextStep: string;
   facts: string[];
@@ -74,7 +76,9 @@ export function buildResumeBriefView(input: ResumeInput): ResumeBriefView {
     state,
     heading: "Continue where you left off",
     primaryTaskTitle: primaryTaskTitles[state],
+    primaryTaskDescription: input.task?.description ?? "",
     stageTitle: input.stage?.title ?? "No current stage",
+    stageDescription: input.stage?.description ?? "",
     latestNote: input.latestNote,
     nextStep,
     facts,

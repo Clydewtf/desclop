@@ -126,9 +126,24 @@ describe("TaskDetail", () => {
   it("renders task detail as a focused workbench", () => {
     renderWithRouter(
       <TaskDetail
-        task={taskFixture({ title: "Create local store", status: "active", nextStep: "Run cargo test" })}
+        task={taskFixture({
+          title: "Create local store",
+          description: "Keep the local data path inspectable.",
+          status: "active",
+          nextStep: "Run cargo test"
+        })}
         stageTitle="Foundation"
-        checklist={[{ id: "c1", taskId: "t1", title: "Add migration", completed: false, position: 0 }]}
+        stageDescription="This stage establishes the persistence boundary."
+        checklist={[
+          {
+            id: "c1",
+            taskId: "t1",
+            title: "Add migration",
+            description: "Apply it before repository tests.",
+            completed: false,
+            position: 0
+          }
+        ]}
         notes={[{ id: "n1", projectId: "p1", taskId: "t1", body: "Migration passes", createdAt: "2026-05-20T10:00:00Z" }]}
         linkedCommits={[gitCommitFixture({ sha: "abc123456", message: "Fix import" })]}
         availableTasks={[]}
@@ -158,6 +173,10 @@ describe("TaskDetail", () => {
     );
 
     expect(screen.getByRole("heading", { name: "Create local store" })).toBeInTheDocument();
+    expect(screen.getByText("Keep the local data path inspectable.")).toBeInTheDocument();
+    expect(screen.getByText("This stage establishes the persistence boundary.")).toBeInTheDocument();
+    expect(screen.getByText("Apply it before repository tests.")).toBeInTheDocument();
+    expect(screen.getAllByText("Details")).toHaveLength(1);
     expect(screen.getByText("Foundation task")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start focus" })).toBeInTheDocument();
     expect(screen.getByLabelText("Task status")).toHaveValue("active");

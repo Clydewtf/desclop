@@ -79,11 +79,20 @@ describe("Today", () => {
           state: "ready",
           heading: "Continue where you left off",
           primaryTaskTitle: "Create local store",
+          primaryTaskDescription: "Keep the local data path inspectable.",
           stageTitle: "Foundation",
+          stageDescription: "This stage establishes the persistence boundary.",
           latestNote: "Migration passes",
           nextStep: "Run repository tests",
           facts: ["1 recent commit on main", "2 open inbox captures"],
-          nextTasks: [taskFixture({ id: "t2", title: "Wire commands", nextStep: "Add invoke wrappers" })],
+          nextTasks: [
+            taskFixture({
+              id: "t2",
+              title: "Wire commands",
+              description: "Connect the local API boundary.",
+              nextStep: "Add invoke wrappers"
+            })
+          ],
           primaryActionLabel: "Continue task"
         }}
         onPrimaryAction={vi.fn()}
@@ -93,6 +102,9 @@ describe("Today", () => {
 
     expect(screen.getByRole("heading", { name: "Continue where you left off" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Create local store" })).toBeInTheDocument();
+    expect(screen.getByText("Keep the local data path inspectable.")).toBeInTheDocument();
+    expect(screen.getByText("This stage establishes the persistence boundary.")).toBeInTheDocument();
+    expect(screen.getByText("Connect the local API boundary.")).toBeInTheDocument();
     expect(screen.getByText("Run repository tests")).toBeInTheDocument();
     expect(screen.getByText("1 recent commit on main")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Up next" })).toBeInTheDocument();
