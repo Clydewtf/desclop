@@ -249,7 +249,7 @@ mod tests {
 
         assert_eq!(created.name, "Desclop");
         assert_eq!(created.local_path, "/tmp/desclop");
-        assert_eq!(created.git_enabled, false);
+        assert!(!created.git_enabled);
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].id, created.id);
     }

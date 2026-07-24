@@ -1,0 +1,51 @@
+name: Quality Gate
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: "Revision to check"
+        required: false
+        type: string
+
+jobs:
+  quality-gate:
+    name: Frontend, e2e, and Rust checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Frontend unit tests
+        run: npm test
+
+      - name: Frontend e2e tests
+        run: npm run test:e2e
+
+      - name: Rust tests
+        run: npm run test:rust
+
+      - name: Rust clippy
+        run: npm run lint:rust
+
+      - name: Rust formatting
+        run: npm run format:check

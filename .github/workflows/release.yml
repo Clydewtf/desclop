@@ -22,8 +22,15 @@ on:
           - windows-latest
 
 jobs:
+  quality-gate:
+    name: Quality gate
+    uses: ./.github/workflows/quality-gate.yml
+    with:
+      ref: ${{ github.event.inputs.tag || github.ref_name }}
+
   publish-tauri:
     name: Build ${{ matrix.platform }}
+    needs: quality-gate
     permissions:
       contents: write
     strategy:

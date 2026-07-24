@@ -202,6 +202,11 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
 
   await page.goto("/");
 
+  const firstRunHelp = page.getByRole("dialog", { name: "First-run help" });
+  await expect(firstRunHelp).toBeVisible();
+  await firstRunHelp.getByRole("button", { name: "Got it" }).click();
+  await expect(firstRunHelp).toBeHidden();
+
   await expect(page.getByRole("heading", { name: "Create a local project" })).toBeVisible();
   await page.getByLabel("Project name").fill("Desclop");
   await page.getByLabel("Local folder path").fill("/tmp/desclop-alpha-e2e");

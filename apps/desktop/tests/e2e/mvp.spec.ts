@@ -215,6 +215,12 @@ test("resume-first MVP flow works without Git or Focus Mode", async ({ page }) =
   });
 
   await page.goto("/");
+
+  const firstRunHelp = page.getByRole("dialog", { name: "First-run help" });
+  await expect(firstRunHelp).toBeVisible();
+  await firstRunHelp.getByRole("button", { name: "Got it" }).click();
+  await expect(firstRunHelp).toBeHidden();
+
   await page.getByLabel("Project name").fill("Desclop");
   await page.getByLabel("Local folder path").fill("/tmp/desclop-no-git");
   await page.getByRole("button", { name: "Create project" }).click();

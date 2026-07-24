@@ -35,10 +35,7 @@ impl<'a> EntitlementRepository<'a> {
             .optional()
     }
 
-    pub fn set_entitlement(
-        &self,
-        input: SetEntitlementInput,
-    ) -> rusqlite::Result<Entitlement> {
+    pub fn set_entitlement(&self, input: SetEntitlementInput) -> rusqlite::Result<Entitlement> {
         validate_license_state(&input.license_state)?;
 
         let entitlement = Entitlement {
