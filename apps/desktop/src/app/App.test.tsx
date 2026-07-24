@@ -28,6 +28,7 @@ vi.mock("../shared/api/client", () => ({
   api: {
     listProjects: vi.fn(),
     listProjectSummaries: vi.fn(),
+    inspectProjectFolder: vi.fn(),
     createProject: vi.fn(),
     deleteProject: vi.fn(),
     getResumeBrief: vi.fn(),
@@ -69,6 +70,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 
 const listProjects = vi.mocked(api.listProjects);
 const listProjectSummaries = vi.mocked(api.listProjectSummaries);
+const inspectProjectFolder = vi.mocked(api.inspectProjectFolder);
 const createProject = vi.mocked(api.createProject);
 const deleteProject = vi.mocked(api.deleteProject);
 const getResumeBrief = vi.mocked(api.getResumeBrief);
@@ -324,6 +326,7 @@ beforeEach(() => {
   onboardingStorage.clear();
   window.localStorage.removeItem(FIRST_RUN_HELP_STORAGE_KEY);
   listProjectSummaries.mockResolvedValue([]);
+  inspectProjectFolder.mockResolvedValue({ gitRepository: false });
   readCurrentGitBranch.mockResolvedValue(null);
 });
 
@@ -1161,6 +1164,12 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "Create a local project" })).toBeInTheDocument();
     expect(screen.getByLabelText("Project name")).toBeEnabled();
     expect(screen.getByLabelText("Local folder path")).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Back to projects" }));
+
+    expect(
+      screen.getByRole("button", { name: /Existing Project.*Open project/s })
+    ).toBeInTheDocument();
   });
 
   it("creates a project from the picker without losing saved projects", async () => {
@@ -3362,11 +3371,18 @@ describe("App", () => {
 
     renderWithRouter(<App />);
 
-    expect(await screen.findByRole("status")).toHaveTextContent("Git unavailable.");
+    expect(await screen.findByRole("status")).toHaveTextContent("Git unavailable");
     expect(syncGitCommits).toHaveBeenCalledWith("p1");
     expect(syncGitCommits).not.toHaveBeenCalledWith("p1", "/tmp/desclop");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "No repository was found in this folder. Desclop still works without Git."
+    );
     expect(screen.getByRole("heading", { name: "Continue where you left off" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Continue task" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Dismiss Git unavailable notification" }));
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Continue task" }));
 
@@ -4156,6 +4172,23 @@ describe("App", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not create project.");
     expect(screen.getByRole("button", { name: "Create project" })).toBeEnabled();
+    expect(screen.getByRole("heading", { name: "Create a local project" })).toBeInTheDocument();
+  });
+
+  it("shows a human-readable folder validation error before creating a project", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([]);
+    inspectProjectFolder.mockRejectedValue(new Error("The selected path is not a folder."));
+
+    renderWithRouter(<App />);
+
+    await user.type(await screen.findByLabelText("Project name"), "File Project");
+    await user.type(screen.getByLabelText("Local folder path"), "/tmp/not-a-folder");
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+
+    expect(await screen.findByText("The selected path is not a folder.")).toBeInTheDocument();
+    expect(createProject).not.toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Create a local project" })).toBeInTheDocument();
   });
 

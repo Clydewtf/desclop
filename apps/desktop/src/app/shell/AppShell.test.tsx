@@ -135,6 +135,8 @@ describe("AppShell", () => {
   });
 
   it("renders setup state without project-only destinations", () => {
+    const onBackToProjects = vi.fn();
+
     render(
       <AppShell activeDestination="setup">
         <h1>Create project</h1>
@@ -145,5 +147,23 @@ describe("AppShell", () => {
     expect(screen.getByRole("heading", { name: "Create project" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Plan" })).not.toBeInTheDocument();
     expect(screen.queryByText("Project")).not.toBeInTheDocument();
+  });
+
+  it("renders a back action for project creation setup", async () => {
+    const user = userEvent.setup();
+    const onBackToProjects = vi.fn();
+
+    render(
+      <AppShell
+        activeDestination="setup"
+        onBackToProjects={onBackToProjects}
+      >
+        <h1>Create project</h1>
+      </AppShell>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Back to projects" }));
+
+    expect(onBackToProjects).toHaveBeenCalledTimes(1);
   });
 });

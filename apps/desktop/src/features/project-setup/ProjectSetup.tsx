@@ -1,5 +1,8 @@
-import { type FormEvent, useState } from "react";
-import { type CreateProjectInput } from "../../shared/api/client";
+import { type FormEvent, useRef, useState } from "react";
+import {
+  type CreateProjectInput,
+  type ProjectFolderInspection
+} from "../../shared/api/client";
 import {
   Button,
   EmptyState,
@@ -8,25 +11,116 @@ import {
   Surface,
   TextField
 } from "../../shared/ui";
+import { getProjectFolderError, PROJECT_FOLDER_PICKER_ERROR } from "./projectFolder";
 
 interface ProjectSetupProps {
   onCreate: (input: CreateProjectInput) => void | Promise<void>;
+  onChooseFolder?: () => Promise<string | null>;
+  onValidateFolder?: (localPath: string) => Promise<ProjectFolderInspection>;
   creating?: boolean;
   error?: string | null;
 }
 
-export function ProjectSetup({ onCreate, creating = false, error }: ProjectSetupProps) {
+export function ProjectSetup({
+  onCreate,
+  onChooseFolder,
+  onValidateFolder,
+  creating = false,
+  error
+}: ProjectSetupProps) {
   const [name, setName] = useState("");
   const [localPath, setLocalPath] = useState("");
   const [gitEnabled, setGitEnabled] = useState(false);
+  const [validatingFolder, setValidatingFolder] = useState(false);
+  const [folderInspection, setFolderInspection] = useState<{
+    path: string;
+    result: ProjectFolderInspection;
+  } | null>(null);
   const [validationErrors, setValidationErrors] = useState({
     name: "",
     localPath: ""
   });
+  const folderValidationRequest = useRef(0);
 
-  function submit(event: FormEvent) {
+  function resetFolderValidation() {
+    folderValidationRequest.current += 1;
+    setFolderInspection(null);
+    setValidatingFolder(false);
+    setValidationErrors((current) => ({ ...current, localPath: "" }));
+  }
+
+  async function validateFolder(path: string) {
+    const trimmedPath = path.trim();
+    const requestId = ++folderValidationRequest.current;
+
+    setFolderInspection(null);
+    if (!trimmedPath) {
+      setValidatingFolder(false);
+      setValidationErrors((current) => ({
+        ...current,
+        localPath: "Local folder path is required."
+      }));
+      return null;
+    }
+
+    if (!onValidateFolder) {
+      setValidatingFolder(false);
+      return null;
+    }
+
+    setValidatingFolder(true);
+    try {
+      const result = await onValidateFolder(trimmedPath);
+      if (folderValidationRequest.current !== requestId) {
+        return null;
+      }
+
+      setFolderInspection({ path: trimmedPath, result });
+      setValidationErrors((current) => ({ ...current, localPath: "" }));
+      return result;
+    } catch (error) {
+      if (folderValidationRequest.current !== requestId) {
+        return null;
+      }
+
+      setFolderInspection(null);
+      setValidationErrors((current) => ({
+        ...current,
+        localPath: getProjectFolderError(error)
+      }));
+      return null;
+    } finally {
+      if (folderValidationRequest.current === requestId) {
+        setValidatingFolder(false);
+      }
+    }
+  }
+
+  async function chooseProjectFolder() {
+    if (!onChooseFolder || creating || validatingFolder) {
+      return;
+    }
+
+    try {
+      const selectedPath = await onChooseFolder();
+      if (!selectedPath) {
+        return;
+      }
+
+      setLocalPath(selectedPath);
+      setValidationErrors((current) => ({ ...current, localPath: "" }));
+      await validateFolder(selectedPath);
+    } catch (error) {
+      setValidationErrors((current) => ({
+        ...current,
+        localPath: getProjectFolderError(error, PROJECT_FOLDER_PICKER_ERROR)
+      }));
+    }
+  }
+
+  async function submit(event: FormEvent) {
     event.preventDefault();
-    if (creating) {
+    if (creating || validatingFolder) {
       return;
     }
 
@@ -42,7 +136,16 @@ export function ProjectSetup({ onCreate, creating = false, error }: ProjectSetup
       return;
     }
 
-    onCreate({
+    const cachedInspection =
+      folderInspection?.path === trimmedLocalPath ? folderInspection.result : null;
+    if (onValidateFolder && !cachedInspection) {
+      const result = await validateFolder(trimmedLocalPath);
+      if (!result) {
+        return;
+      }
+    }
+
+    await onCreate({
       name: trimmedName,
       localPath: trimmedLocalPath,
       gitEnabled
@@ -77,21 +180,51 @@ export function ProjectSetup({ onCreate, creating = false, error }: ProjectSetup
             {validationErrors.name}
           </span>
         ) : null}
-        <TextField
-          id="project-path"
-          label="Local folder path"
-          value={localPath}
-          disabled={creating}
-          onChange={(event) => setLocalPath(event.target.value)}
-          placeholder="/Users/clyde/projects/desclop"
-          aria-describedby={validationErrors.localPath ? "project-path-error" : undefined}
-          aria-invalid={validationErrors.localPath ? "true" : undefined}
-          required
-        />
+        <div className="path-picker">
+          <div className="path-picker__row">
+            <TextField
+              id="project-path"
+              label="Local folder path"
+              hint="Choose an existing folder, or enter its path manually."
+              value={localPath}
+              disabled={creating}
+              onChange={(event) => {
+                setLocalPath(event.target.value);
+                resetFolderValidation();
+              }}
+              placeholder="/Users/clyde/projects/desclop"
+              aria-describedby={validationErrors.localPath ? "project-path-error" : undefined}
+              aria-invalid={validationErrors.localPath ? "true" : undefined}
+              required
+            />
+            {onChooseFolder ? (
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={creating || validatingFolder}
+                onClick={() => void chooseProjectFolder()}
+              >
+                {validatingFolder ? "Checking folder" : "Choose folder"}
+              </Button>
+            ) : null}
+          </div>
+          {localPath.trim() ? (
+            <p className="project-setup__selected-path" aria-live="polite">
+              Folder path: <code>{localPath.trim()}</code>
+            </p>
+          ) : null}
+        </div>
         {validationErrors.localPath ? (
           <span className="field-error" id="project-path-error">
             {validationErrors.localPath}
           </span>
+        ) : null}
+        {folderInspection?.path === localPath.trim() ? (
+          <InlineAlert tone="info">
+            {folderInspection.result.gitRepository
+              ? "Git repository detected. Connecting Git is optional."
+              : "No Git repository detected. You can continue without Git."}
+          </InlineAlert>
         ) : null}
         <label className="inline-field">
           <input
@@ -102,7 +235,7 @@ export function ProjectSetup({ onCreate, creating = false, error }: ProjectSetup
           />
           Connect local Git repository
         </label>
-        <Button type="submit" disabled={creating}>
+        <Button type="submit" disabled={creating || validatingFolder}>
           {creating ? "Creating project" : "Create project"}
         </Button>
       </form>

@@ -48,8 +48,16 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
 
     window.__TAURI_INTERNALS__ = {
       invoke: async (cmd, args = {}) => {
+        if (cmd === "plugin:dialog|open") {
+          return "/tmp/desclop-alpha-e2e";
+        }
+
         if (cmd === "list_projects") {
           return state.projects;
+        }
+
+        if (cmd === "inspect_project_folder") {
+          return { gitRepository: false };
         }
 
         if (cmd === "create_project") {
@@ -209,7 +217,9 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Create a local project" })).toBeVisible();
   await page.getByLabel("Project name").fill("Desclop");
-  await page.getByLabel("Local folder path").fill("/tmp/desclop-alpha-e2e");
+  await page.getByRole("button", { name: "Choose folder" }).click();
+  await expect(page.getByLabel("Local folder path")).toHaveValue("/tmp/desclop-alpha-e2e");
+  await expect(page.getByText("Folder path: /tmp/desclop-alpha-e2e")).toBeVisible();
   await page.getByRole("button", { name: "Create project" }).click();
 
   await page.getByRole("button", { name: "Import a plan" }).click();

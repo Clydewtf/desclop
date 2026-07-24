@@ -85,6 +85,8 @@ test("resume-first MVP flow works without Git or Focus Mode", async ({ page }) =
         switch (command) {
           case "list_projects":
             return project ? [clone(project)] : [];
+          case "inspect_project_folder":
+            return { gitRepository: false };
           case "create_project": {
             const input = args?.input;
             project = {

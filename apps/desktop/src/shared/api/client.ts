@@ -25,6 +25,10 @@ export interface CreateProjectInput {
   gitEnabled: boolean;
 }
 
+export interface ProjectFolderInspection {
+  gitRepository: boolean;
+}
+
 export interface ProjectPlanPayload {
   plans?: Plan[];
   stages: Stage[];
@@ -80,6 +84,8 @@ export const api = {
   listProjects: () => invoke<Project[]>("list_projects"),
   listProjectSummaries: () =>
     invoke<ProjectSummary[]>("list_project_summaries"),
+  inspectProjectFolder: (localPath: string) =>
+    invoke<ProjectFolderInspection>("inspect_project_folder", { localPath }),
   createProject: (input: CreateProjectInput) =>
     invoke<Project>("create_project", { input }),
   deleteProject: (projectId: string) =>

@@ -14,6 +14,7 @@ import {
   type ProjectDeleteError
 } from "../features/project-setup/ProjectPicker";
 import { ProjectSetup } from "../features/project-setup/ProjectSetup";
+import { getProjectFolderError } from "../features/project-setup/projectFolder";
 import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDetail";
 import { Timeline } from "../features/timeline/Timeline";
 import { Today } from "../features/today/Today";
@@ -38,7 +39,8 @@ import {
   InlineAlert,
   ScreenHeader,
   Surface,
-  TextArea
+  TextArea,
+  Toast
 } from "../shared/ui";
 import { AppShell, type AppDestination } from "./shell/AppShell";
 
@@ -230,6 +232,7 @@ export function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [resumeError, setResumeError] = useState<string | null>(null);
   const [gitError, setGitError] = useState<string | null>(null);
+  const [gitErrorDismissed, setGitErrorDismissed] = useState(false);
   const [gitCommits, setGitCommits] = useState<GitCommit[]>([]);
   const [gitCurrentBranch, setGitCurrentBranch] = useState<string | null>(null);
   const [resumeBrief, setResumeBrief] = useState<ResumeBrief | null>(null);
@@ -287,6 +290,7 @@ export function App() {
     setPickerError(null);
     setResumeError(null);
     setGitError(null);
+    setGitErrorDismissed(false);
     setGitCommits([]);
     setResumeBrief(null);
     setProjectPlan({ plans: [], stages: [], tasks: [], checklistItems: [] });
@@ -405,8 +409,8 @@ export function App() {
         setLoadError("Could not load project plan.");
         return;
       }
-    } catch {
-      setCreateError("Could not create project.");
+    } catch (error) {
+      setCreateError(getProjectFolderError(error, "Could not create project."));
     } finally {
       setCreating(false);
     }
@@ -598,6 +602,7 @@ export function App() {
     setGitCommits(gitResult.commits);
     setGitCurrentBranch(gitResult.currentBranch);
     setGitError(gitResult.unavailable ? "Git unavailable." : null);
+    setGitErrorDismissed(false);
     setProjectPlan(plan);
     setSelectedTaskId(null);
     setSelectedNotes([]);
@@ -1478,6 +1483,8 @@ export function App() {
         <ProjectSetup
           creating={creating}
           error={createError}
+          onChooseFolder={chooseFolder}
+          onValidateFolder={api.inspectProjectFolder}
           onCreate={createProject}
         />
         <FirstRunHelp />
@@ -1487,11 +1494,23 @@ export function App() {
 
   if (!project) {
     return (
-      <AppShell activeDestination="setup">
+      <AppShell
+        activeDestination="setup"
+        onBackToProjects={
+          setupMode === "create"
+            ? () => {
+                setCreateError(null);
+                setSetupMode("picker");
+              }
+            : undefined
+        }
+      >
         {setupMode === "create" ? (
           <ProjectSetup
             creating={creating}
             error={createError}
+            onChooseFolder={chooseFolder}
+            onValidateFolder={api.inspectProjectFolder}
             onCreate={createProject}
           />
         ) : (
@@ -1526,15 +1545,22 @@ export function App() {
     <AppShell
       activeDestination={activeDestinationForScreen(screen)}
       projectName={project?.name}
-      projectStatus={resumeError || gitError ? [resumeError, gitError].filter(Boolean).join(" ") : null}
+      projectStatus={resumeError}
       onNavigate={handleNavigate}
       onQuickCapture={openQuickCapture}
       onCloseProject={closeProject}
     >
-      {resumeError || gitError ? (
+      {resumeError ? (
         <InlineAlert tone="warning">
-          {[resumeError, gitError].filter(Boolean).join(" ")}
+          {resumeError}
         </InlineAlert>
+      ) : null}
+      {gitError && !gitErrorDismissed ? (
+        <Toast
+          title="Git unavailable"
+          message="No repository was found in this folder. Desclop still works without Git."
+          onClose={() => setGitErrorDismissed(true)}
+        />
       ) : null}
       {timelineError ? <InlineAlert tone="error">{timelineError}</InlineAlert> : null}
       {captureStatus ? <InlineAlert tone="info">{captureStatus}</InlineAlert> : null}

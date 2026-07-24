@@ -120,6 +120,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::projects::list_projects,
             commands::projects::list_project_summaries,
+            commands::projects::inspect_project_folder,
             commands::projects::create_project,
             commands::projects::delete_project,
             commands::plans::import_plan,

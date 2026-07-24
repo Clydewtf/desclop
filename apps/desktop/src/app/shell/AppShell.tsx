@@ -19,6 +19,7 @@ interface AppShellProps {
   onNavigate?: (destination: AppDestination) => void;
   onQuickCapture?: () => void;
   onCloseProject?: () => void;
+  onBackToProjects?: () => void;
   children: ReactNode;
 }
 
@@ -46,6 +47,7 @@ export function AppShell({
   onNavigate,
   onQuickCapture,
   onCloseProject,
+  onBackToProjects,
   children
 }: AppShellProps) {
   const hasProject = Boolean(projectName);
@@ -109,6 +111,14 @@ export function AppShell({
               </section>
             </nav>
           </>
+        ) : onBackToProjects ? (
+          <Button
+            variant="ghost"
+            className="app-nav__button app-nav__project-action"
+            onClick={onBackToProjects}
+          >
+            Back to projects
+          </Button>
         ) : null}
       </aside>
       <section className="app-content">{children}</section>

@@ -530,6 +530,19 @@ select {
   color: var(--color-muted);
 }
 
+.project-setup__selected-path {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.project-setup__selected-path code {
+  color: var(--color-text);
+  font-family: inherit;
+}
+
 .utilities-screen .ui-button {
   justify-self: start;
 }
@@ -789,6 +802,81 @@ label.inline-field input {
   border-color: var(--color-error-border);
   background: var(--color-error-bg);
   color: var(--color-danger);
+}
+
+.ui-toast {
+  position: fixed;
+  left: var(--space-6);
+  bottom: var(--space-6);
+  z-index: 20;
+  display: grid;
+  width: min(380px, calc(100vw - (2 * var(--space-6))));
+  box-sizing: border-box;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-3);
+  align-items: start;
+  border: 1px solid var(--color-warning-border);
+  border-radius: 14px;
+  background: rgba(255, 251, 235, 0.98);
+  padding: var(--space-3);
+  color: var(--color-warning);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
+}
+
+.ui-toast__icon {
+  display: inline-flex;
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--color-warning-soft);
+}
+
+.ui-toast__icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.ui-toast__content {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.ui-toast__content strong,
+.ui-toast__content p {
+  margin: 0;
+}
+
+.ui-toast__content strong {
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.ui-toast__content p {
+  color: var(--color-neutral-text);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.ui-button.ui-toast__close {
+  width: 32px;
+  min-height: 32px;
+  padding: 6px;
+  border-radius: 50%;
+  color: var(--color-warning);
+}
+
+.ui-toast__close .ui-button__label {
+  display: inline-flex;
+  width: auto;
+}
+
+.ui-toast__close svg {
+  width: 18px;
+  height: 18px;
 }
 
 .ui-badge {
@@ -1465,6 +1553,12 @@ label.inline-field input {
 
   .app-content {
     overflow-y: visible;
+  }
+
+  .ui-toast {
+    left: var(--space-4);
+    bottom: var(--space-4);
+    width: calc(100vw - (2 * var(--space-4)));
   }
 
   .first-run-help-overlay {

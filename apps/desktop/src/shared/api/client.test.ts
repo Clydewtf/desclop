@@ -17,6 +17,14 @@ describe("api", () => {
     expect(invoke).toHaveBeenCalledWith("list_project_summaries");
   });
 
+  it("inspects a local project folder", async () => {
+    await api.inspectProjectFolder("/tmp/desclop");
+
+    expect(invoke).toHaveBeenCalledWith("inspect_project_folder", {
+      localPath: "/tmp/desclop"
+    });
+  });
+
   it("invokes the delete_project command with the project id", async () => {
     await api.deleteProject("project-123");
 
