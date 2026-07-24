@@ -2,11 +2,32 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 
 use rusqlite::Connection;
+use tauri_plugin_global_shortcut::Shortcut;
 
 use crate::db::{open_connection, run_migrations};
 
 pub struct AppState {
     pub conn: Mutex<Connection>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseBehavior {
+    Tray,
+    Quit,
+}
+
+pub struct DesktopRuntimeState {
+    pub close_behavior: Mutex<CloseBehavior>,
+    pub capture_shortcut: Mutex<Option<Shortcut>>,
+}
+
+impl Default for DesktopRuntimeState {
+    fn default() -> Self {
+        Self {
+            close_behavior: Mutex::new(CloseBehavior::Tray),
+            capture_shortcut: Mutex::new(None),
+        }
+    }
 }
 
 impl AppState {

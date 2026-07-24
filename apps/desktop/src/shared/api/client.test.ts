@@ -32,4 +32,18 @@ describe("api", () => {
       projectId: "project-123"
     });
   });
+
+  it("invokes native desktop settings commands", async () => {
+    await api.setCloseBehavior("quit");
+    await api.setCaptureShortcut("F8");
+    await api.quitApp();
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "set_close_behavior", {
+      behavior: "quit"
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "set_capture_shortcut", {
+      shortcut: "F8"
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, "quit_app");
+  });
 });

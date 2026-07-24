@@ -5,23 +5,24 @@ mod domain;
 mod repositories;
 mod services;
 
-use app_state::AppState;
+use app_state::{AppState, CloseBehavior, DesktopRuntimeState};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Emitter, Manager, WindowEvent,
 };
-use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
+use tauri_plugin_window_state::StateFlags;
 
 const QUICK_CAPTURE_OPEN_EVENT: &str = "quick-capture:open";
 const TRAY_SHOW_ID: &str = "show_desclop";
 const TRAY_QUIT_ID: &str = "quit_desclop";
+const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+C";
 
-fn quick_capture_shortcuts() -> [Shortcut; 2] {
-    [
-        Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC),
-        Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyC),
-    ]
+fn default_capture_shortcut() -> Shortcut {
+    DEFAULT_CAPTURE_SHORTCUT
+        .parse()
+        .expect("default Capture shortcut should be valid")
 }
 
 fn show_main_window(app: &tauri::AppHandle) {
@@ -37,18 +38,24 @@ fn open_quick_capture(app: &tauri::AppHandle) {
     let _ = app.emit(QUICK_CAPTURE_OPEN_EVENT, ());
 }
 
-fn register_quick_capture_shortcuts(app: &tauri::AppHandle) {
-    for shortcut in quick_capture_shortcuts() {
-        if let Err(error) = app.global_shortcut().register(shortcut) {
-            eprintln!("Could not register Quick Capture shortcut: {error}");
-        }
+fn register_default_capture_shortcut(app: &tauri::AppHandle) {
+    let shortcut = default_capture_shortcut();
+    if let Err(error) = app.global_shortcut().register(shortcut) {
+        eprintln!("Could not register Capture shortcut: {error}");
+        return;
+    }
+
+    if let Ok(mut active_shortcut) = app.state::<DesktopRuntimeState>().capture_shortcut.lock() {
+        *active_shortcut = Some(shortcut);
     }
 }
 
-fn is_quick_capture_shortcut(shortcut: &Shortcut) -> bool {
-    quick_capture_shortcuts()
-        .iter()
-        .any(|quick_capture_shortcut| quick_capture_shortcut == shortcut)
+fn is_active_capture_shortcut(app: &tauri::AppHandle, shortcut: &Shortcut) -> bool {
+    app.state::<DesktopRuntimeState>()
+        .capture_shortcut
+        .lock()
+        .map(|active_shortcut| active_shortcut.as_ref() == Some(shortcut))
+        .unwrap_or(false)
 }
 
 fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
@@ -92,7 +99,7 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed
-                        && is_quick_capture_shortcut(shortcut)
+                        && is_active_capture_shortcut(app, shortcut)
                     {
                         open_quick_capture(app);
                     }
@@ -102,7 +109,8 @@ pub fn run() {
         .setup(|app| {
             let app_data_dir = app.path().app_data_dir().map_err(|err| err.to_string())?;
             app.manage(AppState::new(app_data_dir)?);
-            register_quick_capture_shortcuts(app.handle());
+            app.manage(DesktopRuntimeState::default());
+            register_default_capture_shortcut(app.handle());
             setup_tray(app)?;
             Ok(())
         })
@@ -110,11 +118,28 @@ pub fn run() {
             if window.label() == "main" {
                 if let WindowEvent::CloseRequested { api, .. } = event {
                     api.prevent_close();
-                    let _ = window.hide();
+                    let close_behavior = window
+                        .app_handle()
+                        .state::<DesktopRuntimeState>()
+                        .close_behavior
+                        .lock()
+                        .map(|behavior| *behavior)
+                        .unwrap_or(CloseBehavior::Tray);
+
+                    match close_behavior {
+                        CloseBehavior::Tray => {
+                            let _ = window.hide();
+                        }
+                        CloseBehavior::Quit => window.app_handle().exit(0),
+                    }
                 }
             }
         })
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(StateFlags::SIZE | StateFlags::POSITION | StateFlags::MAXIMIZED)
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
@@ -145,6 +170,9 @@ pub fn run() {
             commands::resume::get_resume_brief,
             commands::entitlements::get_entitlement,
             commands::entitlements::set_entitlement,
+            commands::settings::set_close_behavior,
+            commands::settings::set_capture_shortcut,
+            commands::settings::quit_app,
             commands::git::read_git_commits,
             commands::git::read_current_git_branch,
             commands::git::sync_git_commits,

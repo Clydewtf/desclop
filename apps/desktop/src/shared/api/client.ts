@@ -133,6 +133,11 @@ export const api = {
   getEntitlement: () => invoke<Entitlement | null>("get_entitlement"),
   setEntitlement: (input: SetEntitlementInput) =>
     invoke<Entitlement>("set_entitlement", { input }),
+  setCloseBehavior: (behavior: "tray" | "quit") =>
+    invoke<void>("set_close_behavior", { behavior }),
+  setCaptureShortcut: (shortcut: string) =>
+    invoke<void>("set_capture_shortcut", { shortcut }),
+  quitApp: () => invoke<void>("quit_app"),
   readGitCommits: (localPath: string) =>
     invoke<GitCommitMetadata[]>("read_git_commits", { localPath }),
   readCurrentGitBranch: (projectId: string) =>

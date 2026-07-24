@@ -1,4 +1,11 @@
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState
+} from "react";
 import { Button } from "../../shared/ui";
 import { CANONICAL_MARKDOWN_TEMPLATE } from "../markdown-import/markdownParser";
 
@@ -30,13 +37,19 @@ export function FirstRunHelp({
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const isVisible = visible || open;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isVisible) {
       const activeElement = document.activeElement;
       restoreFocusRef.current = activeElement instanceof HTMLElement ? activeElement : null;
-      dialogRef.current
-        ?.querySelector<HTMLButtonElement>("[data-first-run-primary]")
-        ?.focus();
+      const dialog = dialogRef.current;
+      if (!dialog) {
+        return;
+      }
+
+      dialog
+        .querySelector<HTMLButtonElement>("[data-first-run-primary]")
+        ?.focus({ preventScroll: true });
+      dialog.scrollTop = 0;
     }
   }, [isVisible]);
 

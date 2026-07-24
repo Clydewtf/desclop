@@ -1,21 +1,32 @@
 import {
+  ArrowLeftRight,
   ClipboardPenLine,
+  CircleHelp,
   Clock3,
   Download,
   Home,
   Map,
+  Settings2,
   Upload,
   type LucideIcon
 } from "lucide-react";
-import { type ReactNode } from "react";
+import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { Button } from "../../shared/ui";
 
-export type AppDestination = "setup" | "today" | "plan" | "timeline" | "import" | "utilities";
+export type AppDestination =
+  | "setup"
+  | "today"
+  | "plan"
+  | "timeline"
+  | "import"
+  | "utilities"
+  | "settings";
 
 interface AppShellProps {
   activeDestination: AppDestination;
   projectName?: string | null;
   projectStatus?: string | null;
+  scrollScope?: string;
   onNavigate?: (destination: AppDestination) => void;
   onQuickCapture?: () => void;
   onOpenHelp?: () => void;
@@ -41,10 +52,15 @@ const projectDestinations: ShellDestination[] = [
   { destination: "utilities", label: "Backups", icon: Download }
 ];
 
+const globalDestinations: ShellDestination[] = [
+  { destination: "settings", label: "Settings", icon: Settings2 }
+];
+
 export function AppShell({
   activeDestination,
   projectName,
   projectStatus,
+  scrollScope,
   onNavigate,
   onQuickCapture,
   onOpenHelp,
@@ -53,6 +69,25 @@ export function AppShell({
   children
 }: AppShellProps) {
   const hasProject = Boolean(projectName);
+  const contentRef = useRef<HTMLElement | null>(null);
+  const scrollPositionsRef = useRef<Record<string, number>>({});
+  const previousScrollKeyRef = useRef<string | null>(null);
+  const resolvedScrollScope = scrollScope ?? projectName ?? "global";
+  const scrollKey = `${resolvedScrollScope}:${activeDestination}`;
+
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) {
+      return;
+    }
+
+    if (previousScrollKeyRef.current) {
+      scrollPositionsRef.current[previousScrollKeyRef.current] = content.scrollTop;
+    }
+
+    content.scrollTop = scrollPositionsRef.current[scrollKey] ?? 0;
+    previousScrollKeyRef.current = scrollKey;
+  }, [scrollKey]);
 
   function renderDestinationButton(item: ShellDestination) {
     const Icon = item.icon;
@@ -62,7 +97,13 @@ export function AppShell({
       <Button
         key={item.destination}
         variant={isActive ? "secondary" : "ghost"}
-        className="app-nav__button"
+        className={
+          item.destination === "settings"
+            ? "app-nav__button app-sidebar__icon-button"
+            : "app-nav__button"
+        }
+        aria-label={item.destination === "settings" ? item.label : undefined}
+        title={item.destination === "settings" ? item.label : undefined}
         aria-current={isActive ? "page" : undefined}
         icon={<Icon aria-hidden="true" />}
         onClick={() => onNavigate?.(item.destination)}
@@ -100,39 +141,61 @@ export function AppShell({
                 <div className="app-nav__heading" id="app-nav-project">
                   Project
                 </div>
-                <div className="app-nav__items">
-                  {projectDestinations.map(renderDestinationButton)}
-                  <Button
-                    variant="ghost"
-                    className="app-nav__button app-nav__project-action"
-                    onClick={onCloseProject}
-                  >
-                    Switch project
-                  </Button>
-                </div>
+                <div className="app-nav__items">{projectDestinations.map(renderDestinationButton)}</div>
               </section>
             </nav>
           </>
-        ) : onBackToProjects ? (
-          <Button
-            variant="ghost"
-            className="app-nav__button app-nav__project-action"
-            onClick={onBackToProjects}
-          >
-            Back to projects
-          </Button>
         ) : null}
-        {onOpenHelp ? (
-          <Button
-            variant="ghost"
-            className="app-nav__button app-sidebar__help"
-            onClick={onOpenHelp}
-          >
-            Help &amp; plan example
-          </Button>
-        ) : null}
+        <div className="app-sidebar__footer">
+          {hasProject && onCloseProject ? (
+            <Button
+              variant="ghost"
+              className="app-nav__button app-nav__project-action app-sidebar__switch"
+              icon={<ArrowLeftRight aria-hidden="true" />}
+              onClick={onCloseProject}
+            >
+              Switch project
+            </Button>
+          ) : null}
+          {!hasProject && onBackToProjects ? (
+            <Button
+              variant="ghost"
+              className="app-nav__button app-nav__project-action app-sidebar__switch"
+              onClick={onBackToProjects}
+            >
+              Back to projects
+            </Button>
+          ) : null}
+          <div className="app-sidebar__footer-tools">
+            {onNavigate ? (
+              <nav className="app-nav app-nav--global" aria-label="Application settings">
+                <div className="app-nav__items">{globalDestinations.map(renderDestinationButton)}</div>
+              </nav>
+            ) : null}
+            {onOpenHelp ? (
+              <Button
+                variant="ghost"
+                className="app-nav__button app-sidebar__help app-sidebar__icon-button"
+                aria-label="Help & plan example"
+                title="Help & plan example"
+                icon={<CircleHelp aria-hidden="true" />}
+                onClick={onOpenHelp}
+              >
+                Help &amp; plan example
+              </Button>
+            ) : null}
+          </div>
+        </div>
       </aside>
-      <section className="app-content">{children}</section>
+      <section
+        ref={contentRef}
+        className="app-content"
+        onScroll={(event) => {
+          scrollPositionsRef.current[scrollKey] = event.currentTarget.scrollTop;
+        }}
+      >
+        {children}
+      </section>
     </main>
   );
 }

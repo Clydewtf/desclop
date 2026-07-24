@@ -6,6 +6,8 @@ import { App } from "./App";
 import { api } from "../shared/api/client";
 import { chooseFolder } from "../shared/api/folderDialog";
 import type { ResumeBrief } from "../shared/domain/types";
+import { SETTINGS_STORAGE_KEY } from "../features/settings/settings";
+import { LAST_PROJECT_STORAGE_KEY } from "../features/project-setup/projectSelection";
 
 const tauriEventMock = vi.hoisted(() => {
   const listeners = new Map<string, Set<() => void>>();
@@ -56,7 +58,10 @@ vi.mock("../shared/api/client", () => ({
     moveCommitLink: vi.fn(),
     unlinkCommit: vi.fn(),
     exportProjectBundle: vi.fn(),
-    importProjectBundle: vi.fn()
+    importProjectBundle: vi.fn(),
+    setCloseBehavior: vi.fn(),
+    setCaptureShortcut: vi.fn(),
+    quitApp: vi.fn()
   }
 }));
 
@@ -1491,6 +1496,64 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Backups" }));
     expect(screen.getByRole("heading", { name: "Export / Import" })).toBeInTheDocument();
     expect(screen.getByText("/tmp/desclop")).toBeInTheDocument();
+  });
+
+  it("opens global Settings without a project and persists an appearance change", async () => {
+    const user = userEvent.setup();
+    onboardingStorage.set(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify({ schemaVersion: 1, settings: { theme: "light" } })
+    );
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Settings" }));
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Theme")).toHaveValue("light");
+
+    await user.selectOptions(screen.getByLabelText("Theme"), "dark");
+
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(JSON.parse(onboardingStorage.get(SETTINGS_STORAGE_KEY)!)).toEqual({
+      schemaVersion: 1,
+      settings: expect.objectContaining({ theme: "dark" })
+    });
+  });
+
+  it("reopens the last opened project instead of the first saved project", async () => {
+    const firstProject = projectFixture({ id: "p1", name: "First project" });
+    const secondProject = projectFixture({ id: "p2", name: "Last project" });
+    enableTauriApi();
+    onboardingStorage.set(LAST_PROJECT_STORAGE_KEY, "p2");
+    listProjects.mockResolvedValue([firstProject, secondProject]);
+    getResumeBrief.mockResolvedValue(resumeBriefFixture({ projectId: "p2" }));
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p2"));
+
+    renderWithRouter(<App />);
+
+    expect(await screen.findByText("Last project")).toBeInTheDocument();
+    expect(screen.queryByText("First project")).not.toBeInTheDocument();
+    expect(getResumeBrief).toHaveBeenCalledWith("p2");
+    expect(loadProjectPlan).toHaveBeenCalledWith("p2");
+  });
+
+  it("opens Settings from the project picker after closing a project", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(resumeBriefFixture());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Back to projects" }));
+
+    expect(screen.getByRole("heading", { name: "Open a project" })).toBeInTheDocument();
   });
 
   it("shows Timeline git events even when resume facts are unavailable", async () => {

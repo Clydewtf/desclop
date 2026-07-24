@@ -137,6 +137,24 @@ describe("FirstRunHelp", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("starts every opening at the top of the help content", () => {
+    window.localStorage.setItem(FIRST_RUN_HELP_STORAGE_KEY, "dismissed");
+
+    const view = renderWithRouter(<FirstRunHelp />);
+    view.rerender(<FirstRunHelp open />);
+
+    const dialog = screen.getByRole("dialog", { name: "First-run help" });
+    dialog.scrollTop = 320;
+
+    view.rerender(<FirstRunHelp open={false} />);
+    view.rerender(<FirstRunHelp open />);
+
+    expect(screen.getByRole("dialog", { name: "First-run help" })).toHaveProperty(
+      "scrollTop",
+      0
+    );
+  });
+
   it("keeps a dismissed contextual hint out of later mounts", async () => {
     const user = userEvent.setup();
     const onOpenHelp = vi.fn();

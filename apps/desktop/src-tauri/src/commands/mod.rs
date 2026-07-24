@@ -6,5 +6,6 @@ pub mod notes;
 pub mod plans;
 pub mod projects;
 pub mod resume;
+pub mod settings;
 pub mod tasks;
 pub mod work_entries;

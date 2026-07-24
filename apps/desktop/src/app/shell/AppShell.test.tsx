@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import "../../styles/base.css";
@@ -56,9 +56,9 @@ describe("AppShell", () => {
       </AppShell>
     );
 
-    const nav = screen.getByRole("navigation", { name: "Primary" });
-    const projectSection = within(nav).getByRole("region", { name: "Project" });
-    const projectAction = within(projectSection).getByRole("button", {
+    const footer = document.querySelector<HTMLElement>(".app-sidebar__footer");
+    expect(footer).not.toBeNull();
+    const projectAction = within(footer as HTMLElement).getByRole("button", {
       name: /^(?:switch|close) project$/i
     });
 
@@ -86,12 +86,18 @@ describe("AppShell", () => {
 
   it("renders switch project as a quieter project action", () => {
     render(
-      <AppShell activeDestination="today" projectName="Desclop">
+      <AppShell
+        activeDestination="today"
+        projectName="Desclop"
+        onCloseProject={vi.fn()}
+      >
         <h1>Today</h1>
       </AppShell>
     );
 
-    expect(screen.getByRole("button", { name: "Switch project" })).toHaveClass(
+    const footer = document.querySelector<HTMLElement>(".app-sidebar__footer");
+    expect(footer).not.toBeNull();
+    expect(within(footer as HTMLElement).getByRole("button", { name: "Switch project" })).toHaveClass(
       "app-nav__button",
       "app-nav__project-action"
     );
@@ -99,7 +105,11 @@ describe("AppShell", () => {
 
   it("applies compact sidebar button styles after shared button styles", () => {
     render(
-      <AppShell activeDestination="today" projectName="Desclop">
+      <AppShell
+        activeDestination="today"
+        projectName="Desclop"
+        onCloseProject={vi.fn()}
+      >
         <h1>Today</h1>
       </AppShell>
     );
@@ -147,6 +157,83 @@ describe("AppShell", () => {
     expect(screen.getByRole("heading", { name: "Create project" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Plan" })).not.toBeInTheDocument();
     expect(screen.queryByText("Project")).not.toBeInTheDocument();
+  });
+
+  it("renders a global Settings destination when navigation is available", async () => {
+    const user = userEvent.setup();
+    const onNavigate = vi.fn();
+
+    render(
+      <AppShell activeDestination="today" onNavigate={onNavigate}>
+        <h1>Today</h1>
+      </AppShell>
+    );
+
+    const settingsNav = screen.getByRole("navigation", { name: "Application settings" });
+    await user.click(within(settingsNav).getByRole("button", { name: "Settings" }));
+
+    expect(onNavigate).toHaveBeenCalledWith("settings");
+  });
+
+  it("keeps Settings and Help as icon-only utility actions", () => {
+    render(
+      <AppShell
+        activeDestination="setup"
+        onNavigate={vi.fn()}
+        onOpenHelp={vi.fn()}
+      >
+        <h1>Choose a project</h1>
+      </AppShell>
+    );
+
+    const footer = document.querySelector<HTMLElement>(".app-sidebar__footer");
+    expect(footer).not.toBeNull();
+    const utilityFooter = footer as HTMLElement;
+    const settingsButton = within(utilityFooter).getByRole("button", { name: "Settings" });
+    const helpButton = within(utilityFooter).getByRole("button", {
+      name: "Help & plan example"
+    });
+    expect(settingsButton).toHaveClass("app-sidebar__icon-button");
+    expect(helpButton).toHaveClass("app-sidebar__icon-button");
+    expect(getComputedStyle(settingsButton).width).toBe("36px");
+    expect(getComputedStyle(helpButton).width).toBe("36px");
+    expect(utilityFooter.querySelectorAll(".app-sidebar__icon-button")).toHaveLength(2);
+  });
+
+  it("keeps an independent scroll position for each destination", () => {
+    const { rerender } = render(
+      <AppShell activeDestination="today">
+        <div style={{ minHeight: "2400px" }}>Today content</div>
+      </AppShell>
+    );
+
+    const content = document.querySelector<HTMLElement>(".app-content")!;
+    content.scrollTop = 240;
+    fireEvent.scroll(content);
+
+    rerender(
+      <AppShell activeDestination="plan">
+        <div style={{ minHeight: "2400px" }}>Plan content</div>
+      </AppShell>
+    );
+    expect(content.scrollTop).toBe(0);
+
+    content.scrollTop = 480;
+    fireEvent.scroll(content);
+
+    rerender(
+      <AppShell activeDestination="today">
+        <div style={{ minHeight: "2400px" }}>Today content</div>
+      </AppShell>
+    );
+    expect(content.scrollTop).toBe(240);
+
+    rerender(
+      <AppShell activeDestination="plan">
+        <div style={{ minHeight: "2400px" }}>Plan content</div>
+      </AppShell>
+    );
+    expect(content.scrollTop).toBe(480);
   });
 
   it("renders a back action for project creation setup", async () => {

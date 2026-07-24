@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import "../styles/base.css";
 import { exportPlanMarkdown } from "../features/export-import/markdownExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
@@ -15,12 +16,24 @@ import {
 import { Planner } from "../features/planner/Planner";
 import { buildPlanFrames } from "../features/planner/plannerEngine";
 import { QuickCaptureOverlay } from "../features/quick-capture/QuickCaptureOverlay";
+import { Settings } from "../features/settings/SettingsPage";
+import { applySettingsToDocument } from "../features/settings/settingsPresentation";
+import {
+  getInitialSettings,
+  shortcutMatchesKeyboardEvent,
+  writeSettings,
+  type AppSettings
+} from "../features/settings/settings";
 import {
   ProjectPicker,
   type ProjectDeleteError
 } from "../features/project-setup/ProjectPicker";
 import { ProjectSetup } from "../features/project-setup/ProjectSetup";
 import { getProjectFolderError } from "../features/project-setup/projectFolder";
+import {
+  readLastProjectId,
+  writeLastProjectId
+} from "../features/project-setup/projectSelection";
 import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDetail";
 import { Timeline } from "../features/timeline/Timeline";
 import { Today } from "../features/today/Today";
@@ -54,6 +67,26 @@ function hasTauriInternals() {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+function readLastOpenedProjectId() {
+  try {
+    return typeof window !== "undefined" && window.localStorage
+      ? readLastProjectId(window.localStorage)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function rememberLastOpenedProject(projectId: string) {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      writeLastProjectId(window.localStorage, projectId);
+    }
+  } catch {
+    // Local persistence is optional and must not block opening a project.
+  }
+}
+
 const QUICK_CAPTURE_OPEN_EVENT = "quick-capture:open";
 
 interface ResumeLoadResult {
@@ -77,6 +110,7 @@ type AppScreen =
   | "plan"
   | "timeline"
   | "utilities"
+  | "settings"
   | "setup";
 
 interface FocusSession {
@@ -185,7 +219,13 @@ function nextPlanTitle(plan: ProjectPlanPayload) {
 }
 
 function activeDestinationForScreen(screen: AppScreen): AppDestination {
-  if (screen === "plan" || screen === "timeline" || screen === "import" || screen === "utilities") {
+  if (
+    screen === "plan" ||
+    screen === "timeline" ||
+    screen === "import" ||
+    screen === "utilities" ||
+    screen === "settings"
+  ) {
     return screen;
   }
 
@@ -280,6 +320,10 @@ export function App() {
   const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
   const [quickCaptureDefaultTaskId, setQuickCaptureDefaultTaskId] = useState<string | null>(null);
   const [captureStatus, setCaptureStatus] = useState<string | null>(null);
+  const [settings, setSettings] = useState<AppSettings>(() => getInitialSettings());
+  const settingsRef = useRef(settings);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
 
   function invalidateProjectContext() {
     projectContextRevision.current += 1;
@@ -293,6 +337,83 @@ export function App() {
   function invalidateCaptureOperations() {
     captureOperationRevision.current += 1;
     return captureOperationRevision.current;
+  }
+
+  function getSettingsErrorMessage(subject: string, error: unknown) {
+    const detail = error instanceof Error ? error.message : String(error ?? "Unknown error");
+    return `${subject} could not be applied. ${detail}`;
+  }
+
+  async function applyInitialNativeSettings() {
+    if (!hasTauriInternals()) {
+      return;
+    }
+
+    try {
+      await api.setCloseBehavior(settings.closeBehavior);
+    } catch (error) {
+      setSettingsError(getSettingsErrorMessage("Window behavior", error));
+    }
+
+    try {
+      await api.setCaptureShortcut(settings.captureShortcut);
+    } catch (error) {
+      setSettingsError(getSettingsErrorMessage("Capture shortcut", error));
+    }
+
+    try {
+      await getCurrentWindow().setResizable(settings.windowResizable);
+    } catch (error) {
+      setSettingsError(getSettingsErrorMessage("Window resizing", error));
+    }
+  }
+
+  async function changeSetting<K extends keyof AppSettings>(
+    key: K,
+    value: AppSettings[K]
+  ) {
+    setSettingsError(null);
+    setSettingsStatus(null);
+
+    try {
+      if (hasTauriInternals() && key === "closeBehavior") {
+        await api.setCloseBehavior(value as AppSettings["closeBehavior"]);
+      }
+      if (hasTauriInternals() && key === "captureShortcut") {
+        await api.setCaptureShortcut(value as string);
+      }
+      if (hasTauriInternals() && key === "windowResizable") {
+        await getCurrentWindow().setResizable(value as boolean);
+      }
+    } catch (error) {
+      setSettingsError(getSettingsErrorMessage("Settings change", error));
+      return;
+    }
+
+    const nextSettings = { ...settingsRef.current, [key]: value } as AppSettings;
+    settingsRef.current = nextSettings;
+    setSettings(nextSettings);
+    let saved = false;
+    try {
+      saved =
+        typeof window !== "undefined" && window.localStorage
+          ? writeSettings(window.localStorage, nextSettings)
+          : false;
+    } catch {
+      saved = false;
+    }
+    setSettingsStatus(saved ? "Settings saved on this machine." : "Settings applied for this session.");
+  }
+
+  function quitApplication() {
+    if (!hasTauriInternals()) {
+      setSettingsStatus("Quit is available in the desktop app.");
+      return;
+    }
+
+    void Promise.resolve(api.quitApp()).catch((error) => {
+      setSettingsError(getSettingsErrorMessage("Quit", error));
+    });
   }
 
   function resetProjectContext() {
@@ -362,9 +483,12 @@ export function App() {
       ]);
       setProjects(loadedProjects);
       setProjectSummaries(loadedProjectSummaries);
-      if (loadedProjects[0]) {
+      const lastProjectId = readLastOpenedProjectId();
+      const initialProject =
+        loadedProjects.find((project) => project.id === lastProjectId) ?? loadedProjects[0];
+      if (initialProject) {
         try {
-          await loadProjectIntoState(loadedProjects[0], loadedProjects);
+          await loadProjectIntoState(initialProject, loadedProjects);
         } catch {
           setLoadError("Could not load project plan.");
           return;
@@ -383,6 +507,21 @@ export function App() {
   useEffect(() => {
     void loadProjects();
   }, [loadProjects]);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
+
+  useEffect(() => {
+    applySettingsToDocument(settings);
+  }, [settings]);
+
+  useEffect(() => {
+    void applyInitialNativeSettings();
+    // Native settings are initialized once from the persisted snapshot.
+    // Later changes are applied transactionally in changeSetting.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     projectsRef.current = projects;
@@ -503,11 +642,7 @@ export function App() {
 
   useEffect(() => {
     function handleQuickCaptureShortcut(event: KeyboardEvent) {
-      if (
-        event.shiftKey &&
-        (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === "c"
-      ) {
+      if (shortcutMatchesKeyboardEvent(settings.captureShortcut, event)) {
         event.preventDefault();
         openQuickCapture();
       }
@@ -515,7 +650,7 @@ export function App() {
 
     window.addEventListener("keydown", handleQuickCaptureShortcut);
     return () => window.removeEventListener("keydown", handleQuickCaptureShortcut);
-  }, [openQuickCapture]);
+  }, [openQuickCapture, settings.captureShortcut]);
 
   useEffect(() => {
     if (!hasTauriInternals()) {
@@ -641,6 +776,7 @@ export function App() {
     setScreen("today");
     setSetupMode("picker");
     setSelectedProjectId(activeProject.id);
+    rememberLastOpenedProject(activeProject.id);
     return revision;
   }
 
@@ -805,6 +941,11 @@ export function App() {
   }
 
   function handleNavigate(destination: AppDestination) {
+    if (destination === "settings") {
+      setScreen("settings");
+      return;
+    }
+
     if (destination === "timeline") {
       void openTimeline();
       return;
@@ -815,6 +956,13 @@ export function App() {
 
   function openHelp() {
     setHelpOpen(true);
+  }
+
+  function leaveSettingsToProjectSetup() {
+    setSettingsError(null);
+    setSettingsStatus(null);
+    setScreen("setup");
+    setSetupMode(projects.length > 0 ? "picker" : "create");
   }
 
   async function continueTask() {
@@ -1365,7 +1513,23 @@ export function App() {
     await choosePortableFolder(setReselectedLocalPath);
   }
 
+  function renderSettingsScreen() {
+    return (
+      <Settings
+        settings={settings}
+        error={settingsError}
+        status={settingsStatus}
+        onChange={changeSetting}
+        onQuit={quitApplication}
+      />
+    );
+  }
+
   function renderProjectScreen() {
+    if (screen === "settings") {
+      return renderSettingsScreen();
+    }
+
     if (screen === "import") {
       return (
         <section className="stack">
@@ -1635,8 +1799,22 @@ export function App() {
   }
 
   if (projects.length === 0) {
+    if (screen === "settings") {
+      return (
+        <AppShell
+          activeDestination="settings"
+          scrollScope="global"
+          onNavigate={handleNavigate}
+          onOpenHelp={openHelp}
+          onBackToProjects={leaveSettingsToProjectSetup}
+        >
+          {renderSettingsScreen()}
+        </AppShell>
+      );
+    }
+
     return (
-      <AppShell activeDestination="setup" onOpenHelp={openHelp}>
+      <AppShell activeDestination="setup" onNavigate={handleNavigate} onOpenHelp={openHelp}>
         <ProjectSetup
           creating={creating}
           error={createError}
@@ -1651,9 +1829,25 @@ export function App() {
   }
 
   if (!project) {
+    if (screen === "settings") {
+      return (
+        <AppShell
+          activeDestination="settings"
+          scrollScope="global"
+          onNavigate={handleNavigate}
+          onOpenHelp={openHelp}
+          onBackToProjects={leaveSettingsToProjectSetup}
+        >
+          {renderSettingsScreen()}
+        </AppShell>
+      );
+    }
+
     return (
       <AppShell
         activeDestination="setup"
+        scrollScope="project-picker"
+        onNavigate={handleNavigate}
         onOpenHelp={openHelp}
         onBackToProjects={
           setupMode === "create"
@@ -1704,9 +1898,10 @@ export function App() {
   return (
     <AppShell
       activeDestination={activeDestinationForScreen(screen)}
+      scrollScope={project?.id ?? "global"}
+      onNavigate={handleNavigate}
       projectName={project?.name}
       projectStatus={resumeError}
-      onNavigate={handleNavigate}
       onQuickCapture={openQuickCapture}
       onOpenHelp={openHelp}
       onCloseProject={closeProject}
