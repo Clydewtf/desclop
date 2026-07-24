@@ -10,6 +10,7 @@ describe("ProjectSetup", () => {
 
     expect(screen.getByRole("heading", { name: "Create a local project", level: 1 })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "No project setup", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Your first project" })).toBeInTheDocument();
     expect(screen.getByLabelText("Project name")).toBeInTheDocument();
     expect(screen.getByLabelText("Local folder path")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create project" })).toBeEnabled();

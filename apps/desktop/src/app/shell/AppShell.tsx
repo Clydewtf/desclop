@@ -18,6 +18,7 @@ interface AppShellProps {
   projectStatus?: string | null;
   onNavigate?: (destination: AppDestination) => void;
   onQuickCapture?: () => void;
+  onOpenHelp?: () => void;
   onCloseProject?: () => void;
   onBackToProjects?: () => void;
   children: ReactNode;
@@ -46,6 +47,7 @@ export function AppShell({
   projectStatus,
   onNavigate,
   onQuickCapture,
+  onOpenHelp,
   onCloseProject,
   onBackToProjects,
   children
@@ -118,6 +120,15 @@ export function AppShell({
             onClick={onBackToProjects}
           >
             Back to projects
+          </Button>
+        ) : null}
+        {onOpenHelp ? (
+          <Button
+            variant="ghost"
+            className="app-nav__button app-sidebar__help"
+            onClick={onOpenHelp}
+          >
+            Help &amp; plan example
           </Button>
         ) : null}
       </aside>

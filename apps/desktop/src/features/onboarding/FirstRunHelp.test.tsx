@@ -1,10 +1,12 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
+import { FirstRunHint } from "./FirstRunHint";
 import { FirstRunHelp } from "./FirstRunHelp";
 
 const FIRST_RUN_HELP_STORAGE_KEY = "desclop.first-run-help.dismissed";
+const PROJECT_SETUP_HINT_STORAGE_KEY = "desclop.first-run-help.project-setup.dismissed";
 const onboardingStorage = new Map<string, string>();
 
 const onboardingStorageMock = {
@@ -20,11 +22,13 @@ beforeEach(() => {
   });
   onboardingStorage.clear();
   window.localStorage.removeItem(FIRST_RUN_HELP_STORAGE_KEY);
+  window.localStorage.removeItem(PROJECT_SETUP_HINT_STORAGE_KEY);
 });
 
 afterEach(() => {
   onboardingStorage.clear();
   window.localStorage.removeItem(FIRST_RUN_HELP_STORAGE_KEY);
+  window.localStorage.removeItem(PROJECT_SETUP_HINT_STORAGE_KEY);
 });
 
 describe("FirstRunHelp", () => {
@@ -39,6 +43,8 @@ describe("FirstRunHelp", () => {
     expect(within(dialog).getByRole("article", { name: "Plan" })).toBeInTheDocument();
     expect(within(dialog).getByRole("article", { name: "Timeline" })).toBeInTheDocument();
     expect(within(dialog).getByRole("article", { name: "Capture" })).toBeInTheDocument();
+    expect(within(dialog).getByText("Plan example")).toBeInTheDocument();
+    expect(within(dialog).getByText(/## Этап 1 — Основа/)).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Got it" })).toBeInTheDocument();
   });
 
@@ -98,5 +104,64 @@ describe("FirstRunHelp", () => {
     renderWithRouter(<FirstRunHelp />);
 
     expect(screen.queryByRole("dialog", { name: "First-run help" })).not.toBeInTheDocument();
+  });
+
+  it("can be reopened after dismissal and can continue to plan import", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    const onOpenPlanImport = vi.fn();
+
+    const view = renderWithRouter(
+      <FirstRunHelp
+        onOpenChange={onOpenChange}
+        onOpenPlanImport={onOpenPlanImport}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Got it" }));
+    expect(screen.queryByRole("dialog", { name: "First-run help" })).not.toBeInTheDocument();
+
+    view.rerender(
+      <FirstRunHelp
+        open
+        onOpenChange={onOpenChange}
+        onOpenPlanImport={onOpenPlanImport}
+      />
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "First-run help" });
+    expect(within(dialog).getByRole("button", { name: "Got it" })).toHaveFocus();
+    await user.click(within(dialog).getByRole("button", { name: "Open Import Plan" }));
+
+    expect(onOpenPlanImport).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps a dismissed contextual hint out of later mounts", async () => {
+    const user = userEvent.setup();
+    const onOpenHelp = vi.fn();
+
+    const view = renderWithRouter(
+      <FirstRunHint
+        storageKey={PROJECT_SETUP_HINT_STORAGE_KEY}
+        title="Your first project"
+        onOpenHelp={onOpenHelp}
+      >
+        <p>Choose a folder.</p>
+      </FirstRunHint>
+    );
+
+    await user.click(screen.getByRole("button", { name: "Help & plan example" }));
+    expect(onOpenHelp).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByRole("complementary", { name: "Your first project" })).not.toBeInTheDocument();
+
+    view.rerender(
+      <FirstRunHint storageKey={PROJECT_SETUP_HINT_STORAGE_KEY} title="Your first project">
+        <p>Choose a folder.</p>
+      </FirstRunHint>
+    );
+
+    expect(screen.queryByRole("complementary", { name: "Your first project" })).not.toBeInTheDocument();
   });
 });

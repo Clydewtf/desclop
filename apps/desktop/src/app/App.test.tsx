@@ -1325,6 +1325,53 @@ describe("App", () => {
     expect(screen.getByLabelText("Local folder path")).toBeEnabled();
   });
 
+  it("reopens first-run help from the shell and does not block a later launch", async () => {
+    const user = userEvent.setup();
+    const existingProject = projectFixture();
+    enableTauriApi();
+    listProjects.mockResolvedValue([existingProject]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ plans: [], stages: [], tasks: [], checklistItems: [] });
+
+    const view = renderWithRouter(<App />);
+    const initialDialog = await screen.findByRole("dialog", { name: "First-run help" });
+    await user.click(within(initialDialog).getByRole("button", { name: "Got it" }));
+
+    expect(screen.queryByRole("dialog", { name: "First-run help" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Help & plan example" }));
+    const reopenedHelp = screen.getByRole("dialog", { name: "First-run help" });
+    expect(reopenedHelp).toBeInTheDocument();
+
+    await user.click(within(reopenedHelp).getByRole("button", { name: "Open Import Plan" }));
+    expect(screen.getByRole("heading", { name: "Import plan" })).toBeInTheDocument();
+    await user.click(
+      within(screen.getByRole("complementary", { name: "Application" })).getByRole("button", {
+        name: "Help & plan example"
+      })
+    );
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "First-run help" })).not.toBeInTheDocument();
+
+    view.unmount();
+    renderWithRouter(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Continue where you left off" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "First-run help" })).not.toBeInTheDocument();
+  });
+
+  it("keeps setup usable when first-run help was already dismissed", async () => {
+    onboardingStorage.set(FIRST_RUN_HELP_STORAGE_KEY, "dismissed");
+    enableTauriApi();
+    listProjects.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    expect(screen.queryByRole("dialog", { name: "First-run help" })).not.toBeInTheDocument();
+    expect(await screen.findByLabelText("Project name")).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Create project" })).toBeEnabled();
+  });
+
   it("imports a markdown plan and opens Plan with refreshed stages", async () => {
     const user = userEvent.setup();
     enableTauriApi();
@@ -1389,6 +1436,9 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "Import Plan" }));
 
     expect(screen.getByPlaceholderText(/Optional plan name/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("complementary", { name: "Start with the supported plan shape" })
+    ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Import preview" })).toBeInTheDocument();
     expect(screen.getByText("Nothing to preview yet")).toBeInTheDocument();
     const planGuide = screen.getByRole("heading", { name: "Plan structure" }).closest("details");

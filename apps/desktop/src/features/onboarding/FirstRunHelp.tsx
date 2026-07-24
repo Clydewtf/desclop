@@ -1,5 +1,6 @@
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
 import { Button } from "../../shared/ui";
+import { CANONICAL_MARKDOWN_TEMPLATE } from "../markdown-import/markdownParser";
 
 const FIRST_RUN_HELP_STORAGE_KEY = "desclop.first-run-help.dismissed";
 const FIRST_RUN_HELP_DISMISSED_VALUE = "dismissed";
@@ -12,18 +13,43 @@ function hasBeenDismissed() {
   }
 }
 
-export function FirstRunHelp() {
+interface FirstRunHelpProps {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  onOpenPlanImport?: () => void;
+}
+
+export function FirstRunHelp({
+  open = false,
+  onOpenChange,
+  onOpenPlanImport
+}: FirstRunHelpProps) {
   const [visible, setVisible] = useState(() => !hasBeenDismissed());
   const descriptionId = useId();
   const dialogRef = useRef<HTMLElement | null>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const isVisible = visible || open;
 
   useEffect(() => {
-    if (visible) {
+    if (isVisible) {
+      const activeElement = document.activeElement;
+      restoreFocusRef.current = activeElement instanceof HTMLElement ? activeElement : null;
       dialogRef.current
-        ?.querySelector<HTMLButtonElement>("button:not(:disabled)")
+        ?.querySelector<HTMLButtonElement>("[data-first-run-primary]")
         ?.focus();
     }
-  }, [visible]);
+  }, [isVisible]);
+
+  useEffect(() => {
+    if (isVisible || !restoreFocusRef.current) {
+      return;
+    }
+
+    if (restoreFocusRef.current.isConnected) {
+      restoreFocusRef.current.focus();
+    }
+    restoreFocusRef.current = null;
+  }, [isVisible]);
 
   function dismiss() {
     try {
@@ -35,6 +61,12 @@ export function FirstRunHelp() {
       // The dialog remains dismissible for this session when storage is unavailable.
     }
     setVisible(false);
+    onOpenChange?.(false);
+  }
+
+  function openPlanImport() {
+    dismiss();
+    onOpenPlanImport?.();
   }
 
   function handleDialogKeyDown(event: KeyboardEvent<HTMLElement>) {
@@ -68,7 +100,7 @@ export function FirstRunHelp() {
     }
   }
 
-  if (!visible) {
+  if (!isVisible) {
     return null;
   }
 
@@ -87,9 +119,20 @@ export function FirstRunHelp() {
         <header className="first-run-help__header">
           <h2>Welcome to Desclop</h2>
           <p id={descriptionId}>
-            A quick tour of the places that keep your project moving.
+            A short orientation: choose a folder, add a plan, pick a task, and save its next concrete step.
           </p>
         </header>
+
+        <ol className="first-run-help__path">
+          <li><strong>Folder</strong><span>Create a local project from an existing folder.</span></li>
+          <li><strong>Plan</strong><span>Import the visible Markdown structure as a new plan.</span></li>
+          <li><strong>Task</strong><span>Choose one task and write its next action.</span></li>
+        </ol>
+
+        <div className="first-run-help__example">
+          <strong>Plan example</strong>
+          <pre><code>{CANONICAL_MARKDOWN_TEMPLATE}</code></pre>
+        </div>
 
         <div className="first-run-help__areas">
           <article aria-label="Today" className="first-run-help__area">
@@ -111,7 +154,12 @@ export function FirstRunHelp() {
         </div>
 
         <div className="first-run-help__actions">
-          <Button type="button" onClick={dismiss}>
+          {onOpenPlanImport ? (
+            <Button type="button" variant="secondary" onClick={openPlanImport}>
+              Open Import Plan
+            </Button>
+          ) : null}
+          <Button type="button" data-first-run-primary onClick={dismiss}>
             Got it
           </Button>
         </div>

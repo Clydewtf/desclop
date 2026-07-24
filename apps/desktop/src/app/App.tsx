@@ -4,6 +4,7 @@ import "../styles/base.css";
 import { exportPlanMarkdown } from "../features/export-import/markdownExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
 import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImportPreview";
+import { FirstRunHint } from "../features/onboarding/FirstRunHint";
 import { FirstRunHelp } from "../features/onboarding/FirstRunHelp";
 import {
   CANONICAL_MARKDOWN_TEMPLATE,
@@ -254,6 +255,7 @@ export function App() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [screen, setScreen] = useState<AppScreen>("today");
+  const [helpOpen, setHelpOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedNotes, setSelectedNotes] = useState<Note[]>([]);
   const [selectedWorkEntries, setSelectedWorkEntries] = useState<WorkEntry[]>([]);
@@ -809,6 +811,10 @@ export function App() {
     }
 
     showProjectScreen(destination);
+  }
+
+  function openHelp() {
+    setHelpOpen(true);
   }
 
   async function continueTask() {
@@ -1369,6 +1375,14 @@ export function App() {
             description="Preview a Markdown task plan before writing it to the local project."
           />
           {importError ? <InlineAlert tone="error">{importError}</InlineAlert> : null}
+          <FirstRunHint
+            storageKey="desclop.first-run-help.plan-import.dismissed"
+            title="Start with the supported plan shape"
+            onOpenHelp={openHelp}
+          >
+            <p>Use a stage heading and checkbox task, then add checklist items with two spaces of indentation.</p>
+            <p>The Plan structure panel below includes a ready-to-use example and a one-click insert action.</p>
+          </FirstRunHint>
           <div className="markdown-import__layout">
             <Surface ariaLabel="Markdown import" className="markdown-import">
               <TextArea
@@ -1622,15 +1636,16 @@ export function App() {
 
   if (projects.length === 0) {
     return (
-      <AppShell activeDestination="setup">
+      <AppShell activeDestination="setup" onOpenHelp={openHelp}>
         <ProjectSetup
           creating={creating}
           error={createError}
           onChooseFolder={chooseFolder}
           onValidateFolder={api.inspectProjectFolder}
+          onOpenHelp={openHelp}
           onCreate={createProject}
         />
-        <FirstRunHelp />
+        <FirstRunHelp open={helpOpen} onOpenChange={setHelpOpen} />
       </AppShell>
     );
   }
@@ -1639,6 +1654,7 @@ export function App() {
     return (
       <AppShell
         activeDestination="setup"
+        onOpenHelp={openHelp}
         onBackToProjects={
           setupMode === "create"
             ? () => {
@@ -1654,6 +1670,7 @@ export function App() {
             error={createError}
             onChooseFolder={chooseFolder}
             onValidateFolder={api.inspectProjectFolder}
+            onOpenHelp={openHelp}
             onCreate={createProject}
           />
         ) : (
@@ -1679,7 +1696,7 @@ export function App() {
             />
           </>
         )}
-        <FirstRunHelp />
+        <FirstRunHelp open={helpOpen} onOpenChange={setHelpOpen} />
       </AppShell>
     );
   }
@@ -1691,6 +1708,7 @@ export function App() {
       projectStatus={resumeError}
       onNavigate={handleNavigate}
       onQuickCapture={openQuickCapture}
+      onOpenHelp={openHelp}
       onCloseProject={closeProject}
     >
       {resumeError ? (
@@ -1715,7 +1733,11 @@ export function App() {
         onSave={saveQuickCapture}
         onClose={closeQuickCapture}
       />
-      <FirstRunHelp />
+      <FirstRunHelp
+        open={helpOpen}
+        onOpenChange={setHelpOpen}
+        onOpenPlanImport={() => setScreen("import")}
+      />
     </AppShell>
   );
 }

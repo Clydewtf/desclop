@@ -11,12 +11,14 @@ import {
   Surface,
   TextField
 } from "../../shared/ui";
+import { FirstRunHint } from "../onboarding/FirstRunHint";
 import { getProjectFolderError, PROJECT_FOLDER_PICKER_ERROR } from "./projectFolder";
 
 interface ProjectSetupProps {
   onCreate: (input: CreateProjectInput) => void | Promise<void>;
   onChooseFolder?: () => Promise<string | null>;
   onValidateFolder?: (localPath: string) => Promise<ProjectFolderInspection>;
+  onOpenHelp?: () => void;
   creating?: boolean;
   error?: string | null;
 }
@@ -25,6 +27,7 @@ export function ProjectSetup({
   onCreate,
   onChooseFolder,
   onValidateFolder,
+  onOpenHelp,
   creating = false,
   error
 }: ProjectSetupProps) {
@@ -162,6 +165,13 @@ export function ProjectSetup({
         title="No project setup"
         body="Create a local project record to connect Desclop to this folder."
       />
+      <FirstRunHint
+        storageKey="desclop.first-run-help.project-setup.dismissed"
+        title="Your first project"
+        onOpenHelp={onOpenHelp}
+      >
+        <p>Choose the folder where your project already lives, then create one plan with a task you can continue today.</p>
+      </FirstRunHint>
       {error ? <InlineAlert tone="error">{error}</InlineAlert> : null}
       <form className="stack" onSubmit={submit}>
         <TextField
