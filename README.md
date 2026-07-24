@@ -33,7 +33,7 @@ It is not meant to be a team project management system, a full Git client, a tim
 
 Desclop is currently in alpha.
 
-The current release line is `v0.1.0-alpha.1`, focused on the resume-first desktop MVP. Expect rough edges, missing polish, and possible changes to workflows while the product shape is still settling.
+The current release line is `v0.1.0-alpha.2`, focused on creating a first local project and importing a first plan without guesswork. Expect rough edges, missing polish, and possible changes to workflows while the product shape is still settling.
 
 ## Installation
 
