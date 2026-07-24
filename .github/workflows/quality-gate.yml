@@ -11,7 +11,8 @@ on:
 jobs:
   quality-gate:
     name: Frontend, e2e, and Rust checks
-    runs-on: ubuntu-latest
+    # Keep the gate on the same Linux baseline as the release build.
+    runs-on: ubuntu-22.04
     permissions:
       contents: read
     steps:
@@ -28,6 +29,20 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
 
       - name: Install frontend dependencies
         run: npm ci
