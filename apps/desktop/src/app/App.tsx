@@ -15,6 +15,10 @@ import {
 } from "../features/markdown-import/markdownParser";
 import { Planner } from "../features/planner/Planner";
 import { buildPlanFrames } from "../features/planner/plannerEngine";
+import {
+  readArchivedPlanIds,
+  writeArchivedPlanIds
+} from "../features/planner/plannerArchive";
 import { QuickCaptureOverlay } from "../features/quick-capture/QuickCaptureOverlay";
 import { Settings } from "../features/settings/SettingsPage";
 import { applySettingsToDocument } from "../features/settings/settingsPresentation";
@@ -84,6 +88,26 @@ function rememberLastOpenedProject(projectId: string) {
     }
   } catch {
     // Local persistence is optional and must not block opening a project.
+  }
+}
+
+function readArchivedPlansForProject(projectId: string) {
+  try {
+    return typeof window !== "undefined" && window.localStorage
+      ? readArchivedPlanIds(window.localStorage, projectId)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeArchivedPlansForProject(projectId: string, planIds: string[]) {
+  try {
+    return typeof window !== "undefined" && window.localStorage
+      ? writeArchivedPlanIds(window.localStorage, projectId, planIds)
+      : false;
+  } catch {
+    return false;
   }
 }
 
@@ -292,6 +316,7 @@ export function App() {
     tasks: [],
     checklistItems: []
   });
+  const [archivedPlanIds, setArchivedPlanIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [screen, setScreen] = useState<AppScreen>("today");
@@ -427,6 +452,7 @@ export function App() {
     setGitCommits([]);
     setResumeBrief(null);
     setProjectPlan({ plans: [], stages: [], tasks: [], checklistItems: [] });
+    setArchivedPlanIds([]);
     setCreateError(null);
     setScreen("today");
     setSelectedTaskId(null);
@@ -764,6 +790,7 @@ export function App() {
     setGitError(gitResult.unavailable ? "Git unavailable." : null);
     setGitErrorDismissed(false);
     setProjectPlan(plan);
+    setArchivedPlanIds(readArchivedPlansForProject(activeProject.id));
     setSelectedTaskId(null);
     setSelectedNotes([]);
     setSelectedWorkEntries([]);
@@ -906,6 +933,26 @@ export function App() {
     setTimelineError(null);
     setPortableError(null);
     setScreen(nextScreen);
+  }
+
+  function archivePlan(planId: string) {
+    if (!project) {
+      return;
+    }
+
+    const nextPlanIds = [...new Set([...archivedPlanIds, planId])];
+    setArchivedPlanIds(nextPlanIds);
+    writeArchivedPlansForProject(project.id, nextPlanIds);
+  }
+
+  function restorePlan(planId: string) {
+    if (!project) {
+      return;
+    }
+
+    const nextPlanIds = archivedPlanIds.filter((candidate) => candidate !== planId);
+    setArchivedPlanIds(nextPlanIds);
+    writeArchivedPlansForProject(project.id, nextPlanIds);
   }
 
   async function openTimeline() {
@@ -1642,16 +1689,20 @@ export function App() {
 
     if (screen === "plan") {
       return (
-        <Planner
-          planFrames={buildPlanFrames(
-            projectPlan.plans,
-            projectPlan.stages,
-            projectPlan.tasks,
-            projectPlan.checklistItems,
-            project?.activeTaskId ?? null
-          )}
-          onOpenTask={(taskId, options) => void openTask(taskId, options)}
-        />
+          <Planner
+            planFrames={buildPlanFrames(
+              projectPlan.plans,
+              projectPlan.stages,
+              projectPlan.tasks,
+              projectPlan.checklistItems,
+              project?.activeTaskId ?? null
+            )}
+            projectId={project?.id}
+            archivedPlanIds={archivedPlanIds}
+            onArchivePlan={archivePlan}
+            onRestorePlan={restorePlan}
+            onOpenTask={(taskId, options) => void openTask(taskId, options)}
+          />
       );
     }
 

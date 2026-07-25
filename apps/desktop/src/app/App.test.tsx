@@ -2396,6 +2396,7 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Plan" }));
     await user.click(screen.getByRole("button", { name: "Show plan Build MVP" }));
+    await user.click(screen.getByRole("button", { name: "Expand stage Foundation" }));
     await user.click(
       screen.getByRole("button", { name: "Open Publish release notes" })
     );

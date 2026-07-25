@@ -142,8 +142,36 @@ describe("buildPlanFrames", () => {
     expect(frames.map((frame) => frame.plan.title)).toEqual(["Main plan", "Fix plan"]);
     expect(frames[0].collapsed).toBe(true);
     expect(frames[1].collapsed).toBe(false);
+    expect(frames[0].isCurrent).toBe(false);
+    expect(frames[1].isCurrent).toBe(true);
+    expect(frames[1].recommendedTaskId).toBe("t2");
     expect(frames[0].stageFrames.map((frame) => frame.stage.id)).toEqual(["s1"]);
     expect(frames[1].stageFrames.map((frame) => frame.stage.id)).toEqual(["s2"]);
+  });
+
+  it("uses the single active task to identify the current plan", () => {
+    const frames = buildPlanFrames(
+      [
+        { id: "plan-1", projectId: "project-1", title: "Main plan", position: 0 },
+        { id: "plan-2", projectId: "project-1", title: "Fix plan", position: 1 },
+        { id: "plan-3", projectId: "project-1", title: "Archive plan", position: 2 }
+      ],
+      [
+        stageFixture({ id: "s1", planId: "plan-1", title: "Main stage", status: "current", position: 0 }),
+        stageFixture({ id: "s2", planId: "plan-2", title: "Fix stage", status: "current", position: 0 }),
+        stageFixture({ id: "s3", planId: "plan-3", title: "Archive stage", status: "completed", position: 0 })
+      ],
+      [
+        taskFixture({ id: "t1", stageId: "s1", status: "todo", position: 0 }),
+        taskFixture({ id: "t2", stageId: "s2", status: "active", position: 0 }),
+        taskFixture({ id: "t3", stageId: "s3", status: "done", position: 0 })
+      ],
+      [],
+      "t2"
+    );
+
+    expect(frames.map((frame) => frame.isCurrent)).toEqual([false, true, false]);
+    expect(frames.map((frame) => frame.recommendedTaskId)).toEqual(["t1", "t2", null]);
   });
 });
 

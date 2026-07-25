@@ -19,6 +19,8 @@ export interface PlannerFrame {
 export interface PlanFrame {
   plan: Plan;
   collapsed: boolean;
+  isCurrent: boolean;
+  recommendedTaskId: string | null;
   stageFrames: PlannerFrame[];
   progress: PlannerFrame["progress"];
 }
@@ -32,7 +34,7 @@ export function buildPlanFrames(
 ): PlanFrame[] {
   const knownPlans = plans && plans.length > 0 ? [...plans].sort(byPosition) : legacyPlans(stages);
 
-  return knownPlans.map((plan) => {
+  const frames = knownPlans.map((plan) => {
     const planStages = stages.filter((stage) =>
       stage.planId ? stage.planId === plan.id : plan.id === "legacy-plan"
     );
@@ -40,14 +42,30 @@ export function buildPlanFrames(
     const progress = sumProgress(stageFrames);
     const collapsed =
       stageFrames.length > 0 && stageFrames.every((frame) => frame.stage.status === "completed");
+    const recommendedTaskId = findPlanRecommendation(stageFrames, activeTaskId);
 
     return {
       plan,
       collapsed,
+      isCurrent: false,
+      recommendedTaskId,
       stageFrames,
       progress
     };
   });
+
+  const currentPlanId =
+    findPlanWithTask(frames, activeTaskId)?.plan.id ??
+    frames.find((frame) => frame.stageFrames.some((stageFrame) =>
+      stageFrame.tasks.some((task) => task.status === "active")
+    ))?.plan.id ??
+    frames.find((frame) => !frame.collapsed && frame.recommendedTaskId !== null)?.plan.id ??
+    null;
+
+  return frames.map((frame) => ({
+    ...frame,
+    isCurrent: frame.plan.id === currentPlanId
+  }));
 }
 
 export function buildPlannerFrames(
@@ -79,7 +97,7 @@ export function buildPlannerFrames(
         stage,
         collapsed: stage.status === "completed",
         recommendedTaskId:
-          stageTasks.find((task) => task.id === activeTaskId)?.id ??
+          stageTasks.find((task) => task.id === activeTaskId && task.status !== "done")?.id ??
           stageTasks.find((task) => task.status === "active")?.id ??
           null,
         tasks: stageTasks,
@@ -94,6 +112,48 @@ export function buildPlannerFrames(
         }
       };
     });
+}
+
+function findPlanWithTask(frames: PlanFrame[], taskId: string | null) {
+  if (!taskId) {
+    return null;
+  }
+
+  return frames.find(
+    (frame) =>
+      !frame.collapsed &&
+      frame.stageFrames.some((stageFrame) =>
+        stageFrame.tasks.some((task) => task.id === taskId && task.status !== "done")
+      )
+  ) ?? null;
+}
+
+function findPlanRecommendation(frames: PlannerFrame[], activeTaskId: string | null) {
+  if (frames.length > 0 && frames.every((frame) => frame.stage.status === "completed")) {
+    return null;
+  }
+
+  const tasks = frames.flatMap((frame) => frame.tasks);
+  const explicitActiveTask = tasks.find(
+    (task) => task.id === activeTaskId && task.status !== "done"
+  );
+  if (explicitActiveTask) {
+    return explicitActiveTask.id;
+  }
+
+  const activeTask = tasks.find((task) => task.status === "active");
+  if (activeTask) {
+    return activeTask.id;
+  }
+
+  const currentStage = frames.find(
+    (frame) =>
+      frame.stage.status === "current" && frame.tasks.some((task) => task.status !== "done")
+  );
+  const nearestTask = currentStage?.tasks.find((task) => task.status !== "done") ??
+    frames.flatMap((frame) => frame.tasks).find((task) => task.status !== "done");
+
+  return nearestTask?.id ?? null;
 }
 
 function legacyPlans(stages: Stage[]): Plan[] {

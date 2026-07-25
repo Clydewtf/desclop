@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
 import { Planner } from "./Planner";
-import type { PlannerFrame } from "./plannerEngine";
+import type { PlanFrame, PlannerFrame } from "./plannerEngine";
 
 describe("Planner", () => {
   it("renders Plan as a readable stage map with task next steps", async () => {
@@ -104,6 +104,10 @@ describe("Planner", () => {
 
     expect(screen.getByRole("heading", { name: "Plan" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Completed foundation" })).toBeInTheDocument();
+    expect(screen.queryByText("The completed storage foundation.")).not.toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Expand stage Completed foundation" })
+    );
     expect(screen.getByText("The completed storage foundation.")).toBeInTheDocument();
     expect(screen.getByText("Keep the task small and resumable.")).toBeInTheDocument();
     expect(
@@ -174,6 +178,7 @@ describe("Planner", () => {
     })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Show plan Imported plan" }));
+    await user.click(screen.getByRole("button", { name: "Expand stage Polish release" }));
 
     const openButton = screen.getByRole("button", {
       name: "Open Publish release notes"
@@ -184,4 +189,173 @@ describe("Planner", () => {
 
     expect(onOpenTask).toHaveBeenCalledWith("t1", { activate: false });
   });
+
+  it("puts the current plan first and lets Continue select another plan", async () => {
+    const user = userEvent.setup();
+    const onOpenTask = vi.fn();
+    const planFrames = [
+      planFrameFixture({
+        planId: "plan-1",
+        title: "Main plan",
+        isCurrent: false,
+        taskId: "t1",
+        taskTitle: "Main next"
+      }),
+      planFrameFixture({
+        planId: "plan-2",
+        title: "Fix plan",
+        isCurrent: true,
+        taskId: "t2",
+        taskTitle: "Fix next"
+      })
+    ];
+
+    renderWithRouter(
+      <Planner planFrames={planFrames} onOpenTask={onOpenTask} />
+    );
+
+    const planArticles = screen
+      .getAllByRole("article")
+      .filter((article) => article.classList.contains("plan-frame"));
+    expect(
+      planArticles.map(
+        (article) => article.querySelector(".plan-frame__header h2")?.textContent
+      )
+    ).toEqual([
+      "Fix plan",
+      "Main plan"
+    ]);
+    expect(screen.getByText("Current working plan")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Continue plan Main plan" }));
+
+    expect(onOpenTask).toHaveBeenCalledWith("t1", { activate: true });
+  });
+
+  it("hides and restores a completed plan without changing its summary", async () => {
+    const user = userEvent.setup();
+    const onOpenTask = vi.fn();
+    const onArchivePlan = vi.fn();
+    const onRestorePlan = vi.fn();
+    const planFrames = [
+      planFrameFixture({
+        planId: "completed-plan",
+        title: "Finished release",
+        collapsed: true,
+        isCurrent: false,
+        taskId: "done-task",
+        taskTitle: "Ship release",
+        taskStatus: "done"
+      }),
+      planFrameFixture({
+        planId: "open-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "open-task",
+        taskTitle: "Continue work"
+      })
+    ];
+
+    const view = renderWithRouter(
+      <Planner
+        planFrames={planFrames}
+        onArchivePlan={onArchivePlan}
+        onRestorePlan={onRestorePlan}
+        onOpenTask={onOpenTask}
+      />
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "Hide completed plan Finished release" })
+    );
+    expect(onArchivePlan).toHaveBeenCalledWith("completed-plan");
+
+    view.rerender(
+      <Planner
+        planFrames={planFrames}
+        archivedPlanIds={["completed-plan"]}
+        onArchivePlan={onArchivePlan}
+        onRestorePlan={onRestorePlan}
+        onOpenTask={onOpenTask}
+      />
+    );
+
+    expect(screen.getByRole("heading", { name: "Hidden completed plans" })).toBeInTheDocument();
+    expect(screen.getByText("1/1 tasks")).toBeInTheDocument();
+    await user.click(
+      screen.getByRole("button", { name: "Restore plan Finished release" })
+    );
+    expect(onRestorePlan).toHaveBeenCalledWith("completed-plan");
+  });
 });
+
+function planFrameFixture({
+  planId,
+  title,
+  isCurrent,
+  taskId,
+  taskTitle,
+  taskStatus = "todo",
+  collapsed = false
+}: {
+  planId: string;
+  title: string;
+  isCurrent: boolean;
+  taskId: string;
+  taskTitle: string;
+  taskStatus?: "todo" | "done";
+  collapsed?: boolean;
+}): PlanFrame {
+  const stageId = `${planId}-stage`;
+  const stageStatus = collapsed ? "completed" : "current";
+  const task = {
+    id: taskId,
+    projectId: "project-1",
+    stageId,
+    title: taskTitle,
+    description: "",
+    status: taskStatus,
+    priority: "normal" as const,
+    dueDate: null,
+    nextStep: taskStatus === "done" ? "" : "Keep moving",
+    position: 0,
+    checklist: []
+  };
+  const stageFrame: PlannerFrame = {
+    stage: {
+      id: stageId,
+      projectId: "project-1",
+      planId,
+      title: `${title} stage`,
+      description: "",
+      position: 0,
+      status: stageStatus
+    },
+    collapsed,
+    recommendedTaskId: taskStatus === "done" ? null : taskId,
+    tasks: [task],
+    progress: {
+      completedTasks: taskStatus === "done" ? 1 : 0,
+      totalTasks: 1,
+      completedChecklist: 0,
+      totalChecklist: 0,
+      percent: taskStatus === "done" ? 100 : 0,
+      tasksLabel: taskStatus === "done" ? "1/1 tasks" : "0/1 tasks",
+      checklistLabel: null
+    }
+  };
+
+  return {
+    plan: {
+      id: planId,
+      projectId: "project-1",
+      title,
+      position: planId === "plan-1" ? 0 : planId === "plan-2" ? 1 : 2
+    },
+    collapsed,
+    isCurrent,
+    recommendedTaskId: taskStatus === "done" ? null : taskId,
+    stageFrames: [stageFrame],
+    progress: stageFrame.progress
+  };
+}
