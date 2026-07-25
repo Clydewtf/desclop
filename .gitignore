@@ -2,6 +2,7 @@
 .superpowers/
 .worktrees/
 docs/*
+release-private/
 node_modules/
 dist/
 target/

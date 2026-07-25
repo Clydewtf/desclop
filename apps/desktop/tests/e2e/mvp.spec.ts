@@ -83,6 +83,16 @@ test("resume-first MVP flow works without Git or Focus Mode", async ({ page }) =
     window.__TAURI_INTERNALS__ = {
       invoke: async (command: string, args?: Record<string, any>) => {
         switch (command) {
+          case "get_database_status":
+            return {
+              state: "ready",
+              schemaVersion: 3,
+              targetSchemaVersion: 3,
+              integrity: "ok",
+              recoveryCode: null,
+              recoveryBackupPath: null,
+              nextStep: null
+            };
           case "list_projects":
             return project ? [clone(project)] : [];
           case "inspect_project_folder":

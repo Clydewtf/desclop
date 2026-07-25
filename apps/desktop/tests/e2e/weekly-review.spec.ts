@@ -92,6 +92,16 @@ test("Weekly Review explains local counts and returns to linked context", async 
     window.__TAURI_INTERNALS__ = {
       invoke: async (command: string) => {
         switch (command) {
+          case "get_database_status":
+            return {
+              state: "ready",
+              schemaVersion: 3,
+              targetSchemaVersion: 3,
+              integrity: "ok",
+              recoveryCode: null,
+              recoveryBackupPath: null,
+              nextStep: null
+            };
           case "list_projects":
             return [project];
           case "list_project_summaries":

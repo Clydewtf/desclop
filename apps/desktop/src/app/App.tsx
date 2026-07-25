@@ -59,6 +59,7 @@ import {
   type ProjectPlanPayload
 } from "../shared/api/client";
 import { chooseFolder, choosePortableBackupFile } from "../shared/api/folderDialog";
+import { formatUserFacingError } from "../shared/errors/safeError";
 import {
   type GitCommit,
   type InboxItem,
@@ -427,8 +428,7 @@ export function App() {
   }
 
   function getSettingsErrorMessage(subject: string, error: unknown) {
-    const detail = error instanceof Error ? error.message : String(error ?? "Unknown error");
-    return `${subject} could not be applied. ${detail}`;
+    return formatUserFacingError(subject, error);
   }
 
   function showToast(tone: ToastTone, title: string, message: string) {

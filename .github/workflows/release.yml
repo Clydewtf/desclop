@@ -7,9 +7,21 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to build, for example v0.1.0-alpha.4"
+        description: "Release tag to build, for example v0.1.0-beta.1"
         required: true
         type: string
+      source_ref:
+        description: "Branch or commit to build for mode=check"
+        required: false
+        type: string
+      mode:
+        description: "Build only, or publish a GitHub Release"
+        default: check
+        required: true
+        type: choice
+        options:
+          - check
+          - publish
       platform:
         description: "Platform to build"
         default: all
@@ -26,10 +38,84 @@ jobs:
     name: Quality gate
     uses: ./.github/workflows/quality-gate.yml
     with:
-      ref: ${{ github.event.inputs.tag || github.ref_name }}
+      ref: ${{ (github.event.inputs.mode == 'check' && github.event.inputs.source_ref) || github.event.inputs.tag || github.ref_name }}
+
+  release-check:
+    name: Dry-run build ${{ matrix.platform }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'check' }}
+    needs: quality-gate
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            args: ""
+          - platform: ubuntu-22.04
+            args: ""
+          - platform: windows-latest
+            args: "--bundles nsis"
+    runs-on: ${{ matrix.platform }}
+    env:
+      RELEASE_TAG: ${{ github.event.inputs.tag }}
+      RELEASE_REF: ${{ github.event.inputs.source_ref || github.event.inputs.tag }}
+      RELEASE_PLATFORM: ${{ matrix.platform }}
+
+    steps:
+      - name: Checkout
+        if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+
+      - name: Setup Node
+        if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: lts/*
+          cache: npm
+
+      - name: Validate release version
+        if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
+        run: node scripts/check-release-version.mjs
+
+      - name: Install Rust
+        if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        if: ${{ matrix.platform == 'ubuntu-22.04' && (github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform) }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Install frontend dependencies
+        if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
+        run: npm ci
+
+      - name: Build Tauri bundles without publishing
+        if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
+        run: npm --workspace apps/desktop exec -- tauri build --ci --no-sign ${{ matrix.args }}
+
+      - name: Verify expected bundle outputs
+        if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
+        run: node scripts/verify-release-bundles.mjs
 
   publish-tauri:
     name: Build ${{ matrix.platform }}
+    if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.mode == 'publish' }}
     needs: quality-gate
     permissions:
       contents: write
@@ -61,6 +147,10 @@ jobs:
           node-version: lts/*
           cache: npm
 
+      - name: Validate release version
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
+        run: node scripts/check-release-version.mjs
+
       - name: Install Rust
         if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
         uses: dtolnay/rust-toolchain@stable
@@ -69,7 +159,18 @@ jobs:
         if: ${{ matrix.platform == 'ubuntu-22.04' && (github.event_name != 'workflow_dispatch' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform) }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
 
       - name: Install frontend dependencies
         if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}

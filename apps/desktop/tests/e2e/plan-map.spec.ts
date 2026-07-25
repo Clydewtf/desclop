@@ -87,6 +87,16 @@ test("Plan map keeps one current plan and restores a hidden completed plan", asy
     window.__TAURI_INTERNALS__ = {
       invoke: async (command: string, args: Record<string, any> = {}) => {
         switch (command) {
+          case "get_database_status":
+            return {
+              state: "ready",
+              schemaVersion: 3,
+              targetSchemaVersion: 3,
+              integrity: "ok",
+              recoveryCode: null,
+              recoveryBackupPath: null,
+              nextStep: null
+            };
           case "list_projects":
             return [clone(project)];
           case "list_project_summaries":

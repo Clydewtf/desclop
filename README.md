@@ -31,9 +31,9 @@ It is not meant to be a team project management system, a full Git client, a tim
 
 ## Project Status
 
-Desclop is currently in alpha.
+Desclop is currently in beta.
 
-The current release line is `v0.1.0-alpha.4`, focused on a compact, local Weekly Review that explains recent progress and what is needed to resume. Expect rough edges, missing polish, and possible changes to workflows while the product shape is still settling.
+The current release line is `v0.1.0-beta.1`, focused on a stable local workflow with portable backup, restore, diagnostics, and Weekly Review. Expect rough edges and platform-specific limitations while the beta is being validated.
 
 ## Installation
 
@@ -51,7 +51,7 @@ Typical release assets are:
 - Linux: `.AppImage` or `.deb`;
 - Windows: `.exe` installer.
 
-macOS may warn about an unidentified developer if the build is not signed and notarized yet.
+The beta packages are not currently signed/notarized. macOS may warn about an unidentified developer, and Windows may show SmartScreen publisher warnings. The Windows installer may need internet access to obtain WebView2. The owner-only beta release pack is kept locally in the ignored `release-private/beta/` folder and is distributed to testers separately.
 
 ## Development
 
@@ -111,6 +111,8 @@ Release builds are handled by GitHub Actions.
 When a version tag is published, the release workflow builds desktop packages for macOS, Linux, and Windows, then uploads the generated Tauri assets to the GitHub Release.
 
 The workflow can also be started manually for a specific release tag and platform.
+
+Use manual `mode=check` with the expected `tag` and a `source_ref` branch/commit to build and verify release bundles without creating or uploading a GitHub Release. Use `mode=publish` only after the three-platform native smoke checklist is signed off. Distribute the private beta feedback guide to testers and ask them to share only the support report, not project files.
 
 ## MVP Boundaries
 

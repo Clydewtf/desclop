@@ -49,6 +49,18 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
 
     window.__TAURI_INTERNALS__ = {
       invoke: async (cmd, args = {}) => {
+        if (cmd === "get_database_status") {
+          return {
+            state: "ready",
+            schemaVersion: 3,
+            targetSchemaVersion: 3,
+            integrity: "ok",
+            recoveryCode: null,
+            recoveryBackupPath: null,
+            nextStep: null
+          };
+        }
+
         if (cmd === "plugin:dialog|open") {
           return "/tmp/desclop-alpha-e2e";
         }

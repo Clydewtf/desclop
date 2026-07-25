@@ -147,7 +147,7 @@ export function TechnicalSupportReport({
     <details className="utilities-support-report">
       <summary>For support</summary>
       <p className="ui-help-text">
-        This is a manual, local support report. It contains application, database, folder, Git, and backup states only — not project names, paths, plans, tasks, notes, or work history.
+        This is a manual, local support report. It contains application, database, folder, Git, and backup states only — not project names, paths, plans, tasks, notes, or work history. Paste only this report into beta feedback.
       </p>
       <div className="ui-field utilities-support-report__field">
         <label className="ui-field__label" htmlFor="support-diagnostics">

@@ -2,6 +2,24 @@
 
 All notable changes to Desclop are documented in this file.
 
+## v0.1.0-beta.1 - 2026-07-26
+
+Beta release readiness pass.
+
+### Added
+
+- Safe UI error boundaries, opaque error references, and non-technical recovery messages for critical local failures.
+- A reproducible browser smoke path covering diagnostics, portable backup/restore, and close behavior controls.
+- A release workflow `mode=check` that validates versions and builds expected bundles without publishing artifacts.
+- Native smoke and beta feedback checklists that document platform-specific signing, installer, runtime, and fallback limits.
+
+### Release limits
+
+- macOS signing/notarization and Windows code signing are not configured in the current workflow.
+- Windows WebView2 offline/fixed-runtime packaging is not configured.
+- Linux validation uses Ubuntu 22.04 as the build baseline; wider distro coverage remains manual.
+- The beta has no automatic in-app updater; updates and fallback are manual.
+
 ## v0.1.0-alpha.4 - 2026-07-25
 
 Local reflection alpha release.
