@@ -9,6 +9,59 @@ afterEach(() => {
 });
 
 describe("Timeline", () => {
+  it("opens a date-filtered timeline and highlights the exact source record", async () => {
+    const user = userEvent.setup();
+    const onClearDateFilter = vi.fn();
+
+    renderWithRouter(
+      <Timeline
+        workEntries={[
+          {
+            id: "w1",
+            projectId: "p1",
+            taskId: null,
+            source: "manual",
+            startedAt: null,
+            endedAt: null,
+            durationSeconds: null,
+            done: "Selected source record",
+            remains: "",
+            nextStep: "",
+            createdAt: new Date(2026, 5, 15, 10).toISOString()
+          }
+        ]}
+        commits={[
+          {
+            sha: "abcdef123",
+            projectId: "p1",
+            branch: "main",
+            message: "Other day commit",
+            authorName: "Clyde",
+            committedAt: new Date(2026, 5, 16, 10).toISOString(),
+            changedFiles: []
+          }
+        ]}
+        notes={[]}
+        inboxItems={[]}
+        completedTasks={[]}
+        dateKey="2026-06-15"
+        focusItemKey="work:w1"
+        onClearDateFilter={onClearDateFilter}
+        now={new Date(2026, 5, 16, 12)}
+      />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(/Showing Mon, Jun 15, 2026/);
+    expect(screen.getByText("Selected source record")).toBeInTheDocument();
+    expect(screen.queryByText("Other day commit")).not.toBeInTheDocument();
+    expect(screen.getByText("Selected source record").closest("li")).toHaveClass(
+      "timeline-row--focused"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Show all days" }));
+    expect(onClearDateFilter).toHaveBeenCalledTimes(1);
+  });
+
   it("renders project history grouped by local date", () => {
     const workTimestamp = new Date(2026, 5, 16, 10).toISOString();
     const commitTimestamp = new Date(2026, 5, 16, 10, 5).toISOString();

@@ -53,6 +53,7 @@ describe("settings", () => {
           windowResizable: "yes",
           density: "compact",
           textScale: "huge",
+          showExplanations: "yes",
           captureShortcut: "Shift+"
         }
       })

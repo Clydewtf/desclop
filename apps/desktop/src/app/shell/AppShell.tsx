@@ -1,5 +1,6 @@
 import {
   ArrowLeftRight,
+  ClipboardCheck,
   ClipboardPenLine,
   CircleHelp,
   Clock3,
@@ -16,6 +17,7 @@ import { Button } from "../../shared/ui";
 export type AppDestination =
   | "setup"
   | "today"
+  | "review"
   | "plan"
   | "timeline"
   | "import"
@@ -43,6 +45,7 @@ interface ShellDestination {
 
 const workDestinations: ShellDestination[] = [
   { destination: "today", label: "Today", icon: Home },
+  { destination: "review", label: "Review", icon: ClipboardCheck },
   { destination: "plan", label: "Plan", icon: Map },
   { destination: "timeline", label: "Timeline", icon: Clock3 }
 ];
@@ -114,7 +117,7 @@ export function AppShell({
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" onContextMenu={(event) => event.preventDefault()}>
       <aside className="app-sidebar" aria-label="Application">
         <div className="app-sidebar__identity">
           <strong>{projectName ?? "Desclop"}</strong>

@@ -132,6 +132,51 @@ describe("buildTimeline", () => {
     });
   });
 
+  it("filters to a selected local day without changing the source item identity", () => {
+    const timeline = buildTimeline(
+      {
+        workEntries: [
+          {
+            id: "w1",
+            projectId: "p1",
+            taskId: null,
+            source: "manual",
+            startedAt: null,
+            endedAt: null,
+            durationSeconds: null,
+            done: "Selected day handoff",
+            remains: "",
+            nextStep: "",
+            createdAt: timestamp(2026, 5, 15, 10, 0)
+          }
+        ],
+        commits: [
+          {
+            sha: "abcdef1234567890",
+            projectId: "p1",
+            branch: "main",
+            message: "Other day",
+            authorName: "Clyde",
+            committedAt: timestamp(2026, 5, 16, 10, 0),
+            changedFiles: []
+          }
+        ],
+        notes: [],
+        inboxItems: [],
+        completedTasks: []
+      },
+      new Date(2026, 5, 16, 12),
+      { dateKey: "2026-06-15" }
+    );
+
+    expect(timeline.dateFilterLabel).toBe("Mon, Jun 15, 2026");
+    expect(timeline.summary).toBe("Selected Mon, Jun 15, 2026 · 0 commits · 1 work review · No notes");
+    expect(timeline.pagination.totalItems).toBe(1);
+    expect(timeline.sections.flatMap((section) => section.items)).toEqual([
+      expect.objectContaining({ id: "w1", kind: "work", title: "Selected day handoff" })
+    ]);
+  });
+
   it("returns sparse state copy when only commits exist", () => {
     const timeline = buildTimeline({
       workEntries: [],
@@ -314,7 +359,7 @@ describe("buildTimeline", () => {
     expect(commitsOnlyTimeline.sparseState?.title).toBe("Only commits so far");
   });
 
-  it("uses DOM-safe local-date section ids and includes tasks with a valid updated timestamp", () => {
+  it("uses DOM-safe local-date section ids and includes tasks with a valid completion timestamp", () => {
     const timeline = buildTimeline(
       {
         workEntries: [],
@@ -357,7 +402,7 @@ describe("buildTimeline", () => {
             dueDate: null,
             nextStep: "",
             position: 2,
-            updatedAt: timestamp(2026, 5, 15, 14, 30)
+            completedAt: timestamp(2026, 5, 15, 14, 30)
           }
         ]
       },

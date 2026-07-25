@@ -141,7 +141,7 @@ export function Today({
         <Surface ariaLabel="Manual work review" className="today-manual-review">
           <div>
             <h2>Manual work review</h2>
-            <p>Record work that happened outside a focus session.</p>
+            <p className="ui-help-text">Record work that happened outside a focus session.</p>
           </div>
           <Button variant="secondary" onClick={onStartManualWorkReview}>
             Add manual work review

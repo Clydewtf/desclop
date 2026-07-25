@@ -6,7 +6,7 @@ import { App } from "./App";
 import { api } from "../shared/api/client";
 import { chooseFolder } from "../shared/api/folderDialog";
 import type { ResumeBrief } from "../shared/domain/types";
-import { SETTINGS_STORAGE_KEY } from "../features/settings/settings";
+import { SETTINGS_SCHEMA_VERSION, SETTINGS_STORAGE_KEY } from "../features/settings/settings";
 import { LAST_PROJECT_STORAGE_KEY } from "../features/project-setup/projectSelection";
 
 const tauriEventMock = vi.hoisted(() => {
@@ -1498,6 +1498,57 @@ describe("App", () => {
     expect(screen.getByText("/tmp/desclop")).toBeInTheDocument();
   });
 
+  it("opens Weekly Review from the shell and loads project records locally", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForProject.mockResolvedValue([]);
+    listWorkEntriesForProject.mockResolvedValue([]);
+    listInboxItemsForProject.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Review" }));
+
+    expect(await screen.findByRole("heading", { name: "Weekly Review" })).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "Tasks without next action" })).toBeInTheDocument();
+    expect(listNotesForProject).toHaveBeenCalledWith("p1");
+    expect(listWorkEntriesForProject).toHaveBeenCalledWith("p1");
+    expect(listInboxItemsForProject).toHaveBeenCalledWith("p1");
+  });
+
+  it("refreshes local Git history when Weekly Review opens and explains freshness", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ gitEnabled: true })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    syncGitCommits.mockResolvedValue([
+      {
+        sha: "review-commit",
+        projectId: "p1",
+        branch: "main",
+        message: "Review snapshot",
+        authorName: "Clyde",
+        committedAt: "2026-06-16T10:00:00Z",
+        changedFiles: []
+      }
+    ]);
+    readCurrentGitBranch.mockResolvedValue("main");
+    listNotesForProject.mockResolvedValue([]);
+    listWorkEntriesForProject.mockResolvedValue([]);
+    listInboxItemsForProject.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Review" }));
+
+    expect(await screen.findByText(/Git history: synced/)).toBeInTheDocument();
+    await waitFor(() => expect(syncGitCommits).toHaveBeenCalledTimes(2));
+  });
+
   it("opens global Settings without a project and persists an appearance change", async () => {
     const user = userEvent.setup();
     onboardingStorage.set(
@@ -1512,11 +1563,13 @@ describe("App", () => {
     expect(screen.getByLabelText("Theme")).toHaveValue("light");
 
     await user.selectOptions(screen.getByLabelText("Theme"), "dark");
+    await user.click(screen.getByRole("checkbox", { name: /Show explanatory text/ }));
 
     expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(document.documentElement.dataset.showExplanations).toBe("false");
     expect(JSON.parse(onboardingStorage.get(SETTINGS_STORAGE_KEY)!)).toEqual({
-      schemaVersion: 1,
-      settings: expect.objectContaining({ theme: "dark" })
+      schemaVersion: SETTINGS_SCHEMA_VERSION,
+      settings: expect.objectContaining({ theme: "dark", showExplanations: false })
     });
   });
 

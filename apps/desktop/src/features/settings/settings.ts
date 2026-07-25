@@ -1,5 +1,5 @@
 export const SETTINGS_STORAGE_KEY = "desclop.settings";
-export const SETTINGS_SCHEMA_VERSION = 1;
+export const SETTINGS_SCHEMA_VERSION = 2;
 
 export type ThemeSetting = "system" | "light" | "dark";
 export type CloseBehavior = "tray" | "quit";
@@ -13,6 +13,7 @@ export interface AppSettings {
   density: DensitySetting;
   compactSidebar: boolean;
   textScale: TextScaleSetting;
+  showExplanations: boolean;
   captureShortcut: string;
 }
 
@@ -28,6 +29,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   density: "comfortable",
   compactSidebar: false,
   textScale: "normal",
+  showExplanations: true,
   captureShortcut: "CommandOrControl+Shift+C"
 };
 
@@ -144,6 +146,10 @@ export function normalizeSettings(value: unknown): AppSettings {
       ["small", "normal", "large"],
       DEFAULT_SETTINGS.textScale
     ),
+    showExplanations:
+      typeof stored.showExplanations === "boolean"
+        ? stored.showExplanations
+        : DEFAULT_SETTINGS.showExplanations,
     captureShortcut: captureShortcut ?? DEFAULT_SETTINGS.captureShortcut
   };
 }

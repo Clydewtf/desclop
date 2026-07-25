@@ -54,6 +54,10 @@ export interface Task {
   dueDate: string | null;
   nextStep: string;
   position: number;
+  /** Last local task record update; not a completion timestamp. */
+  updatedAt?: string | null;
+  /** Set only when the task enters Done; historic imported Done tasks may be unknown. */
+  completedAt?: string | null;
 }
 
 export interface ChecklistItem {

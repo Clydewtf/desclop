@@ -67,6 +67,8 @@ pub struct BundleTaskRow {
     pub position: i64,
     pub created_at: String,
     pub updated_at: String,
+    #[serde(default)]
+    pub completed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -316,8 +318,8 @@ fn import_bundle(
         let new_stage_id = remap_required(&stage_ids, &task.stage_id, "stage_id")?;
         task_ids.insert(task.id.clone(), new_task_id.clone());
         tx.execute(
-            "insert into tasks (id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at)
-             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "insert into tasks (id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at, completed_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 new_task_id,
                 new_project_id,
@@ -330,7 +332,8 @@ fn import_bundle(
                 task.next_step,
                 task.position,
                 task.created_at,
-                task.updated_at
+                task.updated_at,
+                task.completed_at
             ],
         )?;
     }
@@ -679,7 +682,7 @@ fn list_stage_rows(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<
 
 fn list_task_rows(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<BundleTaskRow>> {
     let mut stmt = conn.prepare(
-        "select id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at
+        "select id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, created_at, updated_at, completed_at
          from tasks
          where project_id = ?1
          order by stage_id asc, position asc, id asc",
@@ -698,6 +701,7 @@ fn list_task_rows(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<B
             position: row.get(9)?,
             created_at: row.get(10)?,
             updated_at: row.get(11)?,
+            completed_at: row.get(12)?,
         })
     })?;
     rows.collect()

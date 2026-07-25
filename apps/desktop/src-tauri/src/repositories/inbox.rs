@@ -105,6 +105,8 @@ impl<'a> InboxRepository<'a> {
             due_date: None,
             next_step: String::new(),
             position,
+            updated_at: Some(now.clone()),
+            completed_at: None,
         };
 
         tx.execute(

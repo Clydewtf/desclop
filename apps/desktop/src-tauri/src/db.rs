@@ -13,7 +13,16 @@ pub fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute_batch(include_str!("../migrations/001_init.sql"))?;
     migrate_plans_schema(conn)?;
     migrate_checklist_descriptions_schema(conn)?;
+    migrate_task_completion_schema(conn)?;
     migrate_commit_tables_to_project_scoped_keys(conn)
+}
+
+fn migrate_task_completion_schema(conn: &Connection) -> rusqlite::Result<()> {
+    if !table_has_column(conn, "tasks", "completed_at")? {
+        conn.execute("alter table tasks add column completed_at text", [])?;
+    }
+
+    Ok(())
 }
 
 fn migrate_checklist_descriptions_schema(conn: &Connection) -> rusqlite::Result<()> {

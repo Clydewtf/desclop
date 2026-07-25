@@ -22,7 +22,7 @@ function FieldFrame({ id, label, hint, hintId, children }: FieldFrameProps) {
       </label>
       {children}
       {hint ? (
-        <span className="ui-field__hint" id={hintId}>
+        <span className="ui-field__hint ui-help-text" id={hintId}>
           {hint}
         </span>
       ) : null}

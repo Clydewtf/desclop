@@ -33,7 +33,7 @@ export function FirstRunHint({ storageKey, title, children, onOpenHelp }: FirstR
   }
 
   return (
-    <aside className="first-run-hint" aria-label={title}>
+    <aside className="first-run-hint ui-help-text" aria-label={title}>
       <div className="first-run-hint__content">
         <strong>{title}</strong>
         <div className="first-run-hint__body">{children}</div>

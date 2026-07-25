@@ -16,9 +16,21 @@ describe("Settings", () => {
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByLabelText("Theme")).toHaveValue("system");
+    expect(screen.getByRole("checkbox", { name: /Show explanatory text/ })).toBeChecked();
     expect(screen.getByLabelText("When the window is closed")).toHaveValue("tray");
     expect(screen.getByRole("button", { name: "Ctrl+Shift+C" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Quit Desclop" })).toBeInTheDocument();
+  });
+
+  it("toggles explanatory text visibility", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+
+    render(<Settings settings={DEFAULT_SETTINGS} onChange={onChange} onQuit={vi.fn()} />);
+
+    await user.click(screen.getByRole("checkbox", { name: /Show explanatory text/ }));
+
+    expect(onChange).toHaveBeenCalledWith("showExplanations", false);
   });
 
   it("orders appearance controls in one compact row", () => {
@@ -30,7 +42,13 @@ describe("Settings", () => {
     ).map((label) => label.textContent);
 
     expect(appearance.querySelector(".settings-form")).toHaveClass("settings-form--appearance");
-    expect(labels).toEqual(["Theme", "Density", "Interface size", "Compact sidebar"]);
+    expect(labels).toEqual([
+      "Theme",
+      "Density",
+      "Interface size",
+      "Compact sidebar",
+      "Show explanatory text"
+    ]);
   });
 
   it("records a custom single key and supports cancelling with Escape", async () => {

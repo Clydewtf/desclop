@@ -38,6 +38,8 @@ export interface TimelinePagination {
 export interface TimelineOptions {
   page?: number;
   pageSize?: number;
+  dateKey?: string;
+  focusItemKey?: string;
 }
 
 export type TimelineCompletedTask = Task & {
@@ -118,8 +120,22 @@ export function buildTimeline(
     ...completedTaskItems
   ].sort(compareTimelineItems);
 
-  const pagination = paginateTimelineItems(items.length, options);
-  const visibleItems = items.slice(
+  const filteredItems = options.dateKey
+    ? items.filter((item) => formatTimelineSectionId(item.timestamp) === options.dateKey)
+    : items;
+
+  const focusIndex = options.focusItemKey
+    ? filteredItems.findIndex((item) => `${item.kind}:${item.id}` === options.focusItemKey)
+    : -1;
+  const pagination = paginateTimelineItems(filteredItems.length, {
+    ...options,
+    page:
+      options.page ??
+      (focusIndex >= 0
+        ? Math.floor(focusIndex / normalizePositiveInteger(options.pageSize, DEFAULT_TIMELINE_PAGE_SIZE)) + 1
+        : undefined)
+  });
+  const visibleItems = filteredItems.slice(
     (pagination.page - 1) * pagination.pageSize,
     pagination.page * pagination.pageSize
   );
@@ -136,20 +152,42 @@ export function buildTimeline(
     }
   }
 
-  const noteCount = input.notes.length + input.inboxItems.length;
+  const summaryItems = options.dateKey ? filteredItems : null;
+  const commitCount = summaryItems
+    ? summaryItems.filter((item) => item.kind === "commit").length
+    : input.commits.length;
+  const workCount = summaryItems
+    ? summaryItems.filter((item) => item.kind === "work").length
+    : input.workEntries.length;
+  const noteCount = summaryItems
+    ? summaryItems.filter((item) => item.kind === "note" || item.kind === "capture").length
+    : input.notes.length + input.inboxItems.length;
   const summaryParts = [
-    `${input.commits.length} ${input.commits.length === 1 ? "commit" : "commits"}`,
-    input.workEntries.length === 0
+    `${commitCount} ${commitCount === 1 ? "commit" : "commits"}`,
+    workCount === 0
       ? "No work reviews"
-      : `${input.workEntries.length} work ${input.workEntries.length === 1 ? "review" : "reviews"}`,
+      : `${workCount} work ${workCount === 1 ? "review" : "reviews"}`,
     noteCount === 0 ? "No notes" : `${noteCount} ${noteCount === 1 ? "note" : "notes"}`
   ];
+  if (options.dateKey) {
+    summaryParts.unshift(`Selected ${formatDateKeyLabel(options.dateKey)}`);
+  }
+
+  const sparseState = options.dateKey
+    ? filteredItems.length === 0
+      ? {
+          title: "No activity recorded on this day",
+          body: "Choose another day in Weekly Review or clear the day filter to return to the full timeline."
+        }
+      : null
+    : buildSparseState(input, completedTaskItems.length);
 
   return {
     sections,
     pagination,
     summary: summaryParts.join(" · "),
-    sparseState: buildSparseState(input, completedTaskItems.length)
+    sparseState,
+    dateFilterLabel: options.dateKey ? formatDateKeyLabel(options.dateKey) : null
   };
 }
 
@@ -246,13 +284,23 @@ function buildSparseState(
 }
 
 function getCompletedTaskTimestamp(task: TimelineCompletedTask) {
-  for (const timestamp of [task.completedAt, task.updatedAt]) {
-    if (timestamp && !Number.isNaN(Date.parse(timestamp))) {
-      return timestamp;
-    }
+  if (task.completedAt && !Number.isNaN(Date.parse(task.completedAt))) {
+    return task.completedAt;
   }
 
   return null;
+}
+
+function formatDateKeyLabel(dateKey: string) {
+  const date = new Date(`${dateKey}T12:00:00`);
+  return Number.isNaN(date.getTime())
+    ? dateKey
+    : new Intl.DateTimeFormat("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        year: "numeric"
+      }).format(date);
 }
 
 const workEntrySourceLabels: Record<WorkEntry["source"], string> = {

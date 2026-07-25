@@ -92,7 +92,7 @@ impl<'a> TaskRepository<'a> {
 
     pub fn list_tasks(&self, project_id: &str) -> rusqlite::Result<Vec<Task>> {
         let mut stmt = self.conn.prepare(
-            "select id, project_id, stage_id, title, description, status, priority, due_date, next_step, position
+            "select id, project_id, stage_id, title, description, status, priority, due_date, next_step, position, updated_at, completed_at
              from tasks
              where project_id = ?1
              order by stage_id asc, position asc, id asc",
@@ -110,6 +110,8 @@ impl<'a> TaskRepository<'a> {
                 due_date: row.get(7)?,
                 next_step: row.get(8)?,
                 position: row.get(9)?,
+                updated_at: row.get(10)?,
+                completed_at: row.get(11)?,
             })
         })?;
 
@@ -151,9 +153,18 @@ impl<'a> TaskRepository<'a> {
         }
 
         let tx = self.conn.unchecked_transaction()?;
+        let now = chrono::Utc::now().to_rfc3339();
         let updated_rows = tx.execute(
-            "update tasks set status = ?1, updated_at = ?2 where id = ?3",
-            rusqlite::params![status, chrono::Utc::now().to_rfc3339(), task_id],
+            "update tasks
+             set status = ?1,
+                 updated_at = ?2,
+                 completed_at = case
+                   when ?1 = 'done' and status != 'done' then ?2
+                   when ?1 != 'done' then null
+                   else completed_at
+                 end
+             where id = ?3",
+            rusqlite::params![status, now, task_id],
         )?;
         if updated_rows == 0 {
             return Err(rusqlite::Error::QueryReturnedNoRows);
@@ -656,6 +667,64 @@ mod tests {
         assert!(repository
             .update_task_status("missing-task", "todo")
             .is_err());
+    }
+
+    #[test]
+    fn completion_timestamp_only_tracks_transitions_into_done() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project = seed_project_with_plan(&mut conn, "desclop");
+        let repository = TaskRepository::new(&conn);
+        let task = repository
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .find(|task| task.title == "Create local store")
+            .expect("task");
+        let imported_done_task = repository
+            .list_tasks(&project.id)
+            .expect("list tasks")
+            .into_iter()
+            .find(|task| task.title == "Finished task")
+            .expect("imported done task");
+
+        assert_eq!(imported_done_task.completed_at, None);
+
+        repository
+            .update_task_status(&task.id, "done")
+            .expect("complete task");
+        let first_completed_at: Option<String> = conn
+            .query_row(
+                "select completed_at from tasks where id = ?1",
+                params![task.id],
+                |row| row.get(0),
+            )
+            .expect("completion timestamp");
+        assert!(first_completed_at.is_some());
+
+        repository
+            .update_task_status(&task.id, "done")
+            .expect("keep task done");
+        let repeated_completed_at: Option<String> = conn
+            .query_row(
+                "select completed_at from tasks where id = ?1",
+                params![task.id],
+                |row| row.get(0),
+            )
+            .expect("repeated completion timestamp");
+        assert_eq!(repeated_completed_at, first_completed_at);
+
+        repository
+            .update_task_status(&task.id, "todo")
+            .expect("reopen task");
+        let reopened_completed_at: Option<String> = conn
+            .query_row(
+                "select completed_at from tasks where id = ?1",
+                params![task.id],
+                |row| row.get(0),
+            )
+            .expect("cleared completion timestamp");
+        assert_eq!(reopened_completed_at, None);
     }
 
     #[test]

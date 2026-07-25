@@ -8,4 +8,5 @@ export function applySettingsToDocument(
   documentElement.dataset.density = settings.density;
   documentElement.dataset.sidebar = settings.compactSidebar ? "compact" : "full";
   documentElement.dataset.textScale = settings.textScale;
+  documentElement.dataset.showExplanations = settings.showExplanations ? "true" : "false";
 }

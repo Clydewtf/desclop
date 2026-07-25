@@ -113,7 +113,7 @@ export function Utilities({
             </Button>
           }
         />
-        <p className="utilities-note">
+        <p className="utilities-note ui-help-text">
           Readable Markdown for copying, sharing, or archiving the current plan.
         </p>
         <TextArea
@@ -127,7 +127,7 @@ export function Utilities({
 
       <Surface ariaLabel="Export portable backup">
         <SectionHeader title="Export portable backup" />
-        <p className="utilities-note">
+        <p className="utilities-note ui-help-text">
           Export Desclop workflow data into a portable folder for moving machines or creating a restore point.
         </p>
         <InlineAlert tone="info">
@@ -153,7 +153,7 @@ export function Utilities({
 
       <Surface ariaLabel="Import portable backup">
         <SectionHeader title="Import portable backup" />
-        <p className="utilities-note">
+        <p className="utilities-note ui-help-text">
           Restore Desclop workflow data from a backup folder and reconnect it to the local project folder.
         </p>
         <ReadonlyPathField

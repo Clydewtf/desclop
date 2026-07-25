@@ -47,6 +47,7 @@ create table if not exists tasks (
   position integer not null,
   created_at text not null,
   updated_at text not null,
+  completed_at text,
   unique(project_id, id),
   foreign key (project_id, stage_id) references stages(project_id, id) on delete cascade
 );

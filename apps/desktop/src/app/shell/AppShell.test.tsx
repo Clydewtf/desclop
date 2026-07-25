@@ -42,6 +42,20 @@ describe("AppShell", () => {
     expect(onQuickCapture).toHaveBeenCalledTimes(1);
   });
 
+  it("blocks the browser context menu inside the application shell", () => {
+    render(
+      <AppShell activeDestination="today" projectName="Desclop">
+        <h1>Today</h1>
+      </AppShell>
+    );
+
+    const heading = screen.getByRole("heading", { name: "Today" });
+    const event = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    heading.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
   it("renders a project action in the Project section and closes the current project", async () => {
     const user = userEvent.setup();
     const onCloseProject = vi.fn();

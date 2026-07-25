@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import type { GitCommit, InboxItem, Note, WorkEntry } from "../../shared/domain/types";
-import { EmptyState, ScreenHeader, Surface } from "../../shared/ui";
+import { Button, EmptyState, ScreenHeader, Surface } from "../../shared/ui";
 import { buildTimeline, type TimelineCompletedTask } from "./timelineEngine";
 
 interface TimelineProps {
@@ -10,6 +10,9 @@ interface TimelineProps {
   notes: Note[];
   inboxItems: InboxItem[];
   completedTasks: TimelineCompletedTask[];
+  dateKey?: string | null;
+  focusItemKey?: string | null;
+  onClearDateFilter?: () => void;
   now?: Date;
 }
 
@@ -19,9 +22,13 @@ export function Timeline({
   notes,
   inboxItems,
   completedTasks,
+  dateKey = null,
+  focusItemKey = null,
+  onClearDateFilter,
   now
 }: TimelineProps) {
-  const [page, setPage] = useState(1);
+  const [page, setPage] = useState<number | null>(null);
+  const focusedRowRef = useRef<HTMLLIElement | null>(null);
   const timeline = buildTimeline(
     {
       workEntries,
@@ -31,24 +38,54 @@ export function Timeline({
       completedTasks
     },
     now,
-    { page }
+    {
+      page: page ?? undefined,
+      dateKey: dateKey ?? undefined,
+      focusItemKey: focusItemKey ?? undefined
+    }
   );
   const { pagination } = timeline;
 
   useEffect(() => {
-    if (page > pagination.page) {
+    setPage(1);
+  }, [dateKey, focusItemKey]);
+
+  useEffect(() => {
+    if (page === null || page > pagination.page) {
       setPage(pagination.page);
     }
   }, [page, pagination.page]);
+
+  useEffect(() => {
+    if (!focusItemKey) {
+      return;
+    }
+
+    focusedRowRef.current?.scrollIntoView?.({ block: "center" });
+  }, [focusItemKey, timeline.sections]);
 
   return (
     <section className="timeline-screen">
       <ScreenHeader
         eyebrow="Review"
         title="Timeline"
+        descriptionKind="summary"
         description={timeline.summary}
       />
       <Surface ariaLabel="Timeline facts">
+        {dateKey ? (
+          <div className="timeline-filter" role="status">
+            <span>
+              Showing {timeline.dateFilterLabel ?? dateKey}
+              {focusItemKey ? " · selected source record" : ""}
+            </span>
+            {onClearDateFilter ? (
+              <Button variant="secondary" onClick={onClearDateFilter}>
+                Show all days
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         {timeline.sections.length > 0 ? (
           <>
             {timeline.sparseState ? (
@@ -69,7 +106,20 @@ export function Timeline({
                     {section.items.map((item) => (
                       <li
                         key={`${item.kind}-${item.id}`}
-                        className={`timeline-row timeline-row--${item.kind}`}
+                        ref={(node) => {
+                          if (`${item.kind}:${item.id}` === focusItemKey) {
+                            focusedRowRef.current = node;
+                          }
+                        }}
+                        className={`timeline-row timeline-row--${item.kind}${
+                          `${item.kind}:${item.id}` === focusItemKey
+                            ? " timeline-row--focused"
+                            : ""
+                        }`}
+                        data-timeline-item-key={`${item.kind}:${item.id}`}
+                        aria-current={
+                          `${item.kind}:${item.id}` === focusItemKey ? "location" : undefined
+                        }
                       >
                         {item.time && !Number.isNaN(Date.parse(item.timestamp)) ? (
                           <time className="timeline-row__time" dateTime={item.timestamp}>
@@ -95,7 +145,9 @@ export function Timeline({
               <nav className="timeline-pagination" aria-label="Timeline pages">
                 <button
                   type="button"
-                  onClick={() => setPage((currentPage) => Math.max(1, currentPage - 1))}
+                  onClick={() =>
+                    setPage((currentPage) => Math.max(1, (currentPage ?? pagination.page) - 1))
+                  }
                   disabled={!pagination.hasPreviousPage}
                   aria-label="Previous page"
                 >
@@ -110,7 +162,9 @@ export function Timeline({
                 <button
                   type="button"
                   onClick={() =>
-                    setPage((currentPage) => Math.min(pagination.pageCount, currentPage + 1))
+                    setPage((currentPage) =>
+                      Math.min(pagination.pageCount, (currentPage ?? pagination.page) + 1)
+                    )
                   }
                   disabled={!pagination.hasNextPage}
                   aria-label="Next page"

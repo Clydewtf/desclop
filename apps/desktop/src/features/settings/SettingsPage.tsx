@@ -122,7 +122,28 @@ export function Settings({ settings, error, status, onChange, onQuit }: Settings
             <span className="settings-checkbox__control" aria-hidden="true" />
             <span className="settings-checkbox__copy">
               <strong>Compact sidebar</strong>
-              <small>Keep navigation labels visible while using less horizontal space.</small>
+              <small className="ui-help-text">
+                Keep navigation labels visible while using less horizontal space.
+              </small>
+            </span>
+          </label>
+
+          <label
+            className="settings-checkbox settings-checkbox--compact"
+            htmlFor="settings-show-explanations"
+          >
+            <input
+              id="settings-show-explanations"
+              type="checkbox"
+              checked={settings.showExplanations}
+              onChange={(event) => onChange("showExplanations", event.target.checked)}
+            />
+            <span className="settings-checkbox__control" aria-hidden="true" />
+            <span className="settings-checkbox__copy">
+              <strong>Show explanatory text</strong>
+              <small className="ui-help-text">
+                Keep contextual descriptions and field hints visible throughout the app.
+              </small>
             </span>
           </label>
         </div>
@@ -158,14 +179,16 @@ export function Settings({ settings, error, status, onChange, onQuit }: Settings
             <span className="settings-checkbox__control" aria-hidden="true" />
             <span className="settings-checkbox__copy">
               <strong>Allow window resizing</strong>
-              <small>The minimum window size keeps Plan, Task Detail, and Import usable.</small>
+              <small className="ui-help-text">
+                The minimum window size keeps Plan, Task Detail, and Import usable.
+              </small>
             </span>
           </label>
 
           <div className="settings-danger-zone">
             <div>
               <strong>Explicit quit</strong>
-              <p>Quit is always available from the tray menu and exits immediately.</p>
+              <p className="ui-help-text">Quit is always available from the tray menu and exits immediately.</p>
             </div>
             <Button type="button" variant="secondary" onClick={onQuit}>
               Quit Desclop
@@ -176,7 +199,7 @@ export function Settings({ settings, error, status, onChange, onQuit }: Settings
 
       <Surface ariaLabel="Capture shortcut settings" className="settings-card">
         <SectionHeader title="Capture shortcut" />
-        <p className="settings-note">
+        <p className="settings-note ui-help-text">
           Assign a single key or a combination. The shortcut can work while Desclop is in the background.
         </p>
         <div className="settings-shortcut">
@@ -198,7 +221,7 @@ export function Settings({ settings, error, status, onChange, onQuit }: Settings
             Reset
           </Button>
         </div>
-        <p className="settings-note">
+        <p className="settings-note ui-help-text">
           Use Escape while recording to cancel. If the operating system rejects a shortcut, the previous one stays active.
         </p>
       </Surface>

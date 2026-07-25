@@ -66,6 +66,8 @@ pub struct Task {
     pub due_date: Option<String>,
     pub next_step: String,
     pub position: i64,
+    pub updated_at: Option<String>,
+    pub completed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

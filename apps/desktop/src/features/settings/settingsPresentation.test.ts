@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS } from "./settings";
 import { applySettingsToDocument } from "./settingsPresentation";
 
 describe("applySettingsToDocument", () => {
-  it("applies theme, density, sidebar, and text scale attributes", () => {
+  it("applies presentation and explanation visibility attributes", () => {
     const root = document.createElement("html");
 
     applySettingsToDocument(
@@ -12,7 +12,8 @@ describe("applySettingsToDocument", () => {
         theme: "dark",
         density: "compact",
         compactSidebar: true,
-        textScale: "large"
+        textScale: "large",
+        showExplanations: false
       },
       root
     );
@@ -21,7 +22,8 @@ describe("applySettingsToDocument", () => {
       theme: "dark",
       density: "compact",
       sidebar: "compact",
-      textScale: "large"
+      textScale: "large",
+      showExplanations: "false"
     });
   });
 });

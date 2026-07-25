@@ -43,6 +43,11 @@ import { Timeline } from "../features/timeline/Timeline";
 import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
 import { Utilities } from "../features/utilities/Utilities";
+import {
+  WeeklyReview,
+  type WeeklyReviewTimelineTarget
+} from "../features/weekly-review/WeeklyReview";
+import { buildWeeklyReview } from "../features/weekly-review/weeklyReviewEngine";
 import { WorkReview } from "../features/work-log/WorkReview";
 import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
 import { chooseFolder } from "../shared/api/folderDialog";
@@ -122,10 +127,12 @@ interface GitLoadResult {
   commits: GitCommit[];
   currentBranch: string | null;
   unavailable: boolean;
+  syncedAt: string | null;
 }
 
 type AppScreen =
   | "today"
+  | "weekly-review"
   | "task-detail"
   | "focus"
   | "work-review"
@@ -157,7 +164,7 @@ async function loadResumeBrief(projectId: string): Promise<ResumeLoadResult> {
 
 async function loadGitCommits(project: Project): Promise<GitLoadResult> {
   if (!project.gitEnabled) {
-    return { commits: [], currentBranch: null, unavailable: false };
+    return { commits: [], currentBranch: null, unavailable: false, syncedAt: null };
   }
 
   try {
@@ -165,9 +172,14 @@ async function loadGitCommits(project: Project): Promise<GitLoadResult> {
       api.syncGitCommits(project.id),
       api.readCurrentGitBranch(project.id)
     ]);
-    return { commits, currentBranch: currentBranch ?? null, unavailable: false };
+    return {
+      commits,
+      currentBranch: currentBranch ?? null,
+      unavailable: false,
+      syncedAt: new Date().toISOString()
+    };
   } catch {
-    return { commits: [], currentBranch: null, unavailable: true };
+    return { commits: [], currentBranch: null, unavailable: true, syncedAt: null };
   }
 }
 
@@ -253,6 +265,10 @@ function activeDestinationForScreen(screen: AppScreen): AppDestination {
     return screen;
   }
 
+  if (screen === "weekly-review") {
+    return "review";
+  }
+
   if (screen === "setup") {
     return "setup";
   }
@@ -309,6 +325,7 @@ export function App() {
   const [gitErrorDismissed, setGitErrorDismissed] = useState(false);
   const [gitCommits, setGitCommits] = useState<GitCommit[]>([]);
   const [gitCurrentBranch, setGitCurrentBranch] = useState<string | null>(null);
+  const [gitLastSyncedAt, setGitLastSyncedAt] = useState<string | null>(null);
   const [resumeBrief, setResumeBrief] = useState<ResumeBrief | null>(null);
   const [projectPlan, setProjectPlan] = useState<ProjectPlanPayload>({
     plans: [],
@@ -329,7 +346,14 @@ export function App() {
   const [timelineNotes, setTimelineNotes] = useState<Note[]>([]);
   const [timelineWorkEntries, setTimelineWorkEntries] = useState<WorkEntry[]>([]);
   const [timelineInboxItems, setTimelineInboxItems] = useState<InboxItem[]>([]);
+  const [timelineDateKey, setTimelineDateKey] = useState<string | null>(null);
+  const [timelineFocusItemKey, setTimelineFocusItemKey] = useState<string | null>(null);
   const [timelineError, setTimelineError] = useState<string | null>(null);
+  const [reviewNotes, setReviewNotes] = useState<Note[]>([]);
+  const [reviewWorkEntries, setReviewWorkEntries] = useState<WorkEntry[]>([]);
+  const [reviewInboxItems, setReviewInboxItems] = useState<InboxItem[]>([]);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null);
   const [manualReviewTaskId, setManualReviewTaskId] = useState<string | null>(null);
   const [markdownDraft, setMarkdownDraft] = useState("");
@@ -450,6 +474,7 @@ export function App() {
     setGitError(null);
     setGitErrorDismissed(false);
     setGitCommits([]);
+    setGitLastSyncedAt(null);
     setResumeBrief(null);
     setProjectPlan({ plans: [], stages: [], tasks: [], checklistItems: [] });
     setArchivedPlanIds([]);
@@ -463,7 +488,14 @@ export function App() {
     setTimelineNotes([]);
     setTimelineWorkEntries([]);
     setTimelineInboxItems([]);
+    setTimelineDateKey(null);
+    setTimelineFocusItemKey(null);
     setTimelineError(null);
+    setReviewNotes([]);
+    setReviewWorkEntries([]);
+    setReviewInboxItems([]);
+    setReviewLoading(false);
+    setReviewError(null);
     setFocusSession(null);
     setManualReviewTaskId(null);
     setMarkdownDraft("");
@@ -787,6 +819,7 @@ export function App() {
     setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
     setGitCommits(gitResult.commits);
     setGitCurrentBranch(gitResult.currentBranch);
+    setGitLastSyncedAt(gitResult.syncedAt);
     setGitError(gitResult.unavailable ? "Git unavailable." : null);
     setGitErrorDismissed(false);
     setProjectPlan(plan);
@@ -799,6 +832,8 @@ export function App() {
     setTimelineNotes([]);
     setTimelineWorkEntries([]);
     setTimelineInboxItems([]);
+    setTimelineDateKey(null);
+    setTimelineFocusItemKey(null);
     setFocusSession(null);
     setScreen("today");
     setSetupMode("picker");
@@ -931,6 +966,7 @@ export function App() {
 
   function showProjectScreen(nextScreen: AppScreen) {
     setTimelineError(null);
+    setReviewError(null);
     setPortableError(null);
     setScreen(nextScreen);
   }
@@ -955,7 +991,7 @@ export function App() {
     writeArchivedPlansForProject(project.id, nextPlanIds);
   }
 
-  async function openTimeline() {
+  async function openTimeline(target: WeeklyReviewTimelineTarget = {}) {
     if (!project) {
       return;
     }
@@ -966,6 +1002,8 @@ export function App() {
     setTimelineNotes([]);
     setTimelineWorkEntries([]);
     setTimelineInboxItems([]);
+    setTimelineDateKey(target.dateKey ?? null);
+    setTimelineFocusItemKey(target.itemKey ?? null);
     try {
       const [notes, workEntries, inboxItems] = await Promise.all([
         loadListOrEmpty(() => api.listNotesForProject(project.id)),
@@ -987,6 +1025,47 @@ export function App() {
     }
   }
 
+  async function openWeeklyReview() {
+    if (!project) {
+      return;
+    }
+
+    const revision = projectContextRevision.current;
+    setScreen("weekly-review");
+    setReviewLoading(true);
+    setReviewError(null);
+    try {
+      const [notes, workEntries, inboxItems, gitResult] = await Promise.all([
+        loadListOrEmpty(() => api.listNotesForProject(project.id)),
+        loadListOrEmpty(() => api.listWorkEntriesForProject(project.id)),
+        loadListOrEmpty(() => api.listInboxItemsForProject(project.id)),
+        loadGitCommits(project)
+      ]);
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setReviewNotes(notes);
+      setReviewWorkEntries(workEntries);
+      setReviewInboxItems(inboxItems);
+      if (!gitResult.unavailable) {
+        setGitCommits(gitResult.commits);
+        setGitCurrentBranch(gitResult.currentBranch);
+        setGitLastSyncedAt(gitResult.syncedAt);
+      }
+      setGitError(gitResult.unavailable ? "Git unavailable." : null);
+      setScreen("weekly-review");
+    } catch {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setReviewError("Weekly Review unavailable.");
+    } finally {
+      if (isCurrentProjectContext(revision)) {
+        setReviewLoading(false);
+      }
+    }
+  }
+
   function handleNavigate(destination: AppDestination) {
     if (destination === "settings") {
       setScreen("settings");
@@ -995,6 +1074,11 @@ export function App() {
 
     if (destination === "timeline") {
       void openTimeline();
+      return;
+    }
+
+    if (destination === "review") {
+      void openWeeklyReview();
       return;
     }
 
@@ -1577,6 +1661,51 @@ export function App() {
       return renderSettingsScreen();
     }
 
+    if (screen === "weekly-review" && project) {
+      if (reviewLoading) {
+        return (
+          <Surface ariaLabel="Weekly Review loading">
+            <ScreenHeader
+              eyebrow="Review"
+              title="Weekly Review"
+              descriptionKind="status"
+              description="Loading local review records."
+            />
+          </Surface>
+        );
+      }
+
+      const review = buildWeeklyReview({
+        project,
+        tasks: projectPlan.tasks,
+        inboxItems: reviewInboxItems,
+        workEntries: reviewWorkEntries,
+        notes: reviewNotes,
+        commits: gitCommits,
+        gitStatus: {
+          enabled: project.gitEnabled,
+          unavailable: Boolean(gitError),
+          syncedAt: gitLastSyncedAt
+        }
+      });
+
+      return (
+        <>
+          {reviewError ? <InlineAlert tone="error">{reviewError}</InlineAlert> : null}
+          <WeeklyReview
+            review={review}
+            hasPlan={projectPlan.tasks.length > 0 || projectPlan.stages.length > 0}
+            onOpenTask={(taskId) => void openTask(taskId)}
+            onOpenTimeline={(target) => void openTimeline(target)}
+            onOpenPlan={() => showProjectScreen("plan")}
+            onOpenImport={() => showProjectScreen("import")}
+            onOpenToday={() => showProjectScreen("today")}
+            onStartManualWorkReview={startManualWorkReview}
+          />
+        </>
+      );
+    }
+
     if (screen === "import") {
       return (
         <section className="stack">
@@ -1615,7 +1744,10 @@ export function App() {
               </Button>
             </Surface>
 
-            <details className="ui-surface markdown-import__guide" aria-label="Plan structure">
+            <details
+              className="ui-surface markdown-import__guide"
+              aria-label="Plan structure"
+            >
               <summary className="markdown-import__guide-summary">
                 <span className="markdown-import__guide-summary-copy">
                   <h2>Plan structure</h2>
@@ -1714,6 +1846,9 @@ export function App() {
           notes={timelineNotes}
           inboxItems={timelineInboxItems}
           completedTasks={projectPlan.tasks.filter((task) => task.status === "done")}
+          dateKey={timelineDateKey}
+          focusItemKey={timelineFocusItemKey}
+          onClearDateFilter={() => void openTimeline()}
         />
       );
     }
@@ -1826,7 +1961,11 @@ export function App() {
     return (
       <AppShell activeDestination="setup">
         <Surface ariaLabel="Loading">
-          <ScreenHeader title="Opening Desclop" description="Loading local project context." />
+          <ScreenHeader
+            title="Opening Desclop"
+            descriptionKind="status"
+            description="Loading local project context."
+          />
         </Surface>
       </AppShell>
     );
@@ -1838,6 +1977,7 @@ export function App() {
         <Surface ariaLabel="Project loading failed" className="start-flow">
           <ScreenHeader
             title="Project loading failed"
+            descriptionKind="status"
             description="Desclop could not open the local project context."
           />
           <InlineAlert tone="error">{loadError}</InlineAlert>
