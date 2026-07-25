@@ -2,6 +2,21 @@
 
 All notable changes to Desclop are documented in this file.
 
+## v0.1.0-alpha.3 - 2026-07-25
+
+Daily comfort and multi-plan clarity alpha release.
+
+### Added
+
+- Persistent local application settings for System/Light/Dark appearance, density, compact sidebar, interface size, window resizing, close behavior, and the Capture shortcut.
+- Explicit tray-or-quit window behavior, a direct Quit action, and a safe minimum desktop window size.
+- A multi-plan Plan map that identifies the current working plan, supports reversible local hiding of completed plans, and lets people collapse plans and stages.
+
+### Changed
+
+- Plan now prioritizes the active or nearest recommended plan and retains the next recommended task in compact views.
+- Synchronized npm, Cargo, and Tauri app versions at `0.1.0-alpha.3`.
+
 ## v0.1.0-alpha.2 - 2026-07-25
 
 First-project and guided-import alpha release.
