@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
@@ -10,38 +10,65 @@ function renderUtilities(overrides: Partial<Parameters<typeof Utilities>[0]> = {
       projectPath="/tmp/desclop"
       gitEnabled={true}
       gitHealth="Git unavailable."
-      markdownExport={"# Desclop\n\n## Foundation"}
+      markdownExports={[
+        {
+          id: "plan-1",
+          title: "Foundation plan",
+          markdown: "# Desclop — Foundation plan\n\n## Foundation"
+        }
+      ]}
       bundleDestination=""
       bundleFolder="/tmp/desclop-bundle"
       reselectedLocalPath=""
       portableStatus={null}
       portableError={null}
+      restorePreview={null}
+      diagnostics={null}
+      diagnosticsLoading={false}
+      diagnosticsError={null}
+      relinkPath=""
       onOpenImport={vi.fn()}
       onChooseBundleDestination={vi.fn()}
-      onChooseBundleFolder={vi.fn()}
+      onChooseBundleFile={vi.fn()}
+      onChooseLegacyBundleFolder={vi.fn()}
       onChooseLocalProjectFolder={vi.fn()}
+      onChooseRelinkFolder={vi.fn()}
       onExportPortableBundle={vi.fn()}
-      onImportPortableBundle={vi.fn()}
+      onReviewPortableRestore={vi.fn()}
+      onConfirmPortableRestore={vi.fn()}
+      onCancelPortableRestore={vi.fn()}
+      onRefreshDiagnostics={vi.fn()}
+      onCopySupportDiagnostics={vi.fn()}
+      onCopyMarkdown={vi.fn()}
+      onConfirmRelink={vi.fn()}
+      onCancelRelink={vi.fn()}
       {...overrides}
     />
   );
 }
 
 describe("Utilities", () => {
-  it("explains markdown export and shows a readonly preview", () => {
+  it("keeps Markdown exports collapsed until a plan is opened", async () => {
+    const user = userEvent.setup();
     renderUtilities();
 
     expect(screen.getByRole("heading", { name: "Export / Import" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Markdown export" })).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Readable Markdown for copying, sharing, or archiving the current plan."
+        "Each plan has its own Markdown export, so multiple plans stay separate when copied, shared, or archived."
       )
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Markdown preview")).toHaveValue(
-      "# Desclop\n\n## Foundation"
+    const exportDetails = screen.getByText("Foundation plan").closest("details");
+    expect(exportDetails).not.toHaveAttribute("open");
+
+    await user.click(screen.getByText("Foundation plan"));
+
+    expect(exportDetails).toHaveAttribute("open");
+    expect(screen.getByLabelText("Foundation plan Markdown preview")).toHaveValue(
+      "# Desclop — Foundation plan\n\n## Foundation"
     );
-    expect(screen.getByLabelText("Markdown preview")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Foundation plan Markdown preview")).toHaveAttribute("readonly");
   });
 
   it("shows portable feedback and opens plan import", async () => {
@@ -62,26 +89,26 @@ describe("Utilities", () => {
     expect(onOpenImport).toHaveBeenCalledTimes(1);
   });
 
-  it("uses choose folder controls for portable export and import", async () => {
+  it("uses destination, backup-file, and project-folder controls", async () => {
     const user = userEvent.setup();
     const onChooseBundleDestination = vi.fn();
-    const onChooseBundleFolder = vi.fn();
+    const onChooseBundleFile = vi.fn();
     const onChooseLocalProjectFolder = vi.fn();
 
     renderUtilities({
       bundleDestination: "/tmp/backups",
       reselectedLocalPath: "/tmp/desclop",
       onChooseBundleDestination,
-      onChooseBundleFolder,
+      onChooseBundleFile,
       onChooseLocalProjectFolder
     });
 
     await user.click(screen.getByRole("button", { name: "Choose destination folder" }));
-    await user.click(screen.getByRole("button", { name: "Choose backup folder" }));
+    await user.click(screen.getByRole("button", { name: "Choose backup file" }));
     await user.click(screen.getByRole("button", { name: "Choose local project folder" }));
 
     expect(onChooseBundleDestination).toHaveBeenCalledTimes(1);
-    expect(onChooseBundleFolder).toHaveBeenCalledTimes(1);
+    expect(onChooseBundleFile).toHaveBeenCalledTimes(1);
     expect(onChooseLocalProjectFolder).toHaveBeenCalledTimes(1);
   });
 
@@ -93,7 +120,7 @@ describe("Utilities", () => {
     });
 
     expect(screen.getByRole("button", { name: "Export portable backup" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Import portable backup" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review portable restore" })).toBeDisabled();
   });
 
   it("keeps portable actions disabled for whitespace-only folder selections", () => {
@@ -104,26 +131,141 @@ describe("Utilities", () => {
     });
 
     expect(screen.getByRole("button", { name: "Export portable backup" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Import portable backup" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Review portable restore" })).toBeDisabled();
   });
 
   it("submits portable actions when folder selections are valid", async () => {
     const user = userEvent.setup();
     const onExportPortableBundle = vi.fn();
-    const onImportPortableBundle = vi.fn();
+    const onReviewPortableRestore = vi.fn();
 
     renderUtilities({
       bundleDestination: "/tmp/backups",
       bundleFolder: "/tmp/backup",
       reselectedLocalPath: "/tmp/desclop",
       onExportPortableBundle,
-      onImportPortableBundle
+      onReviewPortableRestore
     });
 
     await user.click(screen.getByRole("button", { name: "Export portable backup" }));
-    await user.click(screen.getByRole("button", { name: "Import portable backup" }));
+    await user.click(screen.getByRole("button", { name: "Review portable restore" }));
 
     expect(onExportPortableBundle).toHaveBeenCalledTimes(1);
-    expect(onImportPortableBundle).toHaveBeenCalledTimes(1);
+    expect(onReviewPortableRestore).toHaveBeenCalledTimes(1);
+  });
+
+  it("requires an explicit confirmation before portable restore or folder relink", async () => {
+    const user = userEvent.setup();
+    const onConfirmPortableRestore = vi.fn();
+    const onConfirmRelink = vi.fn();
+
+    renderUtilities({
+      relinkPath: "/tmp/relinked",
+      restorePreview: {
+        formatVersion: 2,
+        compatibility: "current",
+        projectName: "Imported project",
+        planCount: 1,
+        stageCount: 1,
+        taskCount: 2,
+        checklistItemCount: 0,
+        noteCount: 1,
+        workEntryCount: 1
+      },
+      onConfirmPortableRestore,
+      onConfirmRelink
+    });
+
+    expect(screen.getByRole("dialog", { name: "Confirm portable backup restore" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Confirm project folder relink" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Confirm restore" }));
+    await user.click(screen.getByRole("button", { name: "Confirm relink" }));
+
+    expect(onConfirmPortableRestore).toHaveBeenCalledTimes(1);
+    expect(onConfirmRelink).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows separate Markdown exports and copies the selected plan", async () => {
+    const user = userEvent.setup();
+    const onCopyMarkdown = vi.fn();
+
+    renderUtilities({
+      markdownExports: [
+        { id: "plan-1", title: "Alpha", markdown: "# Alpha" },
+        { id: "plan-2", title: "Beta", markdown: "# Beta" }
+      ],
+      onCopyMarkdown
+    });
+
+    const alphaExport = screen.getByText("Alpha").closest("details");
+    const betaExport = screen.getByText("Beta").closest("details");
+    expect(alphaExport).not.toHaveAttribute("open");
+    expect(betaExport).not.toHaveAttribute("open");
+
+    await user.click(screen.getByText("Beta"));
+
+    expect(alphaExport).not.toHaveAttribute("open");
+    expect(betaExport).toHaveAttribute("open");
+    expect(screen.getByLabelText("Beta Markdown preview")).toHaveValue("# Beta");
+    await user.click(
+      within(betaExport as HTMLDetailsElement).getByRole("button", { name: "Copy Markdown" })
+    );
+
+    expect(onCopyMarkdown).toHaveBeenCalledWith("# Beta", "Beta");
+  });
+
+  it("keeps technical diagnostics behind the support disclosure", async () => {
+    const user = userEvent.setup();
+    const onCopySupportDiagnostics = vi.fn();
+
+    renderUtilities({
+      diagnostics: {
+        appVersion: "0.1.0-beta.1",
+        projectPath: "/tmp/desclop",
+        folderState: "available",
+        git: { configured: true, repositoryDetected: true },
+        database: {
+          state: "ready",
+          schemaVersion: 3,
+          targetSchemaVersion: 3,
+          integrity: "ok"
+        },
+        lastBackup: {
+          state: "none",
+          kind: null,
+          createdAt: null,
+          formatVersion: null,
+          schemaVersion: null
+        },
+        relinkAvailable: true,
+        supportReport: {
+          diagnosticFormatVersion: 1,
+          appVersion: "0.1.0-beta.1",
+          folderState: "available",
+          git: { configured: true, repositoryDetected: true },
+          database: {
+            state: "ready",
+            schemaVersion: 3,
+            targetSchemaVersion: 3,
+            integrity: "ok"
+          },
+          lastBackup: {
+            state: "none",
+            kind: null,
+            createdAt: null,
+            formatVersion: null,
+            schemaVersion: null
+          },
+          relinkAvailable: true
+        }
+      },
+      onCopySupportDiagnostics
+    });
+
+    expect(screen.getByText("For support")).toBeInTheDocument();
+    await user.click(screen.getByText("For support"));
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+
+    expect(onCopySupportDiagnostics).toHaveBeenCalledTimes(1);
   });
 });

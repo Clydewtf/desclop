@@ -34,6 +34,19 @@ describe("ProjectSetup", () => {
     });
   });
 
+  it("offers backup restore without submitting the create form", async () => {
+    const user = userEvent.setup();
+    const onRestoreBackup = vi.fn();
+    const onCreate = vi.fn();
+
+    renderWithRouter(<ProjectSetup onCreate={onCreate} onRestoreBackup={onRestoreBackup} />);
+
+    await user.click(screen.getByRole("button", { name: "Restore a backup" }));
+
+    expect(onRestoreBackup).toHaveBeenCalledTimes(1);
+    expect(onCreate).not.toHaveBeenCalled();
+  });
+
   it("selects a folder, displays the path, and shows Git as an optional hint", async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn();

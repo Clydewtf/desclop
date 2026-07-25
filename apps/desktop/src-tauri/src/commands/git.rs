@@ -21,7 +21,7 @@ pub fn read_current_git_branch(
     state: State<'_, AppState>,
 ) -> Result<Option<String>, String> {
     let local_path = {
-        let conn = state.conn.lock().map_err(|err| err.to_string())?;
+        let conn = state.connection()?;
         project_git_path_for_sync(&conn, &project_id).map_err(|err| err.to_string())?
     };
 
@@ -58,7 +58,7 @@ fn sync_git_commits_for_project(
     read_commits: impl FnOnce(&str, usize) -> Result<Vec<GitCommitMetadata>, String>,
 ) -> Result<Vec<GitCommit>, String> {
     let local_path = {
-        let conn = state.conn.lock().map_err(|err| err.to_string())?;
+        let conn = state.connection()?;
         project_git_path_for_sync(&conn, project_id).map_err(|err| err.to_string())?
     };
 
@@ -67,7 +67,7 @@ fn sync_git_commits_for_project(
     };
 
     let commits = read_commits(&local_path, 25)?;
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     sync_commits(&conn, project_id, commits).map_err(|err| err.to_string())
 }
 
@@ -77,7 +77,7 @@ pub fn list_linked_commits_for_task(
     task_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<GitCommit>, String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     list_linked_commits_for_task_rows(&conn, &project_id, &task_id).map_err(|err| err.to_string())
 }
 
@@ -88,7 +88,7 @@ pub fn move_commit_link(
     to_task_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     TaskRepository::new(&conn)
         .move_commit_link(&commit_sha, &from_task_id, &to_task_id)
         .map_err(|err| err.to_string())
@@ -100,7 +100,7 @@ pub fn unlink_commit(
     task_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     TaskRepository::new(&conn)
         .unlink_commit(&commit_sha, &task_id)
         .map_err(|err| err.to_string())
@@ -111,7 +111,6 @@ mod tests {
     use super::*;
     use crate::app_state::AppState;
     use crate::db::{create_memory_connection, run_migrations};
-    use std::sync::Mutex;
 
     #[test]
     fn project_git_path_for_sync_returns_none_when_git_is_disabled() {
@@ -154,9 +153,7 @@ mod tests {
                 false,
             )
             .expect("create project");
-        let state = AppState {
-            conn: Mutex::new(conn),
-        };
+        let state = AppState::from_connection_for_tests(conn);
 
         let commits = sync_git_commits_for_project(&project.id, &state, |_path, _limit| {
             panic!("git reader should not run for a project with git disabled");

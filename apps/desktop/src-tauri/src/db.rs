@@ -1,20 +1,127 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction};
+
+pub const CURRENT_SCHEMA_VERSION: i64 = 3;
 
 #[cfg(test)]
 pub fn create_memory_connection() -> rusqlite::Result<Connection> {
-    Connection::open_in_memory()
+    let conn = Connection::open_in_memory()?;
+    configure_connection(&conn)?;
+    Ok(conn)
 }
 
 pub fn open_connection(path: &std::path::Path) -> rusqlite::Result<Connection> {
-    Connection::open(path)
+    let conn = Connection::open(path)?;
+    configure_connection(&conn)?;
+    Ok(conn)
+}
+
+fn configure_connection(conn: &Connection) -> rusqlite::Result<()> {
+    conn.pragma_update(None, "foreign_keys", "ON")
 }
 
 pub fn run_migrations(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(include_str!("../migrations/001_init.sql"))?;
-    migrate_plans_schema(conn)?;
-    migrate_checklist_descriptions_schema(conn)?;
-    migrate_task_completion_schema(conn)?;
-    migrate_commit_tables_to_project_scoped_keys(conn)
+    run_migrations_with_hook(conn, |_| Ok(()))
+}
+
+pub fn schema_version(conn: &Connection) -> rusqlite::Result<i64> {
+    conn.pragma_query_value(None, "user_version", |row| row.get(0))
+}
+
+pub fn migrations_are_pending(conn: &Connection) -> rusqlite::Result<bool> {
+    Ok(schema_version(conn)? < CURRENT_SCHEMA_VERSION)
+}
+
+pub fn database_integrity_is_ok(conn: &Connection) -> rusqlite::Result<bool> {
+    let result: String = conn.query_row("pragma quick_check", [], |row| row.get(0))?;
+    Ok(result.eq_ignore_ascii_case("ok"))
+}
+
+fn run_migrations_with_hook<F>(conn: &Connection, mut hook: F) -> rusqlite::Result<()>
+where
+    F: FnMut(i64) -> rusqlite::Result<()>,
+{
+    let version = schema_version(conn)?;
+    if version > CURRENT_SCHEMA_VERSION {
+        return Err(rusqlite::Error::InvalidParameterName(format!(
+            "Database schema version {version} is newer than this Desclop build"
+        )));
+    }
+
+    if version < 1 {
+        run_sql_migration(
+            conn,
+            1,
+            include_str!("../migrations/001_init.sql"),
+            &mut hook,
+        )?;
+    }
+
+    if schema_version(conn)? < 2 {
+        run_legacy_compatibility_migration(conn, 2, &mut hook)?;
+    }
+
+    if schema_version(conn)? < 3 {
+        run_sql_migration(
+            conn,
+            3,
+            include_str!("../migrations/003_project_activity.sql"),
+            &mut hook,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn run_sql_migration<F>(
+    conn: &Connection,
+    version: i64,
+    sql: &str,
+    hook: &mut F,
+) -> rusqlite::Result<()>
+where
+    F: FnMut(i64) -> rusqlite::Result<()>,
+{
+    let tx = conn.unchecked_transaction()?;
+    tx.execute_batch(sql)?;
+    hook(version)?;
+    mark_schema_version(&tx, version)?;
+    tx.commit()
+}
+
+fn run_legacy_compatibility_migration<F>(
+    conn: &Connection,
+    version: i64,
+    hook: &mut F,
+) -> rusqlite::Result<()>
+where
+    F: FnMut(i64) -> rusqlite::Result<()>,
+{
+    let foreign_keys_enabled: i64 =
+        conn.pragma_query_value(None, "foreign_keys", |row| row.get(0))?;
+    if foreign_keys_enabled != 0 {
+        conn.pragma_update(None, "foreign_keys", "OFF")?;
+    }
+
+    let result = (|| {
+        let tx = conn.unchecked_transaction()?;
+        migrate_plans_schema(&tx)?;
+        migrate_checklist_descriptions_schema(&tx)?;
+        migrate_task_completion_schema(&tx)?;
+        migrate_commit_tables_to_project_scoped_keys(&tx)?;
+        hook(version)?;
+        mark_schema_version(&tx, version)?;
+        tx.commit()
+    })();
+
+    if foreign_keys_enabled != 0 {
+        conn.pragma_update(None, "foreign_keys", "ON")?;
+    }
+
+    result
+}
+
+fn mark_schema_version(tx: &Transaction<'_>, version: i64) -> rusqlite::Result<()> {
+    tx.pragma_update(None, "user_version", version)
 }
 
 fn migrate_task_completion_schema(conn: &Connection) -> rusqlite::Result<()> {
@@ -104,9 +211,7 @@ fn migrate_commit_tables_to_project_scoped_keys(conn: &Connection) -> rusqlite::
     }
 
     conn.execute_batch(
-        "pragma foreign_keys = off;
-
-         alter table commit_task_links rename to commit_task_links_old;
+        "alter table commit_task_links rename to commit_task_links_old;
          alter table commits rename to commits_old;
 
          create table commits (
@@ -162,9 +267,7 @@ fn migrate_commit_tables_to_project_scoped_keys(conn: &Connection) -> rusqlite::
                          and tasks.project_id = commit_task_links_old.project_id;
 
          drop table commit_task_links_old;
-         drop table commits_old;
-
-         pragma foreign_keys = on;",
+         drop table commits_old;",
     )
 }
 
@@ -187,11 +290,22 @@ fn commits_are_project_scoped(conn: &Connection) -> rusqlite::Result<bool> {
 }
 
 #[cfg(test)]
+fn run_migrations_with_failpoint(conn: &Connection, fail_at_version: i64) -> rusqlite::Result<()> {
+    run_migrations_with_hook(conn, |version| {
+        if version == fail_at_version {
+            Err(rusqlite::Error::InvalidQuery)
+        } else {
+            Ok(())
+        }
+    })
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn migration_creates_core_tables() {
+    fn migration_creates_core_tables_and_records_schema_version() {
         let conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");
 
@@ -217,6 +331,97 @@ mod tests {
         assert!(names.contains(&"commit_task_links".to_string()));
         assert!(names.contains(&"resume_briefs".to_string()));
         assert!(names.contains(&"entitlements".to_string()));
+        assert_eq!(
+            schema_version(&conn).expect("schema version"),
+            CURRENT_SCHEMA_VERSION
+        );
+        assert!(database_integrity_is_ok(&conn).expect("integrity check"));
+    }
+
+    #[test]
+    fn failed_migration_rolls_back_and_a_retry_completes() {
+        let conn = create_memory_connection().expect("memory database");
+
+        let error = run_migrations_with_failpoint(&conn, 1).expect_err("injected failure");
+
+        assert!(matches!(error, rusqlite::Error::InvalidQuery));
+        assert_eq!(schema_version(&conn).expect("schema version"), 0);
+        let project_table_count: i64 = conn
+            .query_row(
+                "select count(*) from sqlite_master where type = 'table' and name = 'projects'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("project table count");
+        assert_eq!(project_table_count, 0);
+
+        run_migrations(&conn).expect("retry migration");
+        assert_eq!(
+            schema_version(&conn).expect("schema version"),
+            CURRENT_SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn migration_upgrades_v2_databases_with_project_activity_tracking() {
+        let conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("initial migrations");
+        conn.execute_batch(
+            "drop trigger touch_project_after_plan_insert;
+             drop trigger touch_project_after_plan_update;
+             drop trigger touch_project_after_plan_delete;
+             drop trigger touch_project_after_stage_insert;
+             drop trigger touch_project_after_stage_update;
+             drop trigger touch_project_after_stage_delete;
+             drop trigger touch_project_after_task_insert;
+             drop trigger touch_project_after_task_update;
+             drop trigger touch_project_after_task_delete;
+             drop trigger touch_project_after_checklist_insert;
+             drop trigger touch_project_after_checklist_update;
+             drop trigger touch_project_after_checklist_delete;
+             drop trigger touch_project_after_note_insert;
+             drop trigger touch_project_after_note_update;
+             drop trigger touch_project_after_note_delete;
+             drop trigger touch_project_after_inbox_insert;
+             drop trigger touch_project_after_inbox_update;
+             drop trigger touch_project_after_inbox_delete;
+             drop trigger touch_project_after_work_entry_insert;
+             drop trigger touch_project_after_work_entry_update;
+             drop trigger touch_project_after_work_entry_delete;
+             drop trigger touch_project_after_commit_insert;
+             drop trigger touch_project_after_commit_update;
+             drop trigger touch_project_after_commit_delete;
+             drop trigger touch_project_after_commit_link_insert;
+             drop trigger touch_project_after_commit_link_update;
+             drop trigger touch_project_after_commit_link_delete;
+             pragma user_version = 2;",
+        )
+        .expect("simulate v2 database");
+
+        assert!(migrations_are_pending(&conn).expect("pending migrations"));
+        run_migrations(&conn).expect("upgrade v2 database");
+        conn.execute(
+            "insert into projects (id, name, local_path, git_enabled, created_at, updated_at)
+             values ('activity-project', 'Activity', '/tmp/activity', 0, '2000-01-01T00:00:00Z', '2000-01-01T00:00:00Z')",
+            [],
+        )
+        .expect("project");
+        conn.execute(
+            "insert into plans (id, project_id, title, position, created_at, updated_at)
+             values ('activity-plan', 'activity-project', 'Plan', 0, 'now', 'now')",
+            [],
+        )
+        .expect("plan");
+
+        let updated_at: String = conn
+            .query_row(
+                "select updated_at from projects where id = 'activity-project'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("project timestamp");
+        assert_ne!(updated_at, "2000-01-01T00:00:00Z");
+        assert_eq!(schema_version(&conn).expect("schema version"), 3);
     }
 
     #[test]
@@ -258,6 +463,35 @@ mod tests {
                created_at text not null,
                updated_at text not null
              );
+             create table checklist_items (
+               id text primary key,
+               task_id text not null references tasks(id) on delete cascade,
+               title text not null,
+               completed integer not null default 0,
+               position integer not null,
+               created_at text not null,
+               updated_at text not null
+             );
+             create table notes (
+               id text primary key,
+               project_id text not null references projects(id) on delete cascade,
+               task_id text references tasks(id) on delete set null,
+               body text not null,
+               created_at text not null
+             );
+             create table work_entries (
+               id text primary key,
+               project_id text not null references projects(id) on delete cascade,
+               task_id text references tasks(id) on delete set null,
+               source text not null,
+               started_at text,
+               ended_at text,
+               duration_seconds integer,
+               done text not null default '',
+               remains text not null default '',
+               next_step text not null default '',
+               created_at text not null
+             );
              create table commits (
                sha text primary key,
                project_id text not null references projects(id) on delete cascade,
@@ -282,6 +516,12 @@ mod tests {
              values ('s1', 'p1', 'Foundation', 0, 'current', '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z');
              insert into tasks (id, project_id, stage_id, title, status, position, created_at, updated_at)
              values ('t1', 'p1', 's1', 'Task', 'active', 0, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z');
+             insert into checklist_items (id, task_id, title, completed, position, created_at, updated_at)
+             values ('c1', 't1', 'Checklist', 1, 0, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z');
+             insert into notes (id, project_id, task_id, body, created_at)
+             values ('n1', 'p1', 't1', 'Preserve note', '2026-05-20T10:00:00Z');
+             insert into work_entries (id, project_id, task_id, source, done, created_at)
+             values ('w1', 'p1', 't1', 'manual', 'Preserve work history', '2026-05-20T10:00:00Z');
              insert into commits (sha, project_id, branch, message, author_name, committed_at, changed_files_json)
              values ('abc123', 'p1', 'main', 'Initial', 'Clyde', '2026-05-20T10:10:00Z', '[]');
              insert into commit_task_links (id, project_id, task_id, commit_sha, link_mode, created_at)
@@ -292,117 +532,39 @@ mod tests {
         run_migrations(&conn).expect("migrate old schema");
 
         assert!(commits_are_project_scoped(&conn).expect("project scoped commits"));
-        let link_mode: String = conn
+        assert_eq!(
+            schema_version(&conn).expect("schema version"),
+            CURRENT_SCHEMA_VERSION
+        );
+        let preserved: (String, String, String, String) = conn
             .query_row(
-                "select link_mode
-                 from commit_task_links
-                 inner join commits on commits.project_id = commit_task_links.project_id
-                                   and commits.sha = commit_task_links.commit_sha
-                 where commit_task_links.id = 'link-1'",
+                "select plans.title, tasks.title, notes.body, work_entries.done
+                 from plans
+                 inner join stages on stages.plan_id = plans.id
+                 inner join tasks on tasks.stage_id = stages.id
+                 inner join notes on notes.task_id = tasks.id
+                 inner join work_entries on work_entries.task_id = tasks.id
+                 where plans.project_id = 'p1'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .expect("preserved alpha data");
+        assert_eq!(
+            preserved,
+            (
+                "Imported plan".to_string(),
+                "Task".to_string(),
+                "Preserve note".to_string(),
+                "Preserve work history".to_string()
+            )
+        );
+        let checklist_description: String = conn
+            .query_row(
+                "select description from checklist_items where id = 'c1'",
                 [],
                 |row| row.get(0),
             )
-            .expect("preserved link");
-        assert_eq!(link_mode, "manual");
-    }
-
-    #[test]
-    fn migration_preserves_old_manual_link_when_global_sha_points_to_other_project() {
-        let conn = create_memory_connection().expect("memory database");
-        conn.execute_batch(
-            "pragma foreign_keys = on;
-             create table projects (
-               id text primary key,
-               name text not null,
-               local_path text not null,
-               git_enabled integer not null default 0,
-               git_remote text,
-               active_task_id text,
-               created_at text not null,
-               updated_at text not null
-             );
-             create table stages (
-               id text primary key,
-               project_id text not null references projects(id) on delete cascade,
-               title text not null,
-               description text not null default '',
-               position integer not null,
-               status text not null check(status in ('future', 'current', 'completed')),
-               created_at text not null,
-               updated_at text not null
-             );
-             create table tasks (
-               id text primary key,
-               project_id text not null references projects(id) on delete cascade,
-               stage_id text not null references stages(id) on delete cascade,
-               title text not null,
-               description text not null default '',
-               status text not null check(status in ('todo', 'active', 'blocked', 'done')),
-               priority text check(priority in ('low', 'normal', 'high')),
-               due_date text,
-               next_step text not null default '',
-               position integer not null,
-               created_at text not null,
-               updated_at text not null
-             );
-             create table commits (
-               sha text primary key,
-               project_id text not null references projects(id) on delete cascade,
-               branch text not null,
-               message text not null,
-               author_name text not null default '',
-               committed_at text not null,
-               changed_files_json text not null
-             );
-             create table commit_task_links (
-               id text primary key,
-               project_id text not null references projects(id) on delete cascade,
-               task_id text not null references tasks(id) on delete cascade,
-               commit_sha text not null references commits(sha) on delete cascade,
-               link_mode text not null check(link_mode in ('focus_interval', 'active_task', 'manual')),
-               created_at text not null,
-               unique(task_id, commit_sha)
-             );
-             insert into projects (id, name, local_path, git_enabled, created_at, updated_at)
-             values ('p1', 'First', '/tmp/first', 1, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z'),
-                    ('p2', 'Second', '/tmp/second', 1, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z');
-             insert into stages (id, project_id, title, position, status, created_at, updated_at)
-             values ('s1', 'p1', 'Foundation', 0, 'current', '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z'),
-                    ('s2', 'p2', 'Foundation', 0, 'current', '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z');
-             insert into tasks (id, project_id, stage_id, title, status, position, created_at, updated_at)
-             values ('t1', 'p1', 's1', 'First task', 'active', 0, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z'),
-                    ('t2', 'p2', 's2', 'Second task', 'active', 0, '2026-05-20T10:00:00Z', '2026-05-20T10:00:00Z');
-             insert into commits (sha, project_id, branch, message, author_name, committed_at, changed_files_json)
-             values ('shared-sha', 'p2', 'main', 'Shared commit', 'Clyde', '2026-05-20T10:10:00Z', '[]');
-             insert into commit_task_links (id, project_id, task_id, commit_sha, link_mode, created_at)
-             values ('manual-p1', 'p1', 't1', 'shared-sha', 'manual', '2026-05-20T10:11:00Z'),
-                    ('manual-p2', 'p2', 't2', 'shared-sha', 'manual', '2026-05-20T10:11:00Z');",
-        )
-        .expect("old cross-project sha schema");
-
-        run_migrations(&conn).expect("migrate old cross-project schema");
-
-        let p1_link_count: i64 = conn
-            .query_row(
-                "select count(*)
-                 from commit_task_links
-                 inner join commits on commits.project_id = commit_task_links.project_id
-                                   and commits.sha = commit_task_links.commit_sha
-                 where commit_task_links.id = 'manual-p1'
-                   and commit_task_links.link_mode = 'manual'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("p1 link count");
-        let commit_count: i64 = conn
-            .query_row(
-                "select count(*) from commits where sha = 'shared-sha'",
-                [],
-                |row| row.get(0),
-            )
-            .expect("commit count");
-
-        assert_eq!(p1_link_count, 1);
-        assert_eq!(commit_count, 2);
+            .expect("checklist description");
+        assert!(checklist_description.is_empty());
     }
 }

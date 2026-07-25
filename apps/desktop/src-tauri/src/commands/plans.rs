@@ -23,7 +23,7 @@ pub fn import_plan(
 ) -> Result<(), String> {
     validate_import_stages(&stages)?;
 
-    let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let mut conn = state.connection()?;
     PlanRepository::new(&mut conn)
         .import_plan(&project_id, title.as_deref().unwrap_or(""), stages)
         .map_err(|err| err.to_string())

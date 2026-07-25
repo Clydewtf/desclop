@@ -19,7 +19,7 @@ pub fn load_project_plan(
     project_id: String,
     state: State<'_, AppState>,
 ) -> Result<ProjectPlanPayload, String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     let repository = TaskRepository::new(&conn);
 
     Ok(ProjectPlanPayload {
@@ -44,7 +44,7 @@ pub fn update_task_status(
     status: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     TaskRepository::new(&conn)
         .update_task_status(&task_id, &status)
         .map_err(|err| err.to_string())
@@ -56,7 +56,7 @@ pub fn set_active_task(
     task_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     TaskRepository::new(&conn)
         .set_active_task(&project_id, &task_id)
         .map_err(|err| err.to_string())
@@ -68,7 +68,7 @@ pub fn update_checklist_item(
     completed: bool,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     TaskRepository::new(&conn)
         .update_checklist_item(&item_id, completed)
         .map_err(|err| err.to_string())
@@ -80,7 +80,7 @@ pub fn update_next_step(
     next_step: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     TaskRepository::new(&conn)
         .update_next_step(&task_id, &next_step)
         .map_err(|err| err.to_string())

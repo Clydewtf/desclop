@@ -9,6 +9,6 @@ pub fn get_resume_brief(
     project_id: String,
     state: State<'_, AppState>,
 ) -> Result<ResumeBrief, String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     build_resume_brief(&conn, &project_id).map_err(|err| err.to_string())
 }

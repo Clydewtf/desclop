@@ -20,7 +20,7 @@ pub struct ProjectFolderInspection {
     pub git_repository: bool,
 }
 
-fn validate_local_project_folder(local_path: &str) -> Result<PathBuf, String> {
+pub(crate) fn validate_local_project_folder(local_path: &str) -> Result<PathBuf, String> {
     let trimmed_path = local_path.trim();
     if trimmed_path.is_empty() {
         return Err(LOCAL_FOLDER_REQUIRED.to_string());
@@ -44,7 +44,7 @@ fn validate_local_project_folder(local_path: &str) -> Result<PathBuf, String> {
 
 #[tauri::command]
 pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<Project>, String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     ProjectRepository::new(&conn)
         .list_projects()
         .map_err(|err| err.to_string())
@@ -52,7 +52,7 @@ pub fn list_projects(state: State<'_, AppState>) -> Result<Vec<Project>, String>
 
 #[tauri::command]
 pub fn list_project_summaries(state: State<'_, AppState>) -> Result<Vec<ProjectSummary>, String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     ProjectRepository::new(&conn)
         .list_project_summaries()
         .map_err(|err| err.to_string())
@@ -77,7 +77,7 @@ pub fn create_project(
     }
     let local_path = validate_local_project_folder(&input.local_path)?;
 
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     ProjectRepository::new(&conn)
         .create_project(
             input.name.trim().to_string(),
@@ -89,9 +89,22 @@ pub fn create_project(
 
 #[tauri::command]
 pub fn delete_project(project_id: String, state: State<'_, AppState>) -> Result<(), String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     ProjectRepository::new(&conn)
         .delete_project(&project_id)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn relink_project_folder(
+    project_id: String,
+    local_path: String,
+    state: State<'_, AppState>,
+) -> Result<Project, String> {
+    let path = validate_local_project_folder(&local_path)?;
+    let conn = state.connection()?;
+    ProjectRepository::new(&conn)
+        .update_local_path(&project_id, path.to_string_lossy().to_string())
         .map_err(|err| err.to_string())
 }
 

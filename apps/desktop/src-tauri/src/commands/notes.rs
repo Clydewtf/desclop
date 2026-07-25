@@ -16,7 +16,7 @@ pub fn add_note(
         return Err("Note body is required".to_string());
     }
 
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     NoteRepository::new(&conn)
         .add_note(&project_id, &task_id, trimmed_body)
         .map_err(|err| err.to_string())
@@ -27,7 +27,7 @@ pub fn list_notes_for_project(
     project_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<Note>, String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     NoteRepository::new(&conn)
         .list_notes_for_project(&project_id)
         .map_err(|err| err.to_string())
@@ -39,7 +39,7 @@ pub fn list_notes_for_task(
     task_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<Note>, String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     NoteRepository::new(&conn)
         .list_notes_for_task(&project_id, &task_id)
         .map_err(|err| err.to_string())

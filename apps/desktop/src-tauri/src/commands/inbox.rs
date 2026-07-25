@@ -11,7 +11,7 @@ pub fn list_inbox_items_for_project(
     project_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<InboxItem>, String> {
-    let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let mut conn = state.connection()?;
     InboxRepository::new(&mut conn)
         .list_items_for_project(&project_id)
         .map_err(|err| err.to_string())
@@ -23,7 +23,7 @@ pub fn list_inbox_items_for_task(
     task_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<InboxItem>, String> {
-    let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let mut conn = state.connection()?;
     InboxRepository::new(&mut conn)
         .list_items_for_task(&project_id, &task_id)
         .map_err(|err| err.to_string())
@@ -38,7 +38,7 @@ pub fn capture_inbox_item(
         return Err("Inbox capture body is required".to_string());
     }
 
-    let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let mut conn = state.connection()?;
     InboxRepository::new(&mut conn)
         .capture_item(&input.project_id, input.body.trim(), &input.kind)
         .map_err(|err| err.to_string())
@@ -49,7 +49,7 @@ pub fn attach_inbox_item_to_task(
     input: AttachInboxItemInput,
     state: State<'_, AppState>,
 ) -> Result<InboxItem, String> {
-    let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let mut conn = state.connection()?;
     InboxRepository::new(&mut conn)
         .attach_to_task(&input.item_id, &input.task_id)
         .map_err(|err| err.to_string())
@@ -60,7 +60,7 @@ pub fn convert_inbox_item_to_task(
     input: ConvertInboxItemInput,
     state: State<'_, AppState>,
 ) -> Result<Task, String> {
-    let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let mut conn = state.connection()?;
     InboxRepository::new(&mut conn)
         .convert_to_task(&input.item_id, &input.stage_id)
         .map_err(|err| err.to_string())
@@ -71,7 +71,7 @@ pub fn keep_inbox_item_as_note(
     item_id: String,
     state: State<'_, AppState>,
 ) -> Result<Note, String> {
-    let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let mut conn = state.connection()?;
     InboxRepository::new(&mut conn)
         .keep_as_note(&item_id)
         .map_err(|err| err.to_string())
@@ -79,7 +79,7 @@ pub fn keep_inbox_item_as_note(
 
 #[tauri::command]
 pub fn delete_inbox_item(item_id: String, state: State<'_, AppState>) -> Result<InboxItem, String> {
-    let mut conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let mut conn = state.connection()?;
     InboxRepository::new(&mut conn)
         .delete_item(&item_id)
         .map_err(|err| err.to_string())

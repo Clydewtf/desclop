@@ -6,7 +6,7 @@ use crate::repositories::entitlements::EntitlementRepository;
 
 #[tauri::command]
 pub fn get_entitlement(state: State<'_, AppState>) -> Result<Option<Entitlement>, String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     EntitlementRepository::new(&conn)
         .get_entitlement()
         .map_err(|err| err.to_string())
@@ -23,7 +23,7 @@ pub fn set_entitlement(
         ..input
     };
 
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     EntitlementRepository::new(&conn)
         .set_entitlement(input)
         .map_err(|err| err.to_string())

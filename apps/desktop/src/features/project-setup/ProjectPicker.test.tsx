@@ -28,6 +28,7 @@ interface RenderPickerOptions {
   projectSummaries?: Record<string, ProjectSummary>;
   homePath?: string;
   onOpenProject?: (project: Project) => void | Promise<void>;
+  onRestoreBackup?: () => void;
   onDeleteProject?: (project: Project) => void | Promise<void>;
   onDeleteDialogChange?: (projectId: string | null) => void;
   deletingProjectId?: string | null;
@@ -39,6 +40,7 @@ function renderPicker({
   projectSummaries = {},
   homePath = "",
   onOpenProject = vi.fn(),
+  onRestoreBackup,
   onDeleteProject = vi.fn(),
   onDeleteDialogChange = vi.fn(),
   deletingProjectId = null,
@@ -51,6 +53,7 @@ function renderPicker({
       homePath={homePath}
       onOpenProject={onOpenProject}
       onCreateProject={vi.fn()}
+      onRestoreBackup={onRestoreBackup}
       onDeleteProject={onDeleteProject}
       onDeleteDialogChange={onDeleteDialogChange}
       deletingProjectId={deletingProjectId}
@@ -90,6 +93,17 @@ describe("ProjectPicker", () => {
 
     expect(openButton).toHaveAttribute("data-project-action", "open");
     expect(deleteButton).toHaveClass("project-picker__delete");
+  });
+
+  it("offers restore beside new-project creation when configured", async () => {
+    const user = userEvent.setup();
+    const onRestoreBackup = vi.fn();
+
+    renderPicker({ onRestoreBackup });
+
+    await user.click(screen.getByRole("button", { name: "Restore a backup" }));
+
+    expect(onRestoreBackup).toHaveBeenCalledTimes(1);
   });
 
   it("hides deletion controls when no delete callback is supplied", () => {

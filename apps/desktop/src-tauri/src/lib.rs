@@ -148,6 +148,9 @@ pub fn run() {
             commands::projects::inspect_project_folder,
             commands::projects::create_project,
             commands::projects::delete_project,
+            commands::projects::relink_project_folder,
+            commands::diagnostics::get_database_status,
+            commands::diagnostics::get_project_diagnostics,
             commands::plans::import_plan,
             commands::tasks::load_project_plan,
             commands::tasks::update_task_status,
@@ -180,6 +183,7 @@ pub fn run() {
             commands::git::move_commit_link,
             commands::git::unlink_commit,
             commands::export_import::export_project_bundle,
+            commands::export_import::inspect_project_bundle,
             commands::export_import::import_project_bundle
         ])
         .run(tauri::generate_context!())

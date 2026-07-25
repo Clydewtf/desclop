@@ -23,7 +23,7 @@ pub fn create_work_entry(
         ..input
     };
 
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     WorkEntryRepository::new(&conn)
         .create_work_entry(input)
         .map_err(|err| err.to_string())
@@ -34,7 +34,7 @@ pub fn list_work_entries_for_project(
     project_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<WorkEntry>, String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     WorkEntryRepository::new(&conn)
         .list_work_entries_for_project(&project_id)
         .map_err(|err| err.to_string())
@@ -46,7 +46,7 @@ pub fn list_work_entries_for_task(
     task_id: String,
     state: State<'_, AppState>,
 ) -> Result<Vec<WorkEntry>, String> {
-    let conn = state.conn.lock().map_err(|err| err.to_string())?;
+    let conn = state.connection()?;
     WorkEntryRepository::new(&conn)
         .list_work_entries_for_task(&project_id, &task_id)
         .map_err(|err| err.to_string())

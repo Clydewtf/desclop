@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { exportPlanMarkdown } from "./markdownExport";
+import { exportPlanMarkdown, exportProjectMarkdowns } from "./markdownExport";
 
 describe("exportPlanMarkdown", () => {
   it("exports readable stages, tasks, checklist, and next steps", () => {
@@ -95,5 +95,44 @@ describe("exportPlanMarkdown", () => {
     expect(markdown).toContain("  - [ ] Add migration");
     expect(markdown).toContain("  - Next step: Run all tests");
     expect(markdown).not.toContain("Foundation\nSetup");
+  });
+
+  it("creates one separate export for each project plan", () => {
+    const exports = exportProjectMarkdowns({
+      projectName: "Desclop",
+      plans: [
+        { id: "plan-2", projectId: "p1", title: "Second plan", position: 1 },
+        { id: "plan-1", projectId: "p1", title: "First plan", position: 0 }
+      ],
+      stages: [
+        {
+          id: "s1",
+          projectId: "p1",
+          planId: "plan-1",
+          title: "First stage",
+          description: "",
+          position: 0,
+          status: "current"
+        },
+        {
+          id: "s2",
+          projectId: "p1",
+          planId: "plan-2",
+          title: "Second stage",
+          description: "",
+          position: 0,
+          status: "future"
+        }
+      ],
+      tasks: [],
+      checklistItems: []
+    });
+
+    expect(exports.map((item) => item.title)).toEqual(["First plan", "Second plan"]);
+    expect(exports[0].markdown).toContain("# Desclop — First plan");
+    expect(exports[0].markdown).toContain("## First stage");
+    expect(exports[0].markdown).not.toContain("Second stage");
+    expect(exports[1].markdown).toContain("## Second stage");
+    expect(exports[1].markdown).not.toContain("First stage");
   });
 });

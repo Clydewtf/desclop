@@ -1,14 +1,20 @@
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use rusqlite::{params, Connection};
 use uuid::Uuid;
+use zip::write::SimpleFileOptions;
+use zip::{CompressionMethod, ZipArchive, ZipWriter};
 
 use crate::domain::{CommitTaskLink, GitCommit, InboxItem, Note, ResumeBrief, WorkEntry};
 use crate::repositories::projects::ProjectRepository;
 
-pub const PORTABLE_BUNDLE_FORMAT_VERSION: u32 = 1;
+pub const PORTABLE_BUNDLE_FORMAT_VERSION: u32 = 2;
+const LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION: u32 = 1;
+const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +22,8 @@ pub struct PortableProjectBundle {
     pub format_version: u32,
     pub exported_at: String,
     pub project: BundleProjectRow,
+    #[serde(default)]
+    pub plans: Vec<BundlePlanRow>,
     pub stages: Vec<BundleStageRow>,
     pub tasks: Vec<BundleTaskRow>,
     pub checklist_items: Vec<BundleChecklistItemRow>,
@@ -25,6 +33,17 @@ pub struct PortableProjectBundle {
     pub commits: Vec<crate::domain::GitCommit>,
     pub commit_task_links: Vec<crate::domain::CommitTaskLink>,
     pub resume_briefs: Vec<crate::domain::ResumeBrief>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BundlePlanRow {
+    pub id: String,
+    pub project_id: String,
+    pub title: String,
+    pub position: i64,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,12 +63,28 @@ pub struct BundleProjectRow {
 pub struct BundleStageRow {
     pub id: String,
     pub project_id: String,
+    #[serde(default)]
+    pub plan_id: Option<String>,
     pub title: String,
     pub description: String,
     pub position: i64,
     pub status: String,
     pub created_at: String,
     pub updated_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PortableBundlePreview {
+    pub format_version: u32,
+    pub compatibility: String,
+    pub project_name: String,
+    pub plan_count: usize,
+    pub stage_count: usize,
+    pub task_count: usize,
+    pub checklist_item_count: usize,
+    pub note_count: usize,
+    pub work_entry_count: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -116,13 +151,23 @@ pub fn write_project_bundle_to_folder(
     })?;
 
     let bundle_path = destination_folder.join(format!(
-        "{}.desclop",
-        bundle_folder_name(&bundle.project.name)
+        "{}-{}-{}.desclop",
+        bundle_folder_name(&bundle.project.name),
+        Utc::now().format("%Y%m%dT%H%M%SZ"),
+        Uuid::new_v4().simple()
     ));
     if bundle_path.exists() {
         return Err(format!(
-            "Portable bundle directory already exists: {}",
+            "Portable backup file already exists: {}",
             bundle_path.display()
+        ));
+    }
+
+    let readme_path = bundle_readme_sidecar_path(&bundle_path);
+    if readme_path.exists() {
+        return Err(format!(
+            "Portable backup README already exists: {}",
+            readme_path.display()
         ));
     }
 
@@ -135,10 +180,73 @@ pub fn write_project_bundle_to_folder(
         Uuid::new_v4()
     ));
 
-    let result = write_project_bundle_temp_then_rename(bundle, &temp_path, &bundle_path);
-    if result.is_err() {
-        let _ = std::fs::remove_dir_all(&temp_path);
+    let readme_temp_path = destination_folder.join(format!(
+        ".{}.tmp-{}",
+        readme_path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("backup.README.md"),
+        Uuid::new_v4()
+    ));
+
+    write_bundle_readme_temp_then_rename(&readme_temp_path, &readme_path)?;
+
+    match write_project_bundle_temp_then_rename(bundle, &temp_path, &bundle_path) {
+        Ok(path) => Ok(path),
+        Err(err) => {
+            // The README is created before the archive so a failed export never
+            // leaves a partially documented backup behind.
+            let _ = std::fs::remove_file(&temp_path);
+            let _ = std::fs::remove_file(&readme_path);
+            Err(err)
+        }
     }
+}
+
+fn bundle_readme_sidecar_path(bundle_path: &Path) -> PathBuf {
+    let stem = bundle_path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or("Desclop-backup");
+    bundle_path.with_file_name(format!("{stem}.README.md"))
+}
+
+fn write_bundle_readme_temp_then_rename(
+    temp_path: &Path,
+    readme_path: &Path,
+) -> Result<(), String> {
+    let result = (|| {
+        let mut file = File::create(temp_path).map_err(|err| {
+            format!(
+                "Failed to create temporary portable backup README {}: {err}",
+                temp_path.display()
+            )
+        })?;
+        file.write_all(bundle_readme().as_bytes()).map_err(|err| {
+            format!(
+                "Failed to write temporary portable backup README {}: {err}",
+                temp_path.display()
+            )
+        })?;
+        file.sync_all().map_err(|err| {
+            format!(
+                "Failed to flush temporary portable backup README {}: {err}",
+                temp_path.display()
+            )
+        })?;
+        std::fs::rename(temp_path, readme_path).map_err(|err| {
+            format!(
+                "Failed to finalize portable backup README {}: {err}",
+                readme_path.display()
+            )
+        })?;
+        Ok(())
+    })();
+
+    if result.is_err() {
+        let _ = std::fs::remove_file(temp_path);
+    }
+
     result
 }
 
@@ -147,31 +255,44 @@ fn write_project_bundle_temp_then_rename(
     temp_path: &Path,
     bundle_path: &Path,
 ) -> Result<PathBuf, String> {
-    std::fs::create_dir_all(temp_path).map_err(|err| {
+    let manifest_json = serde_json::to_string_pretty(&bundle).map_err(|err| err.to_string())?;
+    let file = File::create(temp_path).map_err(|err| {
         format!(
-            "Failed to create bundle directory {}: {err}",
+            "Failed to create temporary backup file {}: {err}",
             temp_path.display()
         )
     })?;
-    let manifest_json = serde_json::to_string_pretty(&bundle).map_err(|err| err.to_string())?;
-    std::fs::write(temp_path.join("manifest.json"), manifest_json).map_err(|err| {
+    let mut archive = ZipWriter::new(file);
+    let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+    archive
+        .start_file("manifest.json", options)
+        .map_err(|err| format!("Failed to create manifest in portable backup: {err}"))?;
+    archive
+        .write_all(manifest_json.as_bytes())
+        .map_err(|err| format!("Failed to write portable backup manifest: {err}"))?;
+    archive
+        .start_file("README.md", options)
+        .map_err(|err| format!("Failed to create README in portable backup: {err}"))?;
+    archive
+        .write_all(bundle_readme().as_bytes())
+        .map_err(|err| format!("Failed to write portable backup README: {err}"))?;
+    let file = archive
+        .finish()
+        .map_err(|err| format!("Failed to finalize temporary portable backup: {err}"))?;
+    file.sync_all().map_err(|err| {
         format!(
-            "Failed to write {}: {err}",
-            temp_path.join("manifest.json").display()
+            "Failed to flush temporary portable backup {}: {err}",
+            temp_path.display()
         )
     })?;
-    std::fs::write(
-        temp_path.join("README.md"),
-        bundle_readme(&bundle.project.name),
-    )
-    .map_err(|err| {
+
+    read_project_bundle_from_path(temp_path)?;
+    std::fs::rename(temp_path, bundle_path).map_err(|err| {
         format!(
-            "Failed to write {}: {err}",
-            temp_path.join("README.md").display()
+            "Failed to finalize portable backup {}: {err}",
+            bundle_path.display()
         )
     })?;
-    std::fs::rename(temp_path, bundle_path)
-        .map_err(|err| format!("Failed to finalize bundle {}: {err}", bundle_path.display()))?;
 
     Ok(bundle_path.to_path_buf())
 }
@@ -186,15 +307,37 @@ pub fn import_project_bundle_from_folder(
         return Err("Project folder is required".to_string());
     }
 
-    let bundle = read_project_bundle_from_folder(bundle_folder.as_ref())?;
+    let bundle = read_project_bundle_from_path(bundle_folder.as_ref())?;
 
     import_project_bundle(conn, bundle, reselected_local_path, bundle_folder.as_ref())
 }
 
+#[allow(dead_code)]
 pub fn read_project_bundle_from_folder(
     bundle_folder: impl AsRef<Path>,
 ) -> Result<PortableProjectBundle, String> {
-    let bundle_folder = bundle_folder.as_ref();
+    read_project_bundle_from_path(bundle_folder)
+}
+
+pub fn read_project_bundle_from_path(
+    bundle_path: impl AsRef<Path>,
+) -> Result<PortableProjectBundle, String> {
+    let bundle_path = bundle_path.as_ref();
+    if bundle_path.is_file() {
+        return read_project_bundle_from_archive(bundle_path);
+    }
+    if bundle_path.is_dir() {
+        return read_project_bundle_from_legacy_folder(bundle_path);
+    }
+    Err(format!(
+        "Backup file or legacy backup folder was not found: {}",
+        bundle_path.display()
+    ))
+}
+
+fn read_project_bundle_from_legacy_folder(
+    bundle_folder: &Path,
+) -> Result<PortableProjectBundle, String> {
     let manifest_path = bundle_folder.join("manifest.json");
     let manifest_json = std::fs::read_to_string(&manifest_path).map_err(|err| {
         format!(
@@ -202,27 +345,110 @@ pub fn read_project_bundle_from_folder(
             manifest_path.display()
         )
     })?;
-    let bundle: PortableProjectBundle = serde_json::from_str(&manifest_json).map_err(|err| {
+    parse_project_bundle_manifest(&manifest_json, &manifest_path.display().to_string())
+}
+
+fn read_project_bundle_from_archive(bundle_path: &Path) -> Result<PortableProjectBundle, String> {
+    let file = File::open(bundle_path).map_err(|err| {
         format!(
-            "Failed to parse bundle manifest {}: {err}",
-            manifest_path.display()
+            "Failed to open portable backup {}: {err}",
+            bundle_path.display()
         )
     })?;
+    let mut archive = ZipArchive::new(file).map_err(|err| {
+        format!(
+            "Failed to open portable backup {}: {err}",
+            bundle_path.display()
+        )
+    })?;
+    let manifest = archive.by_name("manifest.json").map_err(|err| {
+        format!(
+            "Portable backup {} does not contain manifest.json: {err}",
+            bundle_path.display()
+        )
+    })?;
+    if manifest.size() > MAX_MANIFEST_BYTES {
+        return Err(format!(
+            "Portable backup manifest is too large (maximum {MAX_MANIFEST_BYTES} bytes)"
+        ));
+    }
+    let mut manifest_bytes = Vec::new();
+    manifest
+        .take(MAX_MANIFEST_BYTES + 1)
+        .read_to_end(&mut manifest_bytes)
+        .map_err(|err| {
+            format!(
+                "Failed to read portable backup manifest {}: {err}",
+                bundle_path.display()
+            )
+        })?;
+    if manifest_bytes.len() as u64 > MAX_MANIFEST_BYTES {
+        return Err(format!(
+            "Portable backup manifest is too large (maximum {MAX_MANIFEST_BYTES} bytes)"
+        ));
+    }
+    let manifest_json = String::from_utf8(manifest_bytes).map_err(|err| {
+        format!(
+            "Portable backup manifest {} is not UTF-8: {err}",
+            bundle_path.display()
+        )
+    })?;
+    parse_project_bundle_manifest(&manifest_json, &bundle_path.display().to_string())
+}
 
-    if bundle.format_version != PORTABLE_BUNDLE_FORMAT_VERSION {
+fn parse_project_bundle_manifest(
+    manifest_json: &str,
+    source_label: &str,
+) -> Result<PortableProjectBundle, String> {
+    let mut bundle: PortableProjectBundle = serde_json::from_str(manifest_json)
+        .map_err(|err| format!("Failed to parse bundle manifest {source_label}: {err}"))?;
+
+    if !matches!(
+        bundle.format_version,
+        LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION | PORTABLE_BUNDLE_FORMAT_VERSION
+    ) {
         return Err(format!(
             "Unsupported bundle format version {}",
             bundle.format_version
         ));
     }
 
+    normalize_legacy_bundle(&mut bundle)?;
     validate_bundle_integrity(&bundle)?;
     Ok(bundle)
 }
 
+#[allow(dead_code)]
+pub fn inspect_project_bundle_from_folder(
+    bundle_folder: impl AsRef<Path>,
+) -> Result<PortableBundlePreview, String> {
+    inspect_project_bundle_from_path(bundle_folder)
+}
+
+pub fn inspect_project_bundle_from_path(
+    bundle_path: impl AsRef<Path>,
+) -> Result<PortableBundlePreview, String> {
+    let bundle = read_project_bundle_from_path(bundle_path)?;
+    Ok(PortableBundlePreview {
+        format_version: bundle.format_version,
+        compatibility: if bundle.format_version == LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION {
+            "legacy_v1".to_string()
+        } else {
+            "current".to_string()
+        },
+        project_name: bundle.project.name,
+        plan_count: bundle.plans.len(),
+        stage_count: bundle.stages.len(),
+        task_count: bundle.tasks.len(),
+        checklist_item_count: bundle.checklist_items.len(),
+        note_count: bundle.notes.len(),
+        work_entry_count: bundle.work_entries.len(),
+    })
+}
+
 pub fn import_project_bundle(
     conn: &mut Connection,
-    bundle: PortableProjectBundle,
+    mut bundle: PortableProjectBundle,
     reselected_local_path: &str,
     bundle_folder: impl AsRef<Path>,
 ) -> Result<String, String> {
@@ -230,6 +456,7 @@ pub fn import_project_bundle(
         return Err("Project folder is required".to_string());
     }
 
+    normalize_legacy_bundle(&mut bundle)?;
     validate_bundle_integrity(&bundle)?;
     import_bundle(conn, bundle, reselected_local_path).map_err(|err| {
         format!(
@@ -257,6 +484,7 @@ fn load_project_bundle(
     Ok(PortableProjectBundle {
         format_version: PORTABLE_BUNDLE_FORMAT_VERSION,
         exported_at: Utc::now().to_rfc3339(),
+        plans: list_plan_rows(conn, project_id)?,
         stages: list_stage_rows(conn, project_id)?,
         tasks: list_task_rows(conn, project_id)?,
         checklist_items: list_checklist_item_rows(conn, project_id)?,
@@ -277,6 +505,11 @@ fn import_bundle(
 ) -> rusqlite::Result<String> {
     let tx = conn.transaction()?;
     let new_project_id = Uuid::new_v4().to_string();
+    // A restored project is new in this Desclop library, even though its workflow
+    // rows keep their original timestamps. This also makes it appear first in the
+    // project picker, which is ordered by project.updated_at.
+    let restored_at = Utc::now().to_rfc3339();
+    let mut plan_ids = HashMap::new();
     let mut stage_ids = HashMap::new();
     let mut task_ids = HashMap::new();
 
@@ -290,19 +523,41 @@ fn import_bundle(
             bundle.project.git_enabled as i32,
             bundle.project.git_remote,
             bundle.project.created_at,
-            bundle.project.updated_at
+            restored_at
         ],
     )?;
+
+    for plan in bundle.plans {
+        let new_plan_id = Uuid::new_v4().to_string();
+        plan_ids.insert(plan.id.clone(), new_plan_id.clone());
+        tx.execute(
+            "insert into plans (id, project_id, title, position, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                new_plan_id,
+                new_project_id,
+                plan.title,
+                plan.position,
+                plan.created_at,
+                plan.updated_at
+            ],
+        )?;
+    }
 
     for stage in bundle.stages {
         let new_stage_id = Uuid::new_v4().to_string();
         stage_ids.insert(stage.id.clone(), new_stage_id.clone());
         tx.execute(
-            "insert into stages (id, project_id, title, description, position, status, created_at, updated_at)
-             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "insert into stages (id, project_id, plan_id, title, description, position, status, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 new_stage_id,
                 new_project_id,
+                remap_required(
+                    &plan_ids,
+                    stage.plan_id.as_deref().unwrap_or_default(),
+                    "plan_id"
+                )?,
                 stage.title,
                 stage.description,
                 stage.position,
@@ -471,6 +726,19 @@ fn import_bundle(
 
 fn validate_bundle_integrity(bundle: &PortableProjectBundle) -> Result<(), String> {
     let project_id = &bundle.project.id;
+    let mut plan_ids = HashSet::new();
+    for plan in &bundle.plans {
+        if !plan_ids.insert(plan.id.clone()) {
+            return Err(format!("Duplicate plan id {}", plan.id));
+        }
+        if &plan.project_id != project_id {
+            return Err(format!(
+                "plan projectId does not match bundle project: {}",
+                plan.id
+            ));
+        }
+    }
+
     let mut stage_ids = HashSet::new();
     for stage in &bundle.stages {
         if !stage_ids.insert(stage.id.clone()) {
@@ -481,6 +749,12 @@ fn validate_bundle_integrity(bundle: &PortableProjectBundle) -> Result<(), Strin
                 "stage projectId does not match bundle project: {}",
                 stage.id
             ));
+        }
+        let Some(plan_id) = &stage.plan_id else {
+            return Err(format!("Missing plan for stage {}", stage.id));
+        };
+        if !plan_ids.contains(plan_id) {
+            return Err(format!("Missing plan for stage {}: {plan_id}", stage.id));
         }
     }
 
@@ -617,6 +891,31 @@ fn validate_bundle_integrity(bundle: &PortableProjectBundle) -> Result<(), Strin
     Ok(())
 }
 
+fn normalize_legacy_bundle(bundle: &mut PortableProjectBundle) -> Result<(), String> {
+    if bundle.format_version != LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION {
+        return Ok(());
+    }
+
+    let plan_id = format!("legacy-plan-{}", bundle.project.id);
+    if bundle.plans.is_empty() {
+        bundle.plans.push(BundlePlanRow {
+            id: plan_id.clone(),
+            project_id: bundle.project.id.clone(),
+            title: "Imported plan".to_string(),
+            position: 0,
+            created_at: bundle.project.created_at.clone(),
+            updated_at: bundle.project.updated_at.clone(),
+        });
+    }
+    for stage in &mut bundle.stages {
+        if stage.plan_id.is_none() {
+            stage.plan_id = Some(plan_id.clone());
+        }
+    }
+
+    Ok(())
+}
+
 fn validate_optional_task_rows<'a>(
     label: &str,
     rows: impl Iterator<Item = (&'a str, &'a str, Option<&'a str>)>,
@@ -658,9 +957,29 @@ fn remap_optional(
         .transpose()
 }
 
+fn list_plan_rows(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<BundlePlanRow>> {
+    let mut stmt = conn.prepare(
+        "select id, project_id, title, position, created_at, updated_at
+         from plans
+         where project_id = ?1
+         order by position asc, id asc",
+    )?;
+    let rows = stmt.query_map(params![project_id], |row| {
+        Ok(BundlePlanRow {
+            id: row.get(0)?,
+            project_id: row.get(1)?,
+            title: row.get(2)?,
+            position: row.get(3)?,
+            created_at: row.get(4)?,
+            updated_at: row.get(5)?,
+        })
+    })?;
+    rows.collect()
+}
+
 fn list_stage_rows(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<BundleStageRow>> {
     let mut stmt = conn.prepare(
-        "select id, project_id, title, description, position, status, created_at, updated_at
+        "select id, project_id, plan_id, title, description, position, status, created_at, updated_at
          from stages
          where project_id = ?1
          order by position asc, id asc",
@@ -669,12 +988,13 @@ fn list_stage_rows(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<
         Ok(BundleStageRow {
             id: row.get(0)?,
             project_id: row.get(1)?,
-            title: row.get(2)?,
-            description: row.get(3)?,
-            position: row.get(4)?,
-            status: row.get(5)?,
-            created_at: row.get(6)?,
-            updated_at: row.get(7)?,
+            plan_id: row.get(2)?,
+            title: row.get(3)?,
+            description: row.get(4)?,
+            position: row.get(5)?,
+            status: row.get(6)?,
+            created_at: row.get(7)?,
+            updated_at: row.get(8)?,
         })
     })?;
     rows.collect()
@@ -886,10 +1206,8 @@ fn bundle_folder_name(project_name: &str) -> String {
     name.chars().take(82).collect()
 }
 
-fn bundle_readme(project_name: &str) -> String {
-    format!(
-        "# {project_name} Desclop Bundle\n\nThis portable bundle contains Desclop project planning data only. Source code is not copied.\n\nAfter import, reselect the local project folder so Desclop can reconnect the imported plan to source files and Git history on this computer.\n"
-    )
+fn bundle_readme() -> &'static str {
+    "# Desclop Backup\n\nThis README accompanies a single-file Desclop portable backup (`.desclop`). The `.desclop` file is the backup data; it is a standard ZIP archive with a Desclop extension, so it can be stored and moved as one file.\n\n## Keep together\n\nKeep this README next to its matching `.desclop` file when moving or sharing the backup. Desclop restores the `.desclop` file itself; this README contains instructions only and no project content.\n\n## Included\n\n- Plans, stages, tasks, checklists, notes, inbox items, work history, commits and resume briefs\n- Project Git settings\n\n## Not included\n\n- Source code\n- The original local project-folder path\n- A copy of the live SQLite database\n\n## Restore\n\n1. Open Desclop and choose **Restore backup** from the project picker or first-run screen.\n2. Select the matching `.desclop` file.\n3. Select the current local project folder.\n4. Review the backup summary and confirm restore.\n\nRestore creates a separate local project record and never overwrites an existing project. If restore cannot complete, keep the original `.desclop` file unchanged and retry after resolving the displayed issue. For database-upgrade recovery, use the local SQLite safety snapshot reported by Diagnostics instead.\n"
 }
 
 #[cfg(test)]
@@ -903,6 +1221,7 @@ mod tests {
     use crate::repositories::tasks::TaskRepository;
     use rusqlite::params;
     use std::fs;
+    use std::io::Read;
 
     fn temp_bundle_destination(name: &str) -> std::path::PathBuf {
         let path = std::env::temp_dir().join(format!("desclop-{name}-{}", uuid::Uuid::new_v4()));
@@ -1101,10 +1420,17 @@ mod tests {
     }
 
     fn read_bundle(bundle_path: &std::path::Path) -> PortableProjectBundle {
-        serde_json::from_str(
-            &fs::read_to_string(bundle_path.join("manifest.json")).expect("manifest text"),
-        )
-        .expect("manifest json")
+        serde_json::from_str(&read_archive_entry(bundle_path, "manifest.json"))
+            .expect("manifest json")
+    }
+
+    fn read_archive_entry(bundle_path: &std::path::Path, entry_name: &str) -> String {
+        let file = File::open(bundle_path).expect("open archive");
+        let mut archive = ZipArchive::new(file).expect("archive");
+        let mut entry = archive.by_name(entry_name).expect("archive entry");
+        let mut text = String::new();
+        entry.read_to_string(&mut text).expect("read archive entry");
+        text
     }
 
     fn project_count(conn: &rusqlite::Connection) -> i64 {
@@ -1113,7 +1439,7 @@ mod tests {
     }
 
     #[test]
-    fn export_writes_manifest_and_readme_folder_bundle() {
+    fn export_writes_manifest_and_matching_readme_sidecar() {
         let mut conn = create_memory_connection().expect("memory database");
         let (project_id, _, _) = seed_full_project(&mut conn);
         let destination = temp_bundle_destination("export");
@@ -1121,21 +1447,26 @@ mod tests {
         let bundle_path =
             export_project_bundle_to_folder(&conn, &project_id, &destination).expect("export");
 
-        let manifest_path = bundle_path.join("manifest.json");
-        let readme_path = bundle_path.join("README.md");
         let manifest: PortableProjectBundle =
-            serde_json::from_str(&fs::read_to_string(manifest_path).expect("manifest text"))
+            serde_json::from_str(&read_archive_entry(&bundle_path, "manifest.json"))
                 .expect("manifest json");
-        let readme = fs::read_to_string(readme_path).expect("readme text");
+        let archived_readme = read_archive_entry(&bundle_path, "README.md");
+        let sidecar_readme_path = bundle_readme_sidecar_path(&bundle_path);
+        let sidecar_readme = fs::read_to_string(&sidecar_readme_path).expect("sidecar README");
 
-        assert_eq!(bundle_path.file_name().unwrap(), "Desclop.desclop");
-        assert_eq!(manifest.format_version, 1);
+        let bundle_name = bundle_path.file_name().unwrap().to_string_lossy();
+        assert!(bundle_name.starts_with("Desclop-"));
+        assert!(bundle_name.ends_with(".desclop"));
+        assert!(bundle_path.is_file());
+        assert_eq!(manifest.format_version, PORTABLE_BUNDLE_FORMAT_VERSION);
         assert_eq!(manifest.project.id, project_id);
         assert_eq!(
             manifest.project.git_remote.as_deref(),
             Some("git@example.com:desclop.git")
         );
+        assert_eq!(manifest.plans.len(), 1);
         assert_eq!(manifest.stages.len(), 1);
+        assert!(manifest.stages[0].plan_id.is_some());
         assert_eq!(manifest.tasks.len(), 1);
         assert_eq!(manifest.checklist_items.len(), 1);
         assert_eq!(manifest.notes.len(), 1);
@@ -1144,8 +1475,20 @@ mod tests {
         assert_eq!(manifest.commits[0].sha, "abc123");
         assert_eq!(manifest.commit_task_links.len(), 1);
         assert_eq!(manifest.resume_briefs.len(), 1);
-        assert!(readme.contains("Source code is not copied"));
-        assert!(readme.contains("reselect the local project folder"));
+        assert!(archived_readme.contains("single-file Desclop portable backup"));
+        assert!(archived_readme.contains("Keep together"));
+        assert!(archived_readme.contains("Source code"));
+        assert!(archived_readme.contains("Restore backup"));
+        assert_eq!(sidecar_readme, archived_readme);
+        assert!(!sidecar_readme.contains("/tmp/desclop-source"));
+        assert!(!sidecar_readme.contains("\"formatVersion\""));
+        assert_eq!(
+            sidecar_readme_path.file_name().unwrap().to_string_lossy(),
+            format!(
+                "{}.README.md",
+                bundle_path.file_stem().unwrap().to_string_lossy()
+            )
+        );
     }
 
     #[test]
@@ -1156,8 +1499,7 @@ mod tests {
 
         let bundle_path =
             export_project_bundle_to_folder(&conn, &project_id, &destination).expect("export");
-        let manifest_text =
-            fs::read_to_string(bundle_path.join("manifest.json")).expect("manifest text");
+        let manifest_text = read_archive_entry(&bundle_path, "manifest.json");
 
         assert!(!manifest_text.contains("/tmp/desclop-source"));
         assert!(!manifest_text.contains("localPath"));
@@ -1178,7 +1520,7 @@ mod tests {
     }
 
     #[test]
-    fn export_rejects_existing_bundle_directory_and_leaves_stale_files_untouched() {
+    fn export_creates_a_new_timestamped_bundle_without_touching_existing_backups() {
         let mut conn = create_memory_connection().expect("memory database");
         let (project_id, _, _) = seed_full_project(&mut conn);
         let destination = temp_bundle_destination("existing");
@@ -1187,17 +1529,16 @@ mod tests {
         let stale_path = bundle_path.join("source-code.rs");
         fs::write(&stale_path, "stale source").expect("stale file");
 
-        let result = export_project_bundle_to_folder(&conn, &project_id, &destination);
+        let result = export_project_bundle_to_folder(&conn, &project_id, &destination)
+            .expect("create a new bundle");
 
-        assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .contains("bundle directory already exists"));
+        assert_ne!(result, bundle_path);
         assert_eq!(
             fs::read_to_string(stale_path).expect("stale file text"),
             "stale source"
         );
         assert!(!bundle_path.join("manifest.json").exists());
+        assert!(result.is_file());
     }
 
     #[test]
@@ -1237,7 +1578,7 @@ mod tests {
         assert!(!bundle_name.contains('<'));
         assert!(!bundle_name.contains('>'));
         assert!(!bundle_name.contains('|'));
-        assert!(bundle_name.len() <= 90);
+        assert!(bundle_name.len() <= 140);
         assert!(sibling_names.iter().all(|name| !name.contains(".tmp-")));
     }
 
@@ -1249,10 +1590,9 @@ mod tests {
         let destination = temp_bundle_destination("timestamps");
         let bundle_path =
             export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
-        let manifest_json: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(bundle_path.join("manifest.json")).expect("manifest text"),
-        )
-        .expect("manifest json");
+        let manifest_json: serde_json::Value =
+            serde_json::from_str(&read_archive_entry(&bundle_path, "manifest.json"))
+                .expect("manifest json");
 
         assert_eq!(
             manifest_json["stages"][0]["createdAt"],
@@ -1262,6 +1602,8 @@ mod tests {
             manifest_json["stages"][0]["updatedAt"],
             "2026-05-03T00:00:00Z"
         );
+        assert_eq!(manifest_json["plans"].as_array().map(Vec::len), Some(1));
+        assert!(manifest_json["stages"][0]["planId"].is_string());
         assert_eq!(
             manifest_json["tasks"][0]["createdAt"],
             "2026-05-04T00:00:00Z"
@@ -1311,6 +1653,20 @@ mod tests {
             .expect("checklist timestamps");
         let resume = crate::services::resume::build_resume_brief(&target, &imported_project_id)
             .expect("resume");
+        let restored_plan_count: i64 = target
+            .query_row(
+                "select count(*) from plans where project_id = ?1",
+                params![imported_project_id],
+                |row| row.get(0),
+            )
+            .expect("restored plan count");
+        let restored_stage_has_plan: i64 = target
+            .query_row(
+                "select count(*) from stages where project_id = ?1 and plan_id is not null",
+                params![imported_project_id],
+                |row| row.get(0),
+            )
+            .expect("restored stage plan reference");
 
         assert_eq!(
             stage_timestamps,
@@ -1334,6 +1690,8 @@ mod tests {
             )
         );
         assert_eq!(resume.next_step, "Keep older task waiting");
+        assert_eq!(restored_plan_count, 1);
+        assert_eq!(restored_stage_has_plan, 1);
     }
 
     #[test]
@@ -1368,6 +1726,16 @@ mod tests {
                 |row| row.get(0),
             )
             .expect("task");
+        let imported_plan_title: String = target
+            .query_row(
+                "select plans.title
+                 from plans
+                 inner join stages on stages.plan_id = plans.id
+                 where plans.project_id = ?1 and stages.id = ?2",
+                params![new_project_id, imported_stage_id],
+                |row| row.get(0),
+            )
+            .expect("imported plan");
 
         assert_eq!(imported_project.local_path, "/tmp/desclop-reselected");
         assert_eq!(
@@ -1376,6 +1744,7 @@ mod tests {
         );
         assert_ne!(imported_stage_id, old_stage_id);
         assert_ne!(imported_task_id, old_task_id);
+        assert_eq!(imported_plan_title, "Imported plan");
 
         let note_task_id: String = target
             .query_row(
@@ -1425,6 +1794,94 @@ mod tests {
             )
         );
         assert_eq!(brief_refs, (imported_task_id, imported_stage_id));
+    }
+
+    #[test]
+    fn restored_project_is_marked_as_recent_and_appears_first_in_the_picker() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        source
+            .execute(
+                "update projects set created_at = '2020-01-01T00:00:00Z', updated_at = '2020-01-01T00:00:00Z' where id = ?1",
+                params![project_id],
+            )
+            .expect("source project timestamps");
+        let destination = temp_bundle_destination("restored-project-order");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+        let existing = ProjectRepository::new(&target)
+            .create_project("Existing".to_string(), "/tmp/existing".to_string(), false)
+            .expect("existing project");
+        target
+            .execute(
+                "update projects set updated_at = '2026-01-01T00:00:00Z' where id = ?1",
+                params![existing.id],
+            )
+            .expect("existing project timestamp");
+
+        let imported_project_id =
+            import_project_bundle_from_folder(&mut target, &bundle_path, "/tmp/reselected")
+                .expect("import");
+        let restored: crate::domain::Project = ProjectRepository::new(&target)
+            .get_project(&imported_project_id)
+            .expect("restored project");
+        let ordered = ProjectRepository::new(&target)
+            .list_projects()
+            .expect("ordered projects");
+
+        assert_eq!(restored.created_at, "2020-01-01T00:00:00Z");
+        assert_ne!(restored.updated_at, "2020-01-01T00:00:00Z");
+        assert_eq!(
+            ordered.first().map(|project| project.id.as_str()),
+            Some(imported_project_id.as_str())
+        );
+    }
+
+    #[test]
+    fn legacy_v1_bundle_is_previewed_and_restored_as_a_single_legacy_plan() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        let destination = temp_bundle_destination("legacy-v1-source");
+        let current_bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut legacy_bundle = read_bundle(&current_bundle_path);
+        legacy_bundle.format_version = LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION;
+        legacy_bundle.plans.clear();
+        for stage in &mut legacy_bundle.stages {
+            stage.plan_id = None;
+        }
+        let legacy_path = temp_bundle_destination("legacy-v1").join("Legacy.desclop");
+        write_manifest(&legacy_path, &legacy_bundle);
+
+        let preview = inspect_project_bundle_from_folder(&legacy_path).expect("legacy preview");
+        assert_eq!(
+            preview.format_version,
+            LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION
+        );
+        assert_eq!(preview.compatibility, "legacy_v1");
+        assert_eq!(preview.plan_count, 1);
+        assert_eq!(preview.task_count, 1);
+
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+        let imported_project_id =
+            import_project_bundle_from_folder(&mut target, &legacy_path, "/tmp/reselected")
+                .expect("legacy import");
+        let restored: (String, i64) = target
+            .query_row(
+                "select plans.title, count(stages.id)
+                 from plans
+                 left join stages on stages.plan_id = plans.id
+                 where plans.project_id = ?1
+                 group by plans.id",
+                params![imported_project_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("restored legacy plan");
+        assert_eq!(restored, ("Imported plan".to_string(), 1));
     }
 
     #[test]
@@ -1550,21 +2007,22 @@ mod tests {
         let destination = temp_bundle_destination("bad-version");
         let bundle_path =
             export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
-        let mut manifest: serde_json::Value = serde_json::from_str(
-            &fs::read_to_string(bundle_path.join("manifest.json")).expect("manifest text"),
-        )
-        .expect("manifest json");
+        let mut manifest: serde_json::Value =
+            serde_json::from_str(&read_archive_entry(&bundle_path, "manifest.json"))
+                .expect("manifest json");
         manifest["formatVersion"] = serde_json::json!(999);
+        let malformed_path = temp_bundle_destination("bad-version-result").join("Bad.desclop");
+        fs::create_dir_all(&malformed_path).expect("legacy bundle dir");
         fs::write(
-            bundle_path.join("manifest.json"),
+            malformed_path.join("manifest.json"),
             serde_json::to_string_pretty(&manifest).expect("manifest json"),
         )
-        .expect("write manifest");
+        .expect("write legacy manifest");
         let mut target = create_memory_connection().expect("target database");
         run_migrations(&target).expect("target migrations");
 
         let result =
-            import_project_bundle_from_folder(&mut target, &bundle_path, "/tmp/reselected");
+            import_project_bundle_from_folder(&mut target, &malformed_path, "/tmp/reselected");
 
         assert!(result.is_err());
         assert!(result
@@ -1580,10 +2038,7 @@ mod tests {
         let destination = temp_bundle_destination("bad-relationship-source");
         let bundle_path =
             export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
-        let mut bundle: PortableProjectBundle = serde_json::from_str(
-            &fs::read_to_string(bundle_path.join("manifest.json")).expect("manifest text"),
-        )
-        .expect("manifest json");
+        let mut bundle = read_bundle(&bundle_path);
         bundle.checklist_items[0].task_id = "missing-task".to_string();
         let malformed_path = temp_bundle_destination("bad-relationship").join("Bad.desclop");
         write_manifest(&malformed_path, &bundle);
@@ -1611,6 +2066,7 @@ mod tests {
         bundle.stages.push(BundleStageRow {
             id: bundle.stages[0].id.clone(),
             project_id: bundle.project.id.clone(),
+            plan_id: bundle.stages[0].plan_id.clone(),
             title: "Duplicate".to_string(),
             description: "".to_string(),
             position: 1,

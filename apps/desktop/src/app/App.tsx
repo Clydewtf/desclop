@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "../styles/base.css";
-import { exportPlanMarkdown } from "../features/export-import/markdownExport";
+import { exportProjectMarkdowns } from "../features/export-import/markdownExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
 import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImportPreview";
 import { FirstRunHint } from "../features/onboarding/FirstRunHint";
@@ -14,6 +14,7 @@ import {
   type ParsedMarkdownPlan
 } from "../features/markdown-import/markdownParser";
 import { Planner } from "../features/planner/Planner";
+import { PortableRestoreForm } from "../features/portable-backup/PortableRestoreForm";
 import { buildPlanFrames } from "../features/planner/plannerEngine";
 import {
   readArchivedPlanIds,
@@ -42,15 +43,22 @@ import { TaskDetail, type StartFocusInput } from "../features/task-detail/TaskDe
 import { Timeline } from "../features/timeline/Timeline";
 import { Today } from "../features/today/Today";
 import { buildResumeBriefView, type ResumeBriefView } from "../features/today/resumeEngine";
-import { Utilities } from "../features/utilities/Utilities";
+import { Utilities, type MarkdownExportItem } from "../features/utilities/Utilities";
 import {
   WeeklyReview,
   type WeeklyReviewTimelineTarget
 } from "../features/weekly-review/WeeklyReview";
 import { buildWeeklyReview } from "../features/weekly-review/weeklyReviewEngine";
 import { WorkReview } from "../features/work-log/WorkReview";
-import { api, type CreateProjectInput, type ProjectPlanPayload } from "../shared/api/client";
-import { chooseFolder } from "../shared/api/folderDialog";
+import {
+  api,
+  type CreateProjectInput,
+  type DatabaseRuntimeStatus,
+  type PortableBundlePreview,
+  type ProjectDiagnostics,
+  type ProjectPlanPayload
+} from "../shared/api/client";
+import { chooseFolder, choosePortableBackupFile } from "../shared/api/folderDialog";
 import {
   type GitCommit,
   type InboxItem,
@@ -68,7 +76,8 @@ import {
   ScreenHeader,
   Surface,
   TextArea,
-  Toast
+  Toast,
+  type ToastTone
 } from "../shared/ui";
 import { AppShell, type AppDestination } from "./shell/AppShell";
 
@@ -153,6 +162,15 @@ interface FocusSession {
   endedAtMs: number | null;
   durationSeconds: number | null;
 }
+
+interface AppToast {
+  id: number;
+  tone: ToastTone;
+  title: string;
+  message: string;
+}
+
+const TOAST_AUTO_DISMISS_MS = 1500;
 
 async function loadResumeBrief(projectId: string): Promise<ResumeLoadResult> {
   try {
@@ -317,8 +335,9 @@ export function App() {
   const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<ProjectDeleteError | null>(null);
   const [pickerError, setPickerError] = useState<string | null>(null);
-  const [setupMode, setSetupMode] = useState<"picker" | "create">("picker");
+  const [setupMode, setSetupMode] = useState<"picker" | "create" | "restore">("picker");
   const [loading, setLoading] = useState(true);
+  const [databaseStatus, setDatabaseStatus] = useState<DatabaseRuntimeStatus | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [resumeError, setResumeError] = useState<string | null>(null);
   const [gitError, setGitError] = useState<string | null>(null);
@@ -360,12 +379,16 @@ export function App() {
   const [parsedPlan, setParsedPlan] = useState<ParsedMarkdownPlan | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
-  const [templateActionStatus, setTemplateActionStatus] = useState<string | null>(null);
   const [bundleDestination, setBundleDestination] = useState("");
   const [bundleFolder, setBundleFolder] = useState("");
   const [reselectedLocalPath, setReselectedLocalPath] = useState("");
   const [portableStatus, setPortableStatus] = useState<string | null>(null);
   const [portableError, setPortableError] = useState<string | null>(null);
+  const [restorePreview, setRestorePreview] = useState<PortableBundlePreview | null>(null);
+  const [diagnostics, setDiagnostics] = useState<ProjectDiagnostics | null>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [relinkPath, setRelinkPath] = useState("");
   const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
   const [quickCaptureDefaultTaskId, setQuickCaptureDefaultTaskId] = useState<string | null>(null);
   const [captureStatus, setCaptureStatus] = useState<string | null>(null);
@@ -373,6 +396,8 @@ export function App() {
   const settingsRef = useRef(settings);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
+  const [toast, setToast] = useState<AppToast | null>(null);
+  const toastSequence = useRef(0);
 
   function invalidateProjectContext() {
     projectContextRevision.current += 1;
@@ -383,6 +408,19 @@ export function App() {
     return projectContextRevision.current === revision;
   }
 
+  function markProjectRecentlyChanged(projectId: string) {
+    setProjects((currentProjects) => {
+      const changedProject = currentProjects.find((candidate) => candidate.id === projectId);
+      if (!changedProject) {
+        return currentProjects;
+      }
+      return [
+        { ...changedProject, updatedAt: new Date().toISOString() },
+        ...currentProjects.filter((candidate) => candidate.id !== projectId)
+      ];
+    });
+  }
+
   function invalidateCaptureOperations() {
     captureOperationRevision.current += 1;
     return captureOperationRevision.current;
@@ -391,6 +429,11 @@ export function App() {
   function getSettingsErrorMessage(subject: string, error: unknown) {
     const detail = error instanceof Error ? error.message : String(error ?? "Unknown error");
     return `${subject} could not be applied. ${detail}`;
+  }
+
+  function showToast(tone: ToastTone, title: string, message: string) {
+    toastSequence.current += 1;
+    setToast({ id: toastSequence.current, tone, title, message });
   }
 
   async function applyInitialNativeSettings() {
@@ -502,12 +545,16 @@ export function App() {
     setParsedPlan(null);
     setImportError(null);
     setImporting(false);
-    setTemplateActionStatus(null);
     setBundleDestination("");
     setBundleFolder("");
     setReselectedLocalPath("");
     setPortableStatus(null);
     setPortableError(null);
+    setRestorePreview(null);
+    setDiagnostics(null);
+    setDiagnosticsLoading(false);
+    setDiagnosticsError(null);
+    setRelinkPath("");
     setQuickCaptureOpen(false);
     setQuickCaptureDefaultTaskId(null);
     setCaptureStatus(null);
@@ -523,6 +570,7 @@ export function App() {
     if (!hasTauriInternals()) {
       setProjects([]);
       setProjectSummaries({});
+      setDatabaseStatus(null);
       setLoadError(null);
       setPickerError(null);
       setLoading(false);
@@ -535,6 +583,11 @@ export function App() {
     setResumeError(null);
     setGitError(null);
     try {
+      const nextDatabaseStatus = await api.getDatabaseStatus();
+      setDatabaseStatus(nextDatabaseStatus);
+      if (nextDatabaseStatus.state !== "ready") {
+        return;
+      }
       const [loadedProjects, loadedProjectSummaries] = await Promise.all([
         api.listProjects(),
         loadProjectSummariesOrEmpty()
@@ -598,16 +651,15 @@ export function App() {
   }, [screen]);
 
   useEffect(() => {
-    if (!templateActionStatus) {
+    if (!toast) {
       return;
     }
 
     const timerId = window.setTimeout(() => {
-      setTemplateActionStatus(null);
-    }, 1500);
-
+      setToast((current) => (current?.id === toast.id ? null : current));
+    }, TOAST_AUTO_DISMISS_MS);
     return () => window.clearTimeout(timerId);
-  }, [templateActionStatus]);
+  }, [toast]);
 
   async function createProject(input: CreateProjectInput) {
     if (creating) {
@@ -623,8 +675,8 @@ export function App() {
       setProjectSummaries(await loadProjectSummariesOrEmpty());
       try {
         const nextProjects = [
-          ...projectsRef.current.filter((candidate) => candidate.id !== project.id),
-          project
+          project,
+          ...projectsRef.current.filter((candidate) => candidate.id !== project.id)
         ];
         await loadProjectIntoState(project, nextProjects);
       } catch {
@@ -657,14 +709,15 @@ export function App() {
   const selectedCaptureTaskId = selectedTask?.id ?? null;
   const focusCaptureTaskId = focusSession?.taskId ?? null;
   const todayCaptureTaskId = todayTask?.id ?? null;
-  const markdownExport = project
-    ? exportPlanMarkdown({
+  const markdownExports: MarkdownExportItem[] = project
+    ? exportProjectMarkdowns({
         projectName: project.name,
+        plans: projectPlan.plans ?? [],
         stages: projectPlan.stages,
         tasks: projectPlan.tasks,
         checklistItems: projectPlan.checklistItems
       })
-    : "";
+    : [];
 
   const openQuickCapture = useCallback(() => {
     if (!projectId || quickCaptureOpen) {
@@ -902,7 +955,9 @@ export function App() {
       return false;
     }
 
-    await api.setActiveTask(project.id, taskId);
+    const projectId = project.id;
+    await api.setActiveTask(projectId, taskId);
+    markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision)) {
       return false;
     }
@@ -910,13 +965,13 @@ export function App() {
 
     setProjects((currentProjects) =>
       currentProjects.map((candidate) =>
-        candidate.id === project.id ? { ...candidate, activeTaskId: taskId } : candidate
+        candidate.id === projectId ? { ...candidate, activeTaskId: taskId } : candidate
       )
     );
     setProjectPlan((plan) => ({
       ...plan,
       tasks: plan.tasks.map((task) => {
-        if (task.projectId !== project.id) {
+        if (task.projectId !== projectId) {
           return task;
         }
         if (task.id === taskId) {
@@ -969,6 +1024,9 @@ export function App() {
     setReviewError(null);
     setPortableError(null);
     setScreen(nextScreen);
+    if (nextScreen === "utilities") {
+      void refreshProjectDiagnostics();
+    }
   }
 
   function archivePlan(planId: string) {
@@ -1117,15 +1175,19 @@ export function App() {
   }
 
   async function changeTaskStatus(taskId: string, status: TaskStatus) {
+    const projectId = project?.id;
+    if (!projectId) {
+      return;
+    }
+
     const revision = projectContextRevision.current;
     await api.updateTaskStatus(taskId, status);
+    markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision)) {
       return;
     }
-    if (project) {
-      if (!(await refreshProjectData(project.id, revision))) {
-        return;
-      }
+    if (!(await refreshProjectData(projectId, revision))) {
+      return;
     }
     if (selectedTaskId === taskId) {
       await loadTaskContext(taskId, revision);
@@ -1133,8 +1195,14 @@ export function App() {
   }
 
   async function toggleChecklistItem(itemId: string, completed: boolean) {
+    const projectId = project?.id;
+    if (!projectId) {
+      return;
+    }
+
     const revision = projectContextRevision.current;
     await api.updateChecklistItem(itemId, completed);
+    markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision)) {
       return;
     }
@@ -1151,8 +1219,10 @@ export function App() {
       return;
     }
 
+    const projectId = project.id;
     const revision = projectContextRevision.current;
-    const note = await api.addNote(project.id, taskId, body);
+    const note = await api.addNote(projectId, taskId, body);
+    markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision)) {
       return;
     }
@@ -1160,8 +1230,14 @@ export function App() {
   }
 
   async function saveNextStep(taskId: string, nextStep: string) {
+    const projectId = project?.id;
+    if (!projectId) {
+      return;
+    }
+
     const revision = projectContextRevision.current;
     await api.updateNextStep(taskId, nextStep);
+    markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision)) {
       return;
     }
@@ -1175,10 +1251,16 @@ export function App() {
   }
 
   async function unlinkCommit(commitSha: string, taskId: string) {
+    const projectId = project?.id;
+    if (!projectId) {
+      return;
+    }
+
     const revision = projectContextRevision.current;
     const isRelevant = () =>
       screenRef.current === "task-detail" && selectedTaskIdRef.current === taskId;
     await api.unlinkCommit(commitSha, taskId);
+    markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision) || !isRelevant()) {
       return;
     }
@@ -1186,10 +1268,16 @@ export function App() {
   }
 
   async function moveCommit(commitSha: string, fromTaskId: string, toTaskId: string) {
+    const projectId = project?.id;
+    if (!projectId) {
+      return;
+    }
+
     const revision = projectContextRevision.current;
     const isRelevant = () =>
       screenRef.current === "task-detail" && selectedTaskIdRef.current === fromTaskId;
     await api.moveCommitLink(commitSha, fromTaskId, toTaskId);
+    markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision) || !isRelevant()) {
       return;
     }
@@ -1237,10 +1325,11 @@ export function App() {
       return;
     }
 
+    const projectId = project.id;
     const revision = projectContextRevision.current;
     const operationRevision = invalidateCaptureOperations();
     const item = await api.captureInboxItem({
-      projectId: project.id,
+      projectId,
       body: input.body,
       kind: input.kind
     });
@@ -1248,6 +1337,7 @@ export function App() {
       !isCurrentProjectContext(revision) ||
       captureOperationRevision.current !== operationRevision
     ) {
+      markProjectRecentlyChanged(projectId);
       return;
     }
     let savedItem = item;
@@ -1261,6 +1351,7 @@ export function App() {
         try {
           await api.deleteInboxItem(item.id);
         } catch {
+          markProjectRecentlyChanged(projectId);
           if (
             !isCurrentProjectContext(revision) ||
             captureOperationRevision.current !== operationRevision
@@ -1307,6 +1398,7 @@ export function App() {
         throw attachError;
       }
     }
+    markProjectRecentlyChanged(projectId);
     if (
       !isCurrentProjectContext(revision) ||
       captureOperationRevision.current !== operationRevision
@@ -1318,7 +1410,7 @@ export function App() {
       setSelectedInboxItems((items) => {
         const nextItems = items.filter((candidate) => candidate.id !== savedItem.id);
         const belongsInRail =
-          savedItem.projectId === project.id &&
+          savedItem.projectId === projectId &&
           (savedItem.taskId === currentSelectedTaskId || savedItem.taskId === null);
         return belongsInRail ? [...nextItems, savedItem] : nextItems;
       });
@@ -1345,11 +1437,12 @@ export function App() {
       return;
     }
 
+    const projectId = project.id;
     const revision = projectContextRevision.current;
     const focusTaskId = focusSession.taskId;
     const endedAtMs = focusSession.endedAtMs ?? Date.now();
     const workEntry = await api.createWorkEntry({
-      projectId: project.id,
+      projectId,
       taskId: focusTaskId,
       source: "focus",
       startedAt: new Date(focusSession.startedAtMs).toISOString(),
@@ -1360,6 +1453,7 @@ export function App() {
       nextStep: input.nextStep
     });
 
+    markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision)) {
       return;
     }
@@ -1383,11 +1477,12 @@ export function App() {
       return;
     }
 
+    const projectId = project.id;
     const revision = projectContextRevision.current;
     const focusTaskId = focusSession.taskId;
     const endedAtMs = focusSession.endedAtMs ?? Date.now();
     const workEntry = await api.createWorkEntry({
-      projectId: project.id,
+      projectId,
       taskId: focusTaskId,
       source: "focus",
       startedAt: new Date(focusSession.startedAtMs).toISOString(),
@@ -1398,6 +1493,7 @@ export function App() {
       nextStep: ""
     });
 
+    markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision)) {
       return;
     }
@@ -1416,10 +1512,11 @@ export function App() {
       return;
     }
 
+    const projectId = project.id;
     const revision = projectContextRevision.current;
     const taskId = manualReviewTaskId;
     await api.createWorkEntry({
-      projectId: project.id,
+      projectId,
       taskId,
       source: "manual",
       startedAt: null,
@@ -1430,10 +1527,11 @@ export function App() {
       nextStep: input.nextStep
     });
 
+    markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision)) {
       return;
     }
-    if (!(await refreshProjectData(project.id, revision))) {
+    if (!(await refreshProjectData(projectId, revision))) {
       return;
     }
     if (taskId) {
@@ -1476,24 +1574,19 @@ export function App() {
     setMarkdownDraft(nextDraft);
     setParsedPlan(null);
     setImportError(null);
-    setTemplateActionStatus(null);
   }
 
   function insertMarkdownExample() {
     updateMarkdownDraft(CANONICAL_MARKDOWN_TEMPLATE);
-    setTemplateActionStatus("Example inserted");
+    showToast("success", "Example inserted", "The plan template is ready to edit.");
   }
 
   async function copyMarkdownTemplate() {
-    try {
-      if (!navigator.clipboard) {
-        throw new Error("Clipboard unavailable");
-      }
-      await navigator.clipboard.writeText(CANONICAL_MARKDOWN_TEMPLATE);
-      setTemplateActionStatus("Template copied to clipboard");
-    } catch {
-      setTemplateActionStatus("Could not copy template");
-    }
+    await copyToClipboard(
+      CANONICAL_MARKDOWN_TEMPLATE,
+      "Template copied",
+      "The plan structure template is in your clipboard."
+    );
   }
 
   async function importMarkdownPlan() {
@@ -1505,12 +1598,14 @@ export function App() {
       return;
     }
 
+    const projectId = project.id;
     const revision = projectContextRevision.current;
     const planTitle = parsedPlan.planTitle ?? nextPlanTitle(projectPlan);
     setImporting(true);
     setImportError(null);
     try {
-      await api.importPlan(project.id, planTitle, parsedPlan.stages);
+      await api.importPlan(projectId, planTitle, parsedPlan.stages);
+      markProjectRecentlyChanged(projectId);
       if (!isCurrentProjectContext(revision)) {
         return;
       }
@@ -1519,12 +1614,11 @@ export function App() {
         return;
       }
       setProjectSummaries(loadedProjectSummaries);
-      if (!(await refreshProjectData(project.id, revision))) {
+      if (!(await refreshProjectData(projectId, revision))) {
         return;
       }
       setMarkdownDraft("");
       setParsedPlan(null);
-      setTemplateActionStatus(null);
       setScreen("plan");
     } catch (error) {
       if (!isCurrentProjectContext(revision)) {
@@ -1534,6 +1628,32 @@ export function App() {
     } finally {
       if (isCurrentProjectContext(revision)) {
         setImporting(false);
+      }
+    }
+  }
+
+  async function refreshProjectDiagnostics() {
+    if (!project) {
+      return;
+    }
+
+    const revision = projectContextRevision.current;
+    setDiagnosticsLoading(true);
+    setDiagnosticsError(null);
+    try {
+      const nextDiagnostics = await api.getProjectDiagnostics(project.id);
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setDiagnostics(nextDiagnostics);
+    } catch {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setDiagnosticsError("Could not read local diagnostics.");
+    } finally {
+      if (isCurrentProjectContext(revision)) {
+        setDiagnosticsLoading(false);
       }
     }
   }
@@ -1554,11 +1674,24 @@ export function App() {
     setPortableError(null);
     setPortableStatus(null);
     try {
-      const exportedPath = await api.exportProjectBundle(project.id, destination);
+      const exported = await api.exportProjectBundle(project.id, destination);
+      markProjectRecentlyChanged(project.id);
       if (!isCurrentProjectContext(revision)) {
         return;
       }
-      setPortableStatus(`Exported portable backup to ${exportedPath}`);
+      setPortableStatus(
+        exported.backupRecorded
+          ? null
+          : "Backup file was saved, but last-backup metadata could not be saved."
+      );
+      showToast(
+        exported.backupRecorded ? "success" : "warning",
+        "Backup saved",
+        exported.backupRecorded
+          ? "A portable .desclop backup and matching README were created."
+          : "The .desclop backup and README were created, but its local backup record needs attention."
+      );
+      void refreshProjectDiagnostics();
     } catch {
       if (!isCurrentProjectContext(revision)) {
         return;
@@ -1567,20 +1700,48 @@ export function App() {
     }
   }
 
-  async function importPortableBundle() {
-    let revision = projectContextRevision.current;
+  async function reviewPortableRestore() {
+    const revision = projectContextRevision.current;
     const source = bundleFolder.trim();
     const localPath = reselectedLocalPath.trim();
     if (!source || !localPath) {
-      setPortableError("Backup folder and local project folder are required.");
+      setPortableError("Backup file and local project folder are required.");
       setPortableStatus(null);
       return;
     }
 
     setPortableError(null);
     setPortableStatus(null);
+    setRestorePreview(null);
     try {
-      const importedProjectId = await api.importProjectBundle(source, localPath);
+      const preview = await api.inspectProjectBundle(source);
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setRestorePreview(preview);
+    } catch {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setPortableError("This backup is not compatible or did not pass integrity checks.");
+    }
+  }
+
+  async function importPortableBundle() {
+    let revision = projectContextRevision.current;
+    const source = bundleFolder.trim();
+    const localPath = reselectedLocalPath.trim();
+    if (!source || !localPath) {
+      setPortableError("Backup file and local project folder are required.");
+      setPortableStatus(null);
+      return;
+    }
+
+    setPortableError(null);
+    setPortableStatus(null);
+    setRestorePreview(null);
+    try {
+      const importedProjectId = await api.importProjectBundle(source, localPath, true);
       if (!isCurrentProjectContext(revision)) {
         return;
       }
@@ -1603,8 +1764,11 @@ export function App() {
       if (loadedRevision === null || !isCurrentProjectContext(loadedRevision)) {
         return;
       }
-      setScreen("utilities");
-      setPortableStatus("Imported portable project.");
+      showToast(
+        "success",
+        "Backup restored",
+        "The restored project is open and appears first in the project picker."
+      );
     } catch {
       if (!isCurrentProjectContext(revision)) {
         return;
@@ -1623,6 +1787,7 @@ export function App() {
       if (selected) {
         onSelect(selected);
         setPortableError(null);
+        setRestorePreview(null);
       }
     } catch {
       if (!isCurrentProjectContext(revision)) {
@@ -1636,12 +1801,135 @@ export function App() {
     await choosePortableFolder(setBundleDestination);
   }
 
-  async function chooseBundleFolder() {
+  async function chooseBundleFile() {
+    const revision = projectContextRevision.current;
+    try {
+      const selected = await choosePortableBackupFile();
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      if (selected) {
+        setBundleFolder(selected);
+        setPortableError(null);
+        setRestorePreview(null);
+      }
+    } catch {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setPortableError("Could not open backup file picker.");
+    }
+  }
+
+  async function chooseLegacyBundleFolder() {
     await choosePortableFolder(setBundleFolder);
   }
 
   async function chooseLocalProjectFolder() {
     await choosePortableFolder(setReselectedLocalPath);
+  }
+
+  async function chooseRelinkFolder() {
+    await choosePortableFolder(setRelinkPath);
+  }
+
+  async function confirmRelinkProjectFolder() {
+    if (!project || !relinkPath.trim()) {
+      return;
+    }
+
+    const revision = projectContextRevision.current;
+    setPortableError(null);
+    try {
+      const relinkedProject = await api.relinkProjectFolder(project.id, relinkPath.trim());
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setProjects((currentProjects) => [
+        relinkedProject,
+        ...currentProjects.filter((candidate) => candidate.id !== relinkedProject.id)
+      ]);
+      setRelinkPath("");
+      setPortableStatus(null);
+      showToast(
+        "success",
+        "Project folder reconnected",
+        "Planning data was unchanged."
+      );
+      setGitError(null);
+      void refreshProjectDiagnostics();
+    } catch {
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+      setPortableError("Could not reconnect the local project folder.");
+    }
+  }
+
+  async function copyToClipboard(
+    value: string,
+    successTitle: string,
+    successMessage: string
+  ) {
+    try {
+      if (!navigator.clipboard) {
+        throw new Error("Clipboard unavailable");
+      }
+      await navigator.clipboard.writeText(value);
+      showToast("success", successTitle, successMessage);
+    } catch {
+      showToast("error", "Could not copy", "Select the text and copy it manually instead.");
+    }
+  }
+
+  async function copyMarkdown(markdown: string, planTitle: string) {
+    await copyToClipboard(markdown, "Markdown copied", `Copied ${planTitle}.`);
+  }
+
+  async function copySupportDiagnostics() {
+    if (!diagnostics) {
+      return;
+    }
+    await copyToClipboard(
+      JSON.stringify(diagnostics.supportReport, null, 2),
+      "Technical diagnostics copied",
+      "The copy contains local technical state only, not project content."
+    );
+  }
+
+  function leavePortableRestoreSetup() {
+    setPortableError(null);
+    setRestorePreview(null);
+    setBundleFolder("");
+    setReselectedLocalPath("");
+    setSetupMode(projects.length ? "picker" : "create");
+  }
+
+  function renderPortableRestoreSetup() {
+    return (
+      <Surface ariaLabel="Restore a portable backup" className="start-flow">
+        <ScreenHeader
+          title="Restore a backup"
+          description="Bring a saved Desclop project into this local library without creating a blank project first."
+        />
+        <InlineAlert tone="info">
+          Restore creates a separate local project record. It does not overwrite existing projects or source files.
+        </InlineAlert>
+        <PortableRestoreForm
+          idPrefix="setup"
+          backupPath={bundleFolder}
+          localProjectPath={reselectedLocalPath}
+          preview={restorePreview}
+          error={portableError}
+          onChooseBackupFile={() => void chooseBundleFile()}
+          onChooseLegacyBackupFolder={() => void chooseLegacyBundleFolder()}
+          onChooseLocalProjectFolder={() => void chooseLocalProjectFolder()}
+          onReview={() => void reviewPortableRestore()}
+          onConfirm={() => void importPortableBundle()}
+          onCancel={() => setRestorePreview(null)}
+        />
+      </Surface>
+    );
   }
 
   function renderSettingsScreen() {
@@ -1799,16 +2087,6 @@ export function App() {
               </div>
             </details>
           </div>
-          {templateActionStatus ? (
-            <p
-              key={templateActionStatus}
-              className="markdown-import__feedback"
-              role="status"
-              aria-live="polite"
-            >
-              {templateActionStatus}
-            </p>
-          ) : null}
           <MarkdownImportPreview
             parsed={parsedPlan}
             fallbackPlanTitle={nextPlanTitle(projectPlan)}
@@ -1859,18 +2137,32 @@ export function App() {
           projectPath={project.localPath}
           gitEnabled={project.gitEnabled}
           gitHealth={gitError}
-          markdownExport={markdownExport}
+          markdownExports={markdownExports}
           bundleDestination={bundleDestination}
           bundleFolder={bundleFolder}
           reselectedLocalPath={reselectedLocalPath}
           portableStatus={portableStatus}
           portableError={portableError}
+          restorePreview={restorePreview}
+          diagnostics={diagnostics}
+          diagnosticsLoading={diagnosticsLoading}
+          diagnosticsError={diagnosticsError}
+          relinkPath={relinkPath}
           onOpenImport={() => setScreen("import")}
           onChooseBundleDestination={() => void chooseBundleDestination()}
-          onChooseBundleFolder={() => void chooseBundleFolder()}
+          onChooseBundleFile={() => void chooseBundleFile()}
+          onChooseLegacyBundleFolder={() => void chooseLegacyBundleFolder()}
           onChooseLocalProjectFolder={() => void chooseLocalProjectFolder()}
+          onChooseRelinkFolder={() => void chooseRelinkFolder()}
           onExportPortableBundle={() => void exportPortableBundle()}
-          onImportPortableBundle={() => void importPortableBundle()}
+          onReviewPortableRestore={() => void reviewPortableRestore()}
+          onConfirmPortableRestore={() => void importPortableBundle()}
+          onCancelPortableRestore={() => setRestorePreview(null)}
+          onRefreshDiagnostics={() => void refreshProjectDiagnostics()}
+          onCopySupportDiagnostics={() => void copySupportDiagnostics()}
+          onCopyMarkdown={(markdown, planTitle) => void copyMarkdown(markdown, planTitle)}
+          onConfirmRelink={() => void confirmRelinkProjectFolder()}
+          onCancelRelink={() => setRelinkPath("")}
         />
       );
     }
@@ -1971,6 +2263,32 @@ export function App() {
     );
   }
 
+  if (databaseStatus?.state === "recovery_required") {
+    return (
+      <AppShell activeDestination="setup">
+        <Surface ariaLabel="Database recovery required" className="start-flow">
+          <ScreenHeader
+            title="Database recovery required"
+            descriptionKind="status"
+            description="Desclop did not replace or initialize a blank database over your existing data."
+          />
+          <InlineAlert tone="error">
+            {databaseStatus.nextStep ?? "Quit Desclop and recover from a known local SQLite snapshot."}
+          </InlineAlert>
+          <p className="ui-help-text">Recovery code: {databaseStatus.recoveryCode ?? "unknown"}</p>
+          {databaseStatus.recoveryBackupPath ? (
+            <p className="ui-help-text">
+              Local recovery snapshot: <code>{databaseStatus.recoveryBackupPath}</code>
+            </p>
+          ) : null}
+          <Button type="button" onClick={() => void loadProjects()}>
+            Check database again
+          </Button>
+        </Surface>
+      </AppShell>
+    );
+  }
+
   if (loadError) {
     return (
       <AppShell activeDestination="setup">
@@ -2005,15 +2323,29 @@ export function App() {
     }
 
     return (
-      <AppShell activeDestination="setup" onNavigate={handleNavigate} onOpenHelp={openHelp}>
-        <ProjectSetup
-          creating={creating}
-          error={createError}
-          onChooseFolder={chooseFolder}
-          onValidateFolder={api.inspectProjectFolder}
-          onOpenHelp={openHelp}
-          onCreate={createProject}
-        />
+      <AppShell
+        activeDestination="setup"
+        onNavigate={handleNavigate}
+        onOpenHelp={openHelp}
+        onBackToProjects={setupMode === "restore" ? leavePortableRestoreSetup : undefined}
+      >
+        {setupMode === "restore" ? (
+          renderPortableRestoreSetup()
+        ) : (
+          <ProjectSetup
+            creating={creating}
+            error={createError}
+            onChooseFolder={chooseFolder}
+            onValidateFolder={api.inspectProjectFolder}
+            onOpenHelp={openHelp}
+            onCreate={createProject}
+            onRestoreBackup={() => {
+              setCreateError(null);
+              setPortableError(null);
+              setSetupMode("restore");
+            }}
+          />
+        )}
         <FirstRunHelp open={helpOpen} onOpenChange={setHelpOpen} />
       </AppShell>
     );
@@ -2041,15 +2373,21 @@ export function App() {
         onNavigate={handleNavigate}
         onOpenHelp={openHelp}
         onBackToProjects={
-          setupMode === "create"
+          setupMode === "create" || setupMode === "restore"
             ? () => {
-                setCreateError(null);
-                setSetupMode("picker");
+                if (setupMode === "restore") {
+                  leavePortableRestoreSetup();
+                } else {
+                  setCreateError(null);
+                  setSetupMode("picker");
+                }
               }
             : undefined
         }
       >
-        {setupMode === "create" ? (
+        {setupMode === "restore" ? (
+          renderPortableRestoreSetup()
+        ) : setupMode === "create" ? (
           <ProjectSetup
             creating={creating}
             error={createError}
@@ -2057,6 +2395,11 @@ export function App() {
             onValidateFolder={api.inspectProjectFolder}
             onOpenHelp={openHelp}
             onCreate={createProject}
+            onRestoreBackup={() => {
+              setCreateError(null);
+              setPortableError(null);
+              setSetupMode("restore");
+            }}
           />
         ) : (
           <>
@@ -2077,6 +2420,10 @@ export function App() {
               onCreateProject={() => {
                 setCreateError(null);
                 setSetupMode("create");
+              }}
+              onRestoreBackup={() => {
+                setPortableError(null);
+                setSetupMode("restore");
               }}
             />
           </>
@@ -2102,12 +2449,25 @@ export function App() {
           {resumeError}
         </InlineAlert>
       ) : null}
-      {gitError && !gitErrorDismissed ? (
-        <Toast
-          title="Git unavailable"
-          message="No repository was found in this folder. Desclop still works without Git."
-          onClose={() => setGitErrorDismissed(true)}
-        />
+      {toast || (gitError && !gitErrorDismissed) ? (
+        <div className="ui-toast-stack" aria-label="Notifications">
+          {toast ? (
+            <Toast
+              key={toast.id}
+              title={toast.title}
+              message={toast.message}
+              tone={toast.tone}
+              onClose={() => setToast(null)}
+            />
+          ) : null}
+          {gitError && !gitErrorDismissed ? (
+            <Toast
+              title="Git unavailable"
+              message="No repository was found in this folder. Desclop still works without Git."
+              onClose={() => setGitErrorDismissed(true)}
+            />
+          ) : null}
+        </div>
       ) : null}
       {timelineError ? <InlineAlert tone="error">{timelineError}</InlineAlert> : null}
       {captureStatus ? <InlineAlert tone="info">{captureStatus}</InlineAlert> : null}

@@ -19,6 +19,7 @@ interface ProjectSetupProps {
   onChooseFolder?: () => Promise<string | null>;
   onValidateFolder?: (localPath: string) => Promise<ProjectFolderInspection>;
   onOpenHelp?: () => void;
+  onRestoreBackup?: () => void;
   creating?: boolean;
   error?: string | null;
 }
@@ -28,6 +29,7 @@ export function ProjectSetup({
   onChooseFolder,
   onValidateFolder,
   onOpenHelp,
+  onRestoreBackup,
   creating = false,
   error
 }: ProjectSetupProps) {
@@ -248,6 +250,11 @@ export function ProjectSetup({
         <Button type="submit" disabled={creating || validatingFolder}>
           {creating ? "Creating project" : "Create project"}
         </Button>
+        {onRestoreBackup ? (
+          <Button type="button" variant="secondary" disabled={creating} onClick={onRestoreBackup}>
+            Restore a backup
+          </Button>
+        ) : null}
       </form>
     </Surface>
   );

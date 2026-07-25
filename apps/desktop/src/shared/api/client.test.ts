@@ -33,6 +33,31 @@ describe("api", () => {
     });
   });
 
+  it("invokes data-safety commands with their explicit restore confirmation", async () => {
+    await api.getDatabaseStatus();
+    await api.getProjectDiagnostics("project-123");
+    await api.relinkProjectFolder("project-123", "/tmp/relinked");
+    await api.inspectProjectBundle("/tmp/backup.desclop");
+    await api.importProjectBundle("/tmp/backup.desclop", "/tmp/relinked", true);
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "get_database_status");
+    expect(invoke).toHaveBeenNthCalledWith(2, "get_project_diagnostics", {
+      projectId: "project-123"
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, "relink_project_folder", {
+      projectId: "project-123",
+      localPath: "/tmp/relinked"
+    });
+    expect(invoke).toHaveBeenNthCalledWith(4, "inspect_project_bundle", {
+      bundleFolder: "/tmp/backup.desclop"
+    });
+    expect(invoke).toHaveBeenNthCalledWith(5, "import_project_bundle", {
+      bundleFolder: "/tmp/backup.desclop",
+      reselectedLocalPath: "/tmp/relinked",
+      confirmed: true
+    });
+  });
+
   it("invokes native desktop settings commands", async () => {
     await api.setCloseBehavior("quit");
     await api.setCaptureShortcut("F8");

@@ -77,7 +77,15 @@ pub fn sync_commits(
                  when excluded.changed_files_json = '[]' and commits.changed_files_json != '[]'
                  then commits.changed_files_json
                  else excluded.changed_files_json
-               end",
+               end
+             where commits.message is not excluded.message
+                or commits.author_name is not excluded.author_name
+                or commits.committed_at is not excluded.committed_at
+                or (case
+                      when excluded.changed_files_json = '[]' and commits.changed_files_json != '[]'
+                      then commits.changed_files_json
+                      else excluded.changed_files_json
+                    end) is not commits.changed_files_json",
             params![
                 &commit.sha,
                 project_id,
@@ -489,6 +497,32 @@ mod tests {
             .expect("stored changed files");
         assert_eq!(stored_changed_files_json, "[\"src/main.ts\"]");
         assert_eq!(synced[0].changed_files, vec!["src/main.ts".to_string()]);
+    }
+
+    #[test]
+    fn syncing_unchanged_commits_does_not_make_a_project_look_recently_modified() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let (project_id, _focused_task_id, _active_task_id) = seed_project_with_tasks(&mut conn);
+        let commit = commit("abc123", "2026-05-20T10:10:00Z");
+
+        sync_commits(&conn, &project_id, vec![commit.clone()]).expect("initial sync");
+        conn.execute(
+            "update projects set updated_at = '2000-01-01T00:00:00Z' where id = ?1",
+            params![project_id],
+        )
+        .expect("set known project timestamp");
+
+        sync_commits(&conn, &project_id, vec![commit]).expect("unchanged sync");
+
+        let updated_at: String = conn
+            .query_row(
+                "select updated_at from projects where id = ?1",
+                params![project_id],
+                |row| row.get(0),
+            )
+            .expect("project timestamp");
+        assert_eq!(updated_at, "2000-01-01T00:00:00Z");
     }
 
     #[test]

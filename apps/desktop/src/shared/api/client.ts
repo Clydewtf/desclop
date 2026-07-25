@@ -80,6 +80,76 @@ export interface SetEntitlementInput {
   offlineGraceEndsAt: string | null;
 }
 
+export interface DatabaseRuntimeStatus {
+  state: "ready" | "recovery_required";
+  schemaVersion: number | null;
+  targetSchemaVersion: number;
+  integrity: "ok" | "failed" | "unavailable" | "recovery_required";
+  recoveryCode: string | null;
+  recoveryBackupPath: string | null;
+  nextStep: string | null;
+}
+
+export interface GitDiagnostics {
+  configured: boolean;
+  repositoryDetected: boolean | null;
+}
+
+export interface DatabaseDiagnostics {
+  state: string;
+  schemaVersion: number | null;
+  targetSchemaVersion: number;
+  integrity: string;
+}
+
+export interface LastBackupDiagnostics {
+  state: "none" | "available" | "missing" | "metadata_unavailable";
+  kind: string | null;
+  createdAt: string | null;
+  formatVersion: number | null;
+  schemaVersion: number | null;
+}
+
+export interface SupportDiagnostics {
+  diagnosticFormatVersion: number;
+  appVersion: string;
+  folderState: string;
+  git: GitDiagnostics;
+  database: DatabaseDiagnostics;
+  lastBackup: LastBackupDiagnostics;
+  relinkAvailable: boolean;
+}
+
+export interface ProjectDiagnostics {
+  appVersion: string;
+  projectPath: string;
+  folderState: string;
+  git: GitDiagnostics;
+  database: DatabaseDiagnostics;
+  lastBackup: LastBackupDiagnostics;
+  relinkAvailable: boolean;
+  supportReport: SupportDiagnostics;
+}
+
+export interface PortableBackupExportResult {
+  path: string;
+  exportedAt: string;
+  formatVersion: number;
+  backupRecorded: boolean;
+}
+
+export interface PortableBundlePreview {
+  formatVersion: number;
+  compatibility: "current" | "legacy_v1";
+  projectName: string;
+  planCount: number;
+  stageCount: number;
+  taskCount: number;
+  checklistItemCount: number;
+  noteCount: number;
+  workEntryCount: number;
+}
+
 export const api = {
   listProjects: () => invoke<Project[]>("list_projects"),
   listProjectSummaries: () =>
@@ -90,6 +160,11 @@ export const api = {
     invoke<Project>("create_project", { input }),
   deleteProject: (projectId: string) =>
     invoke<void>("delete_project", { projectId }),
+  relinkProjectFolder: (projectId: string, localPath: string) =>
+    invoke<Project>("relink_project_folder", { projectId, localPath }),
+  getDatabaseStatus: () => invoke<DatabaseRuntimeStatus>("get_database_status"),
+  getProjectDiagnostics: (projectId: string) =>
+    invoke<ProjectDiagnostics>("get_project_diagnostics", { projectId }),
   loadProjectPlan: (projectId: string) =>
     invoke<ProjectPlanPayload>("load_project_plan", { projectId }),
   importPlan: (projectId: string, title: string | null, stages: ParsedStage[]) =>
@@ -151,7 +226,12 @@ export const api = {
   unlinkCommit: (commitSha: string, taskId: string) =>
     invoke<void>("unlink_commit", { commitSha, taskId }),
   exportProjectBundle: (projectId: string, destinationFolder: string) =>
-    invoke<string>("export_project_bundle", { projectId, destinationFolder }),
-  importProjectBundle: (bundleFolder: string, reselectedLocalPath: string) =>
-    invoke<string>("import_project_bundle", { bundleFolder, reselectedLocalPath })
+    invoke<PortableBackupExportResult>("export_project_bundle", { projectId, destinationFolder }),
+  inspectProjectBundle: (bundleFolder: string) =>
+    invoke<PortableBundlePreview>("inspect_project_bundle", { bundleFolder }),
+  importProjectBundle: (
+    bundleFolder: string,
+    reselectedLocalPath: string,
+    confirmed: boolean
+  ) => invoke<string>("import_project_bundle", { bundleFolder, reselectedLocalPath, confirmed })
 };

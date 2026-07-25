@@ -14,6 +14,7 @@ interface ProjectPickerProps {
   homePath?: string;
   onOpenProject: (project: Project) => void | Promise<void>;
   onCreateProject: () => void;
+  onRestoreBackup?: () => void;
   onDeleteProject?: (project: Project) => void | Promise<void>;
   onDeleteDialogChange?: (projectId: string | null) => void;
   deletingProjectId?: string | null;
@@ -26,6 +27,7 @@ export function ProjectPicker({
   homePath = "",
   onOpenProject,
   onCreateProject,
+  onRestoreBackup,
   onDeleteProject,
   onDeleteDialogChange,
   deletingProjectId = null,
@@ -143,7 +145,7 @@ export function ProjectPicker({
     <Surface ariaLabel="Saved projects" className="start-flow project-picker">
       <ScreenHeader
         title="Open a project"
-        description="Choose a saved local project or create a new one."
+        description="Choose a saved local project, create a new one, or restore a backup."
       />
       <div ref={projectListRef} className="project-picker__list">
         {projects.map((project, projectIndex) => {
@@ -195,9 +197,16 @@ export function ProjectPicker({
           );
         })}
       </div>
-      <Button type="button" data-project-action="create" onClick={onCreateProject}>
-        Create new project
-      </Button>
+      <div className="project-picker__new-actions">
+        <Button type="button" data-project-action="create" onClick={onCreateProject}>
+          Create new project
+        </Button>
+        {onRestoreBackup ? (
+          <Button type="button" variant="secondary" onClick={onRestoreBackup}>
+            Restore a backup
+          </Button>
+        ) : null}
+      </div>
       {projectToDelete && onDeleteProject ? (
         <div className="project-picker__dialog-backdrop">
           <div

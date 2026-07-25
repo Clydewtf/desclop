@@ -8,4 +8,4 @@ export { ScreenHeader } from "./ScreenHeader";
 export { SectionHeader } from "./SectionHeader";
 export { ActionBar } from "./ActionBar";
 export { QuickCapture, alphaCaptureOptions } from "./QuickCapture";
-export { Toast } from "./Toast";
+export { Toast, type ToastTone } from "./Toast";

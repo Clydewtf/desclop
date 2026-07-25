@@ -129,6 +129,35 @@ impl<'a> ProjectRepository<'a> {
         )
     }
 
+    pub fn update_local_path(
+        &self,
+        project_id: &str,
+        local_path: String,
+    ) -> rusqlite::Result<Project> {
+        let updated = self.conn.execute(
+            "update projects
+             set local_path = ?1,
+                 updated_at = ?2
+             where id = ?3",
+            params![local_path, Utc::now().to_rfc3339(), project_id],
+        )?;
+        if updated == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        self.get_project(project_id)
+    }
+
+    pub fn touch_project(&self, project_id: &str) -> rusqlite::Result<()> {
+        let updated = self.conn.execute(
+            "update projects set updated_at = ?1 where id = ?2",
+            params![Utc::now().to_rfc3339(), project_id],
+        )?;
+        if updated == 0 {
+            return Err(rusqlite::Error::QueryReturnedNoRows);
+        }
+        Ok(())
+    }
+
     pub fn delete_project(&self, project_id: &str) -> rusqlite::Result<()> {
         let deleted = self
             .conn
@@ -252,6 +281,35 @@ mod tests {
         assert!(!created.git_enabled);
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].id, created.id);
+    }
+
+    #[test]
+    fn list_projects_orders_by_latest_workflow_activity() {
+        let conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let repo = ProjectRepository::new(&conn);
+        let first = repo
+            .create_project("First".to_string(), "/tmp/first".to_string(), false)
+            .expect("first project");
+        let second = repo
+            .create_project("Second".to_string(), "/tmp/second".to_string(), false)
+            .expect("second project");
+        conn.execute(
+            "update projects set updated_at = '2000-01-01T00:00:00Z' where id in (?1, ?2)",
+            params![first.id, second.id],
+        )
+        .expect("set old timestamps");
+        conn.execute(
+            "insert into stages (id, project_id, title, position, status, created_at, updated_at)
+             values ('active-stage', ?1, 'Active stage', 0, 'current', 'now', 'now')",
+            params![first.id],
+        )
+        .expect("workflow activity");
+
+        let projects = repo.list_projects().expect("ordered projects");
+
+        assert_eq!(projects[0].id, first.id);
+        assert_eq!(projects[1].id, second.id);
     }
 
     #[test]
@@ -465,6 +523,27 @@ mod tests {
         assert_eq!(loaded.local_path, "/tmp/desclop");
         assert!(loaded.git_enabled);
         assert!(repo.get_project("missing-project").is_err());
+    }
+
+    #[test]
+    fn updating_the_local_path_preserves_project_working_memory() {
+        let conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let repo = ProjectRepository::new(&conn);
+        let project = repo
+            .create_project("Desclop".to_string(), "/tmp/old-path".to_string(), true)
+            .expect("create project");
+        insert_related_rows(&conn, &project.id, "relink");
+
+        let relinked = repo
+            .update_local_path(&project.id, "/tmp/new-path".to_string())
+            .expect("update local path");
+
+        assert_eq!(relinked.id, project.id);
+        assert_eq!(relinked.name, project.name);
+        assert_eq!(relinked.local_path, "/tmp/new-path");
+        assert!(relinked.git_enabled);
+        assert_project_row_counts(&conn, &project.id, 1);
     }
 
     #[test]

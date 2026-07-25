@@ -1,6 +1,6 @@
 [package]
 name = "desclop-desktop"
-version = "0.1.0-alpha.4"
+version = "0.1.0-beta.1"
 description = "Desclop desktop app"
 authors = ["Desclop"]
 license = ""
@@ -19,7 +19,7 @@ tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-window-state = "2"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -27,3 +27,4 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 git2 = "0.19"
 tauri-plugin-dialog = "2"
+zip = { version = "2.2.3", default-features = false, features = ["deflate"] }

@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "./test-utils";
 import { App } from "./App";
 import { api } from "../shared/api/client";
-import { chooseFolder } from "../shared/api/folderDialog";
+import { chooseFolder, choosePortableBackupFile } from "../shared/api/folderDialog";
 import type { ResumeBrief } from "../shared/domain/types";
 import { SETTINGS_SCHEMA_VERSION, SETTINGS_STORAGE_KEY } from "../features/settings/settings";
 import { LAST_PROJECT_STORAGE_KEY } from "../features/project-setup/projectSelection";
@@ -33,6 +33,9 @@ vi.mock("../shared/api/client", () => ({
     inspectProjectFolder: vi.fn(),
     createProject: vi.fn(),
     deleteProject: vi.fn(),
+    relinkProjectFolder: vi.fn(),
+    getDatabaseStatus: vi.fn(),
+    getProjectDiagnostics: vi.fn(),
     getResumeBrief: vi.fn(),
     loadProjectPlan: vi.fn(),
     importPlan: vi.fn(),
@@ -58,6 +61,7 @@ vi.mock("../shared/api/client", () => ({
     moveCommitLink: vi.fn(),
     unlinkCommit: vi.fn(),
     exportProjectBundle: vi.fn(),
+    inspectProjectBundle: vi.fn(),
     importProjectBundle: vi.fn(),
     setCloseBehavior: vi.fn(),
     setCaptureShortcut: vi.fn(),
@@ -66,7 +70,8 @@ vi.mock("../shared/api/client", () => ({
 }));
 
 vi.mock("../shared/api/folderDialog", () => ({
-  chooseFolder: vi.fn()
+  chooseFolder: vi.fn(),
+  choosePortableBackupFile: vi.fn()
 }));
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -78,6 +83,9 @@ const listProjectSummaries = vi.mocked(api.listProjectSummaries);
 const inspectProjectFolder = vi.mocked(api.inspectProjectFolder);
 const createProject = vi.mocked(api.createProject);
 const deleteProject = vi.mocked(api.deleteProject);
+const relinkProjectFolder = vi.mocked(api.relinkProjectFolder);
+const getDatabaseStatus = vi.mocked(api.getDatabaseStatus);
+const getProjectDiagnostics = vi.mocked(api.getProjectDiagnostics);
 const getResumeBrief = vi.mocked(api.getResumeBrief);
 const loadProjectPlan = vi.mocked(api.loadProjectPlan);
 const importPlan = vi.mocked(api.importPlan);
@@ -101,8 +109,10 @@ const listLinkedCommitsForTask = vi.mocked(api.listLinkedCommitsForTask);
 const moveCommitLink = vi.mocked(api.moveCommitLink);
 const unlinkCommit = vi.mocked(api.unlinkCommit);
 const exportProjectBundle = vi.mocked(api.exportProjectBundle);
+const inspectProjectBundle = vi.mocked(api.inspectProjectBundle);
 const importProjectBundle = vi.mocked(api.importProjectBundle);
 const chooseFolderMock = vi.mocked(chooseFolder);
+const choosePortableBackupFileMock = vi.mocked(choosePortableBackupFile);
 const FIRST_RUN_HELP_STORAGE_KEY = "desclop.first-run-help.dismissed";
 const onboardingStorage = new Map<string, string>();
 
@@ -160,6 +170,29 @@ function emptyResumeBrief(projectId = "p1"): ResumeBrief {
     nextStep: "",
     facts: [],
     generatedAt: "2026-05-20T10:00:00Z"
+  };
+}
+
+function portableExportResult(path: string) {
+  return {
+    path,
+    exportedAt: "2026-07-25T10:00:00Z",
+    formatVersion: 2,
+    backupRecorded: true
+  };
+}
+
+function portableBundlePreview() {
+  return {
+    formatVersion: 2,
+    compatibility: "current" as const,
+    projectName: "Imported Project",
+    planCount: 1,
+    stageCount: 1,
+    taskCount: 1,
+    checklistItemCount: 1,
+    noteCount: 1,
+    workEntryCount: 1
   };
 }
 
@@ -331,6 +364,34 @@ beforeEach(() => {
   onboardingStorage.clear();
   window.localStorage.removeItem(FIRST_RUN_HELP_STORAGE_KEY);
   listProjectSummaries.mockResolvedValue([]);
+  getDatabaseStatus.mockResolvedValue({
+    state: "ready",
+    schemaVersion: 3,
+    targetSchemaVersion: 3,
+    integrity: "ok",
+    recoveryCode: null,
+    recoveryBackupPath: null,
+    nextStep: null
+  });
+  getProjectDiagnostics.mockResolvedValue({
+    appVersion: "0.1.0-beta.1",
+    projectPath: "/tmp/desclop",
+    folderState: "available",
+    git: { configured: false, repositoryDetected: false },
+    database: { state: "ready", schemaVersion: 3, targetSchemaVersion: 3, integrity: "ok" },
+    lastBackup: { state: "none", kind: null, createdAt: null, formatVersion: null, schemaVersion: null },
+    relinkAvailable: true,
+    supportReport: {
+      diagnosticFormatVersion: 1,
+      appVersion: "0.1.0-beta.1",
+      folderState: "available",
+      git: { configured: false, repositoryDetected: false },
+      database: { state: "ready", schemaVersion: 3, targetSchemaVersion: 3, integrity: "ok" },
+      lastBackup: { state: "none", kind: null, createdAt: null, formatVersion: null, schemaVersion: null },
+      relinkAvailable: true
+    }
+  });
+  inspectProjectBundle.mockResolvedValue(portableBundlePreview());
   inspectProjectFolder.mockResolvedValue({ gitRepository: false });
   readCurrentGitBranch.mockResolvedValue(null);
 });
@@ -341,6 +402,7 @@ afterEach(() => {
   vi.useRealTimers();
   tauriEventMock.listeners.clear();
   chooseFolderMock.mockReset();
+  choosePortableBackupFileMock.mockReset();
   vi.clearAllMocks();
   Reflect.deleteProperty(navigator, "clipboard");
   delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
@@ -377,7 +439,7 @@ describe("App", () => {
 
   it("renders a calm loading state inside the shell", () => {
     enableTauriApi();
-    listProjects.mockReturnValue(new Promise(() => {}));
+    getDatabaseStatus.mockReturnValue(new Promise(() => {}));
 
     renderWithRouter(<App />);
 
@@ -393,6 +455,29 @@ describe("App", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Could not load projects.");
     expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "Create project" })).not.toBeInTheDocument();
+  });
+
+  it("stops normal data loading and shows the local recovery route for a protected database", async () => {
+    enableTauriApi();
+    getDatabaseStatus.mockResolvedValue({
+      state: "recovery_required",
+      schemaVersion: 1,
+      targetSchemaVersion: 3,
+      integrity: "recovery_required",
+      recoveryCode: "migration_failed",
+      recoveryBackupPath: "/tmp/desclop-backups/migration-v1.sqlite3",
+      nextStep: "Restore the local SQLite snapshot before reopening."
+    });
+
+    renderWithRouter(<App />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Database recovery required" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("Restore the local SQLite snapshot before reopening.")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/desclop-backups/migration-v1.sqlite3")).toBeInTheDocument();
+    expect(listProjects).not.toHaveBeenCalled();
     expect(screen.queryByRole("button", { name: "Create project" })).not.toBeInTheDocument();
   });
 
@@ -1457,11 +1542,16 @@ describe("App", () => {
     expect((screen.getByLabelText("Markdown plan") as HTMLTextAreaElement).value).toContain(
       "## Этап 1 — Основа"
     );
+    expect(screen.getByRole("status")).toHaveClass("ui-toast", "ui-toast--success");
     expect(screen.getByRole("status")).toHaveTextContent("Example inserted");
+    expect(screen.getByRole("status")).toHaveTextContent("The plan template is ready to edit.");
 
     await user.click(screen.getByRole("button", { name: "Copy template" }));
     expect(writeText).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("status")).toHaveTextContent("Template copied to clipboard");
+    expect(screen.getByRole("status")).toHaveTextContent("Template copied");
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "The plan structure template is in your clipboard."
+    );
 
     await user.click(screen.getByRole("button", { name: "Preview import" }));
     await waitFor(() =>
@@ -4016,19 +4106,73 @@ describe("App", () => {
     loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
     chooseFolderMock
       .mockResolvedValueOnce("/tmp/backups")
-      .mockResolvedValueOnce("/tmp/backups/desclop")
       .mockResolvedValueOnce("/tmp/desclop");
+    choosePortableBackupFileMock.mockResolvedValue("/tmp/backups/desclop.desclop");
 
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Backups" }));
     await user.click(screen.getByRole("button", { name: "Choose destination folder" }));
-    await user.click(screen.getByRole("button", { name: "Choose backup folder" }));
+    await user.click(screen.getByRole("button", { name: "Choose backup file" }));
     await user.click(screen.getByRole("button", { name: "Choose local project folder" }));
 
     expect(screen.getByLabelText("Destination folder")).toHaveValue("/tmp/backups");
-    expect(screen.getByLabelText("Backup folder")).toHaveValue("/tmp/backups/desclop");
+    expect(screen.getByLabelText("Backup file")).toHaveValue("/tmp/backups/desclop.desclop");
     expect(screen.getByLabelText("Local project folder")).toHaveValue("/tmp/desclop");
+  });
+
+  it("restores a backup from first run without creating a blank project", async () => {
+    const user = userEvent.setup();
+    const restoredProject = projectFixture({
+      id: "restored-project",
+      name: "Restored project",
+      localPath: "/tmp/restored-project"
+    });
+    enableTauriApi();
+    listProjects
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([restoredProject]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief("restored-project"));
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("restored-project"));
+    choosePortableBackupFileMock.mockResolvedValue("/tmp/backups/Restored.desclop");
+    chooseFolderMock.mockResolvedValue("/tmp/restored-project");
+    importProjectBundle.mockResolvedValue("restored-project");
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Restore a backup" }));
+    expect(screen.getByRole("heading", { name: "Restore a backup" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Choose backup file" }));
+    await user.click(screen.getByRole("button", { name: "Choose local project folder" }));
+    await user.click(screen.getByRole("button", { name: "Review portable restore" }));
+    await user.click(await screen.findByRole("button", { name: "Confirm restore" }));
+
+    expect(importProjectBundle).toHaveBeenCalledWith(
+      "/tmp/backups/Restored.desclop",
+      "/tmp/restored-project",
+      true
+    );
+    expect(createProject).not.toHaveBeenCalled();
+    expect(await screen.findByText("Backup restored")).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Application" })).toHaveTextContent(
+      "Restored project"
+    );
+  });
+
+  it("offers restore directly from the saved-project picker", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Switch project" }));
+    await user.click(screen.getByRole("button", { name: "Restore a backup" }));
+
+    expect(screen.getByRole("heading", { name: "Restore a backup" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose backup file" })).toBeInTheDocument();
   });
 
   it("ignores a folder selection that finishes after switching projects", async () => {
@@ -4088,8 +4232,36 @@ describe("App", () => {
     expect(screen.getByRole("button", { name: "Export portable backup" })).toBeDisabled();
   });
 
+  it("requires confirmation before relinking a project folder and preserves the project identity", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    chooseFolderMock.mockResolvedValue("/tmp/relinked-project");
+    relinkProjectFolder.mockResolvedValue(
+      projectFixture({ localPath: "/tmp/relinked-project" })
+    );
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Backups" }));
+    await user.click(screen.getByRole("button", { name: "Choose new folder" }));
+
+    expect(
+      await screen.findByRole("dialog", { name: "Confirm project folder relink" })
+    ).toBeInTheDocument();
+    expect(relinkProjectFolder).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Confirm relink" }));
+
+    expect(relinkProjectFolder).toHaveBeenCalledWith("p1", "/tmp/relinked-project");
+    expect(await screen.findByText("Project folder reconnected")).toBeInTheDocument();
+  });
+
   it("exports and imports portable backups with visible feedback", async () => {
     const user = userEvent.setup();
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout");
     const importedProject = projectFixture({
       id: "p2",
       name: "Imported Project",
@@ -4101,12 +4273,12 @@ describe("App", () => {
       .mockResolvedValueOnce([projectFixture(), importedProject]);
     getResumeBrief.mockImplementation(async (projectId) => emptyResumeBrief(projectId));
     loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
-    exportProjectBundle.mockResolvedValue("/tmp/backups/desclop");
+    exportProjectBundle.mockResolvedValue(portableExportResult("/tmp/backups/desclop.desclop"));
     importProjectBundle.mockResolvedValue("p2");
     chooseFolderMock
       .mockResolvedValueOnce("/tmp/backups")
-      .mockResolvedValueOnce("/tmp/backups/desclop")
       .mockResolvedValueOnce("/tmp/desclop");
+    choosePortableBackupFileMock.mockResolvedValue("/tmp/backups/desclop.desclop");
 
     renderWithRouter(<App />);
 
@@ -4120,23 +4292,29 @@ describe("App", () => {
         screen
           .getAllByRole("status")
           .some((status) =>
-            status.textContent?.includes(
-              "Exported portable backup to /tmp/backups/desclop"
-            )
+            status.textContent?.includes("Backup saved")
           )
       ).toBe(true);
     });
+    expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 1500);
+    setTimeoutSpy.mockRestore();
 
-    await user.click(screen.getByRole("button", { name: "Choose backup folder" }));
+    await user.click(screen.getByRole("button", { name: "Choose backup file" }));
     await user.click(screen.getByRole("button", { name: "Choose local project folder" }));
-    await user.click(screen.getByRole("button", { name: "Import portable backup" }));
+    await user.click(screen.getByRole("button", { name: "Review portable restore" }));
+    expect(inspectProjectBundle).toHaveBeenCalledWith("/tmp/backups/desclop.desclop");
+    expect(importProjectBundle).not.toHaveBeenCalled();
+    expect(
+      await screen.findByRole("dialog", { name: "Confirm portable backup restore" })
+    ).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Confirm restore" }));
 
-    expect(importProjectBundle).toHaveBeenCalledWith("/tmp/backups/desclop", "/tmp/desclop");
+    expect(importProjectBundle).toHaveBeenCalledWith("/tmp/backups/desclop.desclop", "/tmp/desclop", true);
     await waitFor(() => {
       expect(
         screen
           .getAllByRole("status")
-          .some((status) => status.textContent?.includes("Imported portable project."))
+          .some((status) => status.textContent?.includes("Backup restored"))
       ).toBe(true);
     });
   });
@@ -4165,19 +4343,25 @@ describe("App", () => {
         tasks: [],
         checklistItems: []
       });
-    exportProjectBundle.mockResolvedValue("/tmp/desclop-bundle/Desclop.desclop");
+    exportProjectBundle.mockResolvedValue(
+      portableExportResult("/tmp/desclop-bundle/Desclop.desclop")
+    );
     importProjectBundle.mockResolvedValue("p2");
     chooseFolderMock
       .mockResolvedValueOnce("/tmp/desclop-bundle")
-      .mockResolvedValueOnce("/tmp/desclop-bundle/Desclop.desclop")
       .mockResolvedValueOnce("/tmp/desclop-imported");
+    choosePortableBackupFileMock.mockResolvedValue("/tmp/desclop-bundle/Desclop.desclop");
 
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Backups" }));
 
     expect(screen.getByRole("heading", { name: "Export / Import" })).toBeInTheDocument();
-    const markdownExport = screen.getByLabelText("Markdown preview") as HTMLTextAreaElement;
+    const markdownExportDetails = screen.getByText("Build MVP").closest("details");
+    expect(markdownExportDetails).not.toHaveAttribute("open");
+    await user.click(screen.getByText("Build MVP"));
+    expect(markdownExportDetails).toHaveAttribute("open");
+    const markdownExport = screen.getByLabelText("Build MVP Markdown preview") as HTMLTextAreaElement;
     expect(markdownExport.value).toContain("## Foundation");
     expect(markdownExport.value).toContain("  - [x] Add migration");
 
@@ -4185,28 +4369,30 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Export portable backup" }));
 
     expect(exportProjectBundle).toHaveBeenCalledWith("p1", "/tmp/desclop-bundle");
+    expect(await screen.findByText("Backup saved")).toBeInTheDocument();
     expect(
-      await screen.findByText(
-        "Exported portable backup to /tmp/desclop-bundle/Desclop.desclop"
-      )
+      screen.getByText("A portable .desclop backup and matching README were created.")
     ).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Choose backup folder" }));
+    await user.click(screen.getByRole("button", { name: "Choose backup file" }));
     await user.click(screen.getByRole("button", { name: "Choose local project folder" }));
-    await user.click(screen.getByRole("button", { name: "Import portable backup" }));
+    await user.click(screen.getByRole("button", { name: "Review portable restore" }));
+    await user.click(await screen.findByRole("button", { name: "Confirm restore" }));
 
     expect(importProjectBundle).toHaveBeenCalledWith(
       "/tmp/desclop-bundle/Desclop.desclop",
-      "/tmp/desclop-imported"
+      "/tmp/desclop-imported",
+      true
     );
-    expect(await screen.findByText("Imported portable project.")).toBeInTheDocument();
+    expect(await screen.findByText("Backup restored")).toBeInTheDocument();
     await waitFor(() => {
       expect(loadProjectPlan).toHaveBeenLastCalledWith("p2");
     });
+    await user.click(screen.getByRole("button", { name: "Backups" }));
     await waitFor(() => {
-      expect((screen.getByLabelText("Markdown preview") as HTMLTextAreaElement).value).toContain(
-        "# Imported Project Plan"
-      );
+      expect(
+        (screen.getByLabelText("Project plan Markdown preview") as HTMLTextAreaElement).value
+      ).toContain("# Imported Project Plan");
     });
   });
 
@@ -4236,19 +4422,21 @@ describe("App", () => {
       })
     );
     chooseFolderMock
-      .mockResolvedValueOnce("/tmp/desclop-bundle/Imported.desclop")
       .mockResolvedValueOnce("/tmp/imported-project");
+    choosePortableBackupFileMock.mockResolvedValue("/tmp/desclop-bundle/Imported.desclop");
 
     renderWithRouter(<App />);
 
     await user.click(await screen.findByRole("button", { name: "Backups" }));
-    await user.click(screen.getByRole("button", { name: "Choose backup folder" }));
+    await user.click(screen.getByRole("button", { name: "Choose backup file" }));
     await user.click(screen.getByRole("button", { name: "Choose local project folder" }));
-    await user.click(screen.getByRole("button", { name: "Import portable backup" }));
+    await user.click(screen.getByRole("button", { name: "Review portable restore" }));
+    await user.click(await screen.findByRole("button", { name: "Confirm restore" }));
     await waitFor(() => {
       expect(importProjectBundle).toHaveBeenCalledWith(
         "/tmp/desclop-bundle/Imported.desclop",
-        "/tmp/imported-project"
+        "/tmp/imported-project",
+        true
       );
     });
 

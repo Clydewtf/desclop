@@ -1,15 +1,27 @@
-import { ChecklistItem, Stage, Task } from "../../shared/domain/types";
+import { ChecklistItem, Plan, Stage, Task } from "../../shared/domain/types";
+
+export interface MarkdownPlanExport {
+  id: string;
+  title: string;
+  markdown: string;
+}
 
 export function exportPlanMarkdown(input: {
   projectName: string;
+  planTitle?: string;
+  planId?: string;
   stages: Stage[];
   tasks: Task[];
   checklistItems: ChecklistItem[];
 }) {
-  const lines = [`# ${oneLine(input.projectName)} Plan`, ""];
+  const heading = input.planTitle
+    ? `# ${oneLine(input.projectName)} — ${oneLine(input.planTitle)}`
+    : `# ${oneLine(input.projectName)} Plan`;
+  const lines = [heading, ""];
 
   input.stages
     .slice()
+    .filter((stage) => !input.planId || stage.planId === input.planId)
     .sort((a, b) => a.position - b.position)
     .forEach((stage) => {
       lines.push(`## ${oneLine(stage.title)}`);
@@ -45,6 +57,36 @@ export function exportPlanMarkdown(input: {
     });
 
   return `${lines.join("\n").trimEnd()}\n`;
+}
+
+export function exportProjectMarkdowns(input: {
+  projectName: string;
+  plans: Plan[];
+  stages: Stage[];
+  tasks: Task[];
+  checklistItems: ChecklistItem[];
+}): MarkdownPlanExport[] {
+  const plans = input.plans.slice().sort((left, right) => left.position - right.position);
+
+  if (!plans.length) {
+    return [
+      {
+        id: "project-plan",
+        title: "Project plan",
+        markdown: exportPlanMarkdown(input)
+      }
+    ];
+  }
+
+  return plans.map((plan) => ({
+    id: plan.id,
+    title: plan.title,
+    markdown: exportPlanMarkdown({
+      ...input,
+      planId: plan.id,
+      planTitle: plan.title
+    })
+  }));
 }
 
 function oneLine(value: string) {
