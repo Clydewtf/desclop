@@ -112,7 +112,7 @@ When a version tag is published, the release workflow builds desktop packages fo
 
 The workflow can also be started manually for a specific release tag and platform.
 
-Use manual `mode=check` with the expected `tag` and a `source_ref` branch/commit to build and verify release bundles without creating or uploading a GitHub Release. Use `mode=publish` only after the three-platform native smoke checklist is signed off. Distribute the private beta feedback guide to testers and ask them to share only the support report, not project files.
+Use manual `mode=check` with the expected `tag` and a `source_ref` branch/commit to build and verify release bundles without creating or uploading a GitHub Release. The check keeps short-lived GitHub Actions artifacts available for manual native smoke; it does not create release assets. Use `mode=publish` only after the three-platform native smoke checklist is signed off. Distribute the private beta feedback guide to testers and ask them to share only the support report, not project files.
 
 ## MVP Boundaries
 

@@ -113,6 +113,19 @@ jobs:
         if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
         run: node scripts/verify-release-bundles.mjs
 
+      - name: Upload bundles for manual native smoke
+        if: ${{ github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: desclop-${{ matrix.platform }}-${{ env.RELEASE_TAG }}
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
+            apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+            apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7
+
   publish-tauri:
     name: Build ${{ matrix.platform }}
     if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.mode == 'publish' }}
