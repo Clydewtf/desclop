@@ -2,6 +2,22 @@
 
 All notable changes to Desclop are documented in this file.
 
+## v0.1.0-alpha.4 - 2026-07-25
+
+Local reflection alpha release.
+
+### Added
+
+- A compact Weekly Review for the last seven local days, with completed tasks, open captures, tasks without a next action, work reviews, and inspectable activity by day.
+- Resume readiness that checks the active task, its concrete next action, and a recent work review before suggesting how to continue.
+- Direct paths from review metrics and activity records back to their local task, timeline, or source context.
+- Locally recorded task completion timestamps, including preservation in portable bundles, so new completions can be counted by review period.
+- An optional setting to hide explanatory text once the local workflow is familiar.
+
+### Changed
+
+- Synchronized npm, Cargo, and Tauri app versions at `0.1.0-alpha.4`.
+
 ## v0.1.0-alpha.3 - 2026-07-25
 
 Daily comfort and multi-plan clarity alpha release.
