@@ -41,6 +41,69 @@ export interface ProjectPlanPayload {
   checklistItems: ChecklistItem[];
 }
 
+export interface UpdatePlanInput {
+  planId: string;
+  title: string;
+}
+
+export interface ReorderPlanInput {
+  planId: string;
+  position: number;
+}
+
+export interface UpdateStageInput {
+  stageId: string;
+  title: string;
+  description: string;
+}
+
+export interface ReorderStageInput {
+  stageId: string;
+  position: number;
+}
+
+export interface UpdateTaskInput {
+  taskId: string;
+  title: string;
+  description: string;
+}
+
+export interface ReorderTaskInput {
+  taskId: string;
+  position: number;
+}
+
+export interface UpdateChecklistItemDetailsInput {
+  itemId: string;
+  title: string;
+  description: string;
+}
+
+export interface ReorderChecklistItemInput {
+  itemId: string;
+  position: number;
+}
+
+export interface CreateTaskInput {
+  stageId: string;
+  title: string;
+  description: string;
+  position?: number | null;
+}
+
+export interface CreateChecklistItemInput {
+  taskId: string;
+  title: string;
+  description: string;
+  position?: number | null;
+}
+
+export interface MoveTaskInput {
+  taskId: string;
+  toStageId: string;
+  position?: number | null;
+}
+
 export interface CaptureInboxItemInput {
   projectId: string;
   body: string;
@@ -176,6 +239,28 @@ export const api = {
     invoke<ProjectPlanPayload>("load_project_plan", { projectId }),
   importPlan: (projectId: string, title: string | null, stages: ParsedStage[]) =>
     invoke<void>("import_plan", { projectId, title, stages }),
+  updatePlan: (input: UpdatePlanInput) =>
+    invoke<void>("update_plan", { input }),
+  reorderPlan: (input: ReorderPlanInput) =>
+    invoke<void>("reorder_plan", { input }),
+  updateStage: (input: UpdateStageInput) =>
+    invoke<void>("update_stage", { input }),
+  reorderStage: (input: ReorderStageInput) =>
+    invoke<void>("reorder_stage", { input }),
+  updateTask: (input: UpdateTaskInput) =>
+    invoke<void>("update_task", { input }),
+  reorderTask: (input: ReorderTaskInput) =>
+    invoke<void>("reorder_task", { input }),
+  updateChecklistItemDetails: (input: UpdateChecklistItemDetailsInput) =>
+    invoke<void>("update_checklist_item_details", { input }),
+  reorderChecklistItem: (input: ReorderChecklistItemInput) =>
+    invoke<void>("reorder_checklist_item", { input }),
+  createTask: (input: CreateTaskInput) =>
+    invoke<Task>("create_task", { input }),
+  createChecklistItem: (input: CreateChecklistItemInput) =>
+    invoke<ChecklistItem>("create_checklist_item", { input }),
+  moveTask: (input: MoveTaskInput) =>
+    invoke<void>("move_task", { input }),
   updateTaskStatus: (taskId: string, status: TaskStatus) =>
     invoke<void>("update_task_status", { taskId, status }),
   setActiveTask: (projectId: string, taskId: string) =>

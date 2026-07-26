@@ -33,6 +33,54 @@ describe("api", () => {
     });
   });
 
+  it("invokes local plan-structure commands with scoped input", async () => {
+    await api.updatePlan({ planId: "plan-1", title: "Plan" });
+    await api.reorderPlan({ planId: "plan-1", position: 1 });
+    await api.updateStage({ stageId: "stage-1", title: "Stage", description: "Context" });
+    await api.reorderStage({ stageId: "stage-1", position: 0 });
+    await api.updateTask({ taskId: "task-1", title: "Task", description: "Context" });
+    await api.reorderTask({ taskId: "task-1", position: 1 });
+    await api.updateChecklistItemDetails({ itemId: "item-1", title: "Check", description: "Context" });
+    await api.reorderChecklistItem({ itemId: "item-1", position: 0 });
+    await api.createTask({ stageId: "stage-1", title: "New task", description: "Context", position: 1 });
+    await api.createChecklistItem({ taskId: "task-1", title: "New check", description: "Context", position: 1 });
+    await api.moveTask({ taskId: "task-1", toStageId: "stage-2", position: 0 });
+
+    expect(invoke).toHaveBeenNthCalledWith(1, "update_plan", {
+      input: { planId: "plan-1", title: "Plan" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(2, "reorder_plan", {
+      input: { planId: "plan-1", position: 1 }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(3, "update_stage", {
+      input: { stageId: "stage-1", title: "Stage", description: "Context" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(4, "reorder_stage", {
+      input: { stageId: "stage-1", position: 0 }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(5, "update_task", {
+      input: { taskId: "task-1", title: "Task", description: "Context" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(6, "reorder_task", {
+      input: { taskId: "task-1", position: 1 }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(7, "update_checklist_item_details", {
+      input: { itemId: "item-1", title: "Check", description: "Context" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(8, "reorder_checklist_item", {
+      input: { itemId: "item-1", position: 0 }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(9, "create_task", {
+      input: { stageId: "stage-1", title: "New task", description: "Context", position: 1 }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(10, "create_checklist_item", {
+      input: { taskId: "task-1", title: "New check", description: "Context", position: 1 }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(11, "move_task", {
+      input: { taskId: "task-1", toStageId: "stage-2", position: 0 }
+    });
+  });
+
   it("invokes data-safety commands with their explicit restore confirmation", async () => {
     await api.getDatabaseStatus();
     await api.getProjectDiagnostics("project-123");

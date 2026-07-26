@@ -1,6 +1,7 @@
 pub mod entitlements;
 pub mod inbox;
 pub mod notes;
+pub mod plan_structure;
 pub mod plans;
 pub mod projects;
 pub mod tasks;

@@ -32,7 +32,30 @@ pub(crate) fn recalculate_stage_statuses(
            else 'future'
          end,
          updated_at = ?2
-         where project_id = ?1",
+         where project_id = ?1
+           and status != case
+           when not exists (
+             select 1 from tasks
+             where tasks.project_id = stages.project_id
+               and tasks.stage_id = stages.id
+               and tasks.status != 'done'
+           ) then 'completed'
+           when stages.id = (
+             select candidate.id
+             from stages candidate
+             where candidate.project_id = ?1
+               and candidate.plan_id is stages.plan_id
+               and exists (
+                 select 1 from tasks
+                 where tasks.project_id = candidate.project_id
+                   and tasks.stage_id = candidate.id
+                   and tasks.status != 'done'
+               )
+             order by candidate.position asc, candidate.id asc
+             limit 1
+           ) then 'current'
+           else 'future'
+         end",
         params![project_id, chrono::Utc::now().to_rfc3339()],
     )?;
     Ok(())
@@ -1046,7 +1069,7 @@ mod tests {
     }
 
     #[test]
-    fn set_active_task_rolls_back_when_stage_recalculation_fails() {
+    fn switching_active_task_does_not_touch_an_unchanged_stage() {
         let mut conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");
         let project = seed_project_with_plan(&mut conn, "desclop");
@@ -1075,9 +1098,9 @@ mod tests {
         )
         .expect("create trigger");
 
-        assert!(repository
+        repository
             .set_active_task(&project.id, &second_task.id)
-            .is_err());
+            .expect("switch active task without changing the stage status");
 
         let first_status: String = conn
             .query_row(
@@ -1101,8 +1124,8 @@ mod tests {
             )
             .expect("active task id");
 
-        assert_eq!(first_status, "active");
-        assert_eq!(second_status, "todo");
-        assert_eq!(active_task_id, Some(first_task.id.clone()));
+        assert_eq!(first_status, "todo");
+        assert_eq!(second_status, "active");
+        assert_eq!(active_task_id, Some(second_task.id.clone()));
     }
 }

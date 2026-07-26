@@ -5,6 +5,7 @@ pub mod git;
 pub mod inbox;
 pub mod markdown;
 pub mod notes;
+pub mod plan_structure;
 pub mod plans;
 pub mod projects;
 pub mod resume;
