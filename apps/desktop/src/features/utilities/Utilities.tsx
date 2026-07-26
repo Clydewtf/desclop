@@ -1,5 +1,6 @@
 import type { PortableBundlePreview, ProjectDiagnostics } from "../../shared/api/client";
-import { Button, InlineAlert, ScreenHeader, SectionHeader, Surface, TextArea } from "../../shared/ui";
+import { Button, InlineAlert, ScreenHeader, SectionHeader, Surface } from "../../shared/ui";
+import { ContextExport, type ContextExportProps } from "../context-export/contextExportView";
 import {
   PortableRestoreForm,
   TechnicalSupportReport
@@ -39,6 +40,7 @@ interface UtilitiesProps {
   onRefreshDiagnostics: () => void;
   onCopySupportDiagnostics: () => void;
   onCopyMarkdown: (markdown: string, planTitle: string) => void;
+  contextExport?: ContextExportProps;
   onConfirmRelink: () => void;
   onCancelRelink: () => void;
 }
@@ -78,6 +80,7 @@ export function Utilities({
   onRefreshDiagnostics,
   onCopySupportDiagnostics,
   onCopyMarkdown,
+  contextExport,
   onConfirmRelink,
   onCancelRelink
 }: UtilitiesProps) {
@@ -220,22 +223,32 @@ export function Utilities({
                     <span className="utilities-markdown-export__toggle-close">Hide</span>
                   </span>
                 </summary>
-                <div className="utilities-markdown-export__header">
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    onClick={() => onCopyMarkdown(item.markdown, item.title)}
+                <div className="ui-field utilities-markdown-export__preview">
+                  <label
+                    className="ui-field__label"
+                    htmlFor={`markdown-export-${index + 1}`}
                   >
-                    Copy Markdown
-                  </Button>
+                    {item.title} Markdown preview
+                  </label>
+                  <div className="utilities-markdown-export__code">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="utilities-markdown-export__copy"
+                      onClick={() => onCopyMarkdown(item.markdown, item.title)}
+                    >
+                      Copy
+                    </Button>
+                    <textarea
+                      id={`markdown-export-${index + 1}`}
+                      className="ui-textarea utilities-markdown-export__textarea"
+                      readOnly
+                      spellCheck={false}
+                      value={item.markdown}
+                      onChange={() => {}}
+                    />
+                  </div>
                 </div>
-                <TextArea
-                  id={`markdown-export-${index + 1}`}
-                  label={`${item.title} Markdown preview`}
-                  readOnly
-                  value={item.markdown}
-                  onChange={() => {}}
-                />
               </details>
             ))}
           </div>
@@ -243,6 +256,12 @@ export function Utilities({
           <p className="utilities-note ui-help-text">Create or import a plan to generate a Markdown export.</p>
         )}
       </Surface>
+
+      {contextExport ? (
+        <Surface ariaLabel="Manual AI context export">
+          <ContextExport {...contextExport} />
+        </Surface>
+      ) : null}
 
       <Surface ariaLabel="Export portable backup">
         <SectionHeader title="Export portable backup" />

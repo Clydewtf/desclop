@@ -33,7 +33,7 @@ It is not meant to be a team project management system, a full Git client, a tim
 
 Desclop is currently in beta.
 
-The current release line is `v0.1.0-beta.1`, focused on a stable local workflow with portable backup, restore, diagnostics, and Weekly Review. Expect rough edges and platform-specific limitations while the beta is being validated.
+The current release line is `v0.2.0-beta.1`, focused on a stable local workflow plus manual, editable AI context export. Expect rough edges and platform-specific limitations while the beta is being validated.
 
 ## Installation
 

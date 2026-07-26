@@ -207,9 +207,11 @@ describe("Utilities", () => {
     expect(alphaExport).not.toHaveAttribute("open");
     expect(betaExport).toHaveAttribute("open");
     expect(screen.getByLabelText("Beta Markdown preview")).toHaveValue("# Beta");
-    await user.click(
-      within(betaExport as HTMLDetailsElement).getByRole("button", { name: "Copy Markdown" })
-    );
+    const copyButton = within(betaExport as HTMLDetailsElement).getByRole("button", {
+      name: "Copy"
+    });
+    expect(copyButton).toHaveClass("utilities-markdown-export__copy");
+    await user.click(copyButton);
 
     expect(onCopyMarkdown).toHaveBeenCalledWith("# Beta", "Beta");
   });
@@ -220,7 +222,7 @@ describe("Utilities", () => {
 
     renderUtilities({
       diagnostics: {
-        appVersion: "0.1.0-beta.1",
+        appVersion: "0.2.0-beta.1",
         projectPath: "/tmp/desclop",
         folderState: "available",
         git: { configured: true, repositoryDetected: true },
@@ -240,7 +242,7 @@ describe("Utilities", () => {
         relinkAvailable: true,
         supportReport: {
           diagnosticFormatVersion: 1,
-          appVersion: "0.1.0-beta.1",
+          appVersion: "0.2.0-beta.1",
           folderState: "available",
           git: { configured: true, repositoryDetected: true },
           database: {
@@ -264,7 +266,8 @@ describe("Utilities", () => {
 
     expect(screen.getByText("For support")).toBeInTheDocument();
     await user.click(screen.getByText("For support"));
-    await user.click(screen.getByRole("button", { name: "Copy" }));
+    const supportReport = screen.getByText("For support").closest("details");
+    await user.click(within(supportReport as HTMLDetailsElement).getByRole("button", { name: "Copy" }));
 
     expect(onCopySupportDiagnostics).toHaveBeenCalledTimes(1);
   });

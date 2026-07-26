@@ -2,6 +2,19 @@
 
 All notable changes to Desclop are documented in this file.
 
+## v0.2.0-beta.1 - 2026-07-26
+
+Controlled manual AI context export.
+
+### Added
+
+- A local Markdown context export with explicit Project, Plan, Task, Next action, recent work reviews, Notes, and Related commits fields.
+- Per-field preview, exclusion, local editing, and manual clipboard copy before any data leaves the app.
+
+### Intentionally not included
+
+- AI summary generation, model calls, API keys, background sending, cloud accounts, or automatic context uploads.
+
 ## v0.1.0-beta.1 - 2026-07-26
 
 Beta release readiness pass.

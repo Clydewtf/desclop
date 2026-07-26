@@ -374,7 +374,7 @@ beforeEach(() => {
     nextStep: null
   });
   getProjectDiagnostics.mockResolvedValue({
-    appVersion: "0.1.0-beta.1",
+    appVersion: "0.2.0-beta.1",
     projectPath: "/tmp/desclop",
     folderState: "available",
     git: { configured: false, repositoryDetected: false },
@@ -383,7 +383,7 @@ beforeEach(() => {
     relinkAvailable: true,
     supportReport: {
       diagnosticFormatVersion: 1,
-      appVersion: "0.1.0-beta.1",
+      appVersion: "0.2.0-beta.1",
       folderState: "available",
       git: { configured: false, repositoryDetected: false },
       database: { state: "ready", schemaVersion: 3, targetSchemaVersion: 3, integrity: "ok" },
@@ -4394,6 +4394,81 @@ describe("App", () => {
         (screen.getByLabelText("Project plan Markdown preview") as HTMLTextAreaElement).value
       ).toContain("# Imported Project Plan");
     });
+  });
+
+  it("previews, edits, excludes, and manually copies local AI context", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText }
+    });
+    enableTauriApi();
+    const plan = importedPlanFixture("p1");
+    plan.tasks[0] = {
+      ...plan.tasks[0],
+      nextStep: "Run the context export test."
+    };
+    listProjects.mockResolvedValue([
+      projectFixture({ id: "p1", activeTaskId: "t1", gitEnabled: true })
+    ]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief("p1"));
+    loadProjectPlan.mockResolvedValue(plan);
+    syncGitCommits.mockResolvedValue([]);
+    listNotesForTask.mockResolvedValue([
+      {
+        id: "note-1",
+        projectId: "p1",
+        taskId: "t1",
+        body: "Keep this note visible before copying.",
+        createdAt: "2026-07-25T00:00:00Z"
+      }
+    ]);
+    listWorkEntriesForTask.mockResolvedValue([
+      {
+        id: "work-1",
+        projectId: "p1",
+        taskId: "t1",
+        source: "manual",
+        startedAt: null,
+        endedAt: null,
+        durationSeconds: null,
+        done: "Added the local preview.",
+        remains: "Check copy output.",
+        nextStep: "Copy once reviewed.",
+        createdAt: "2026-07-26T00:00:00Z"
+      }
+    ]);
+    listLinkedCommitsForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Backups" }));
+    const contextExportDisclosure = screen
+      .getByText("Manual AI context export")
+      .closest("details");
+    expect(contextExportDisclosure).not.toHaveAttribute("open");
+    await user.click(screen.getByText("Manual AI context export"));
+    expect(screen.getByRole("heading", { name: "Review and copy" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Project preview")).toBeInTheDocument();
+    expect(screen.getByLabelText("Plan preview")).toBeInTheDocument();
+    expect(screen.getByLabelText("Task preview")).toBeInTheDocument();
+    expect(screen.getByLabelText("Next action preview")).toHaveValue(
+      "Run the context export test."
+    );
+    expect(writeText).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("checkbox", { name: "Include Notes" }));
+    await user.clear(screen.getByLabelText("Next action preview"));
+    await user.type(screen.getByLabelText("Next action preview"), "Use the reviewed action.");
+
+    const preview = screen.getByLabelText("Full Markdown preview") as HTMLTextAreaElement;
+    expect(preview.value).toContain("Use the reviewed action.");
+    expect(preview.value).not.toContain("## Notes");
+    await user.click(within(contextExportDisclosure as HTMLElement).getByRole("button", { name: "Copy" }));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(preview.value);
   });
 
   it("does not reopen a portable import that finishes after closing its project", async () => {
