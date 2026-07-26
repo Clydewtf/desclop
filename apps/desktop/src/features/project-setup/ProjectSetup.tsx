@@ -193,11 +193,13 @@ export function ProjectSetup({
           </span>
         ) : null}
         <div className="path-picker">
+          <label className="ui-field__label" htmlFor="project-path">
+            Local folder path
+          </label>
           <div className="path-picker__row">
-            <TextField
+            <input
               id="project-path"
-              label="Local folder path"
-              hint="Choose an existing folder, or enter its path manually."
+              className="ui-input"
               value={localPath}
               disabled={creating}
               onChange={(event) => {
@@ -205,7 +207,12 @@ export function ProjectSetup({
                 resetFolderValidation();
               }}
               placeholder="/Users/clyde/projects/desclop"
-              aria-describedby={validationErrors.localPath ? "project-path-error" : undefined}
+              aria-describedby={[
+                "project-path-hint",
+                validationErrors.localPath ? "project-path-error" : undefined
+              ]
+                .filter(Boolean)
+                .join(" ")}
               aria-invalid={validationErrors.localPath ? "true" : undefined}
               required
             />
@@ -213,6 +220,7 @@ export function ProjectSetup({
               <Button
                 type="button"
                 variant="secondary"
+                className="path-picker__choose-button"
                 disabled={creating || validatingFolder}
                 onClick={() => void chooseProjectFolder()}
               >
@@ -220,6 +228,9 @@ export function ProjectSetup({
               </Button>
             ) : null}
           </div>
+          <span className="ui-field__hint ui-help-text" id="project-path-hint">
+            Choose an existing folder, or enter its path manually.
+          </span>
           {localPath.trim() ? (
             <p className="project-setup__selected-path" aria-live="polite">
               Folder path: <code>{localPath.trim()}</code>

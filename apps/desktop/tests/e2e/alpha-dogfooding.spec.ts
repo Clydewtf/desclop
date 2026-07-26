@@ -293,8 +293,83 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
 
   await expect(page.getByRole("heading", { name: "Create a local project" })).toBeVisible();
   await page.getByLabel("Project name").fill("Desclop");
+  const pathInput = page.getByLabel("Local folder path");
+  const chooseFolderButton = page.getByRole("button", { name: "Choose folder" });
+  const pathControlRow = page.locator(".path-picker__row");
+  await pathInput.fill(" ");
+  await page.getByRole("button", { name: "Create project" }).click();
+  await expect(page.getByText("Local folder path is required.")).toBeVisible();
+  await expect(pathInput).toHaveAttribute("aria-invalid", "true");
+  await chooseFolderButton.focus();
+  await expect(chooseFolderButton).toBeFocused();
+
+  const expectControlsAligned = async () => {
+    const inputBox = await pathInput.boundingBox();
+    const buttonBox = await chooseFolderButton.boundingBox();
+    expect(inputBox).not.toBeNull();
+    expect(buttonBox).not.toBeNull();
+    expect(
+      Math.abs(
+        (inputBox?.y ?? 0) + (inputBox?.height ?? 0) / 2 -
+          ((buttonBox?.y ?? 0) + (buttonBox?.height ?? 0) / 2)
+      )
+    ).toBeLessThan(2);
+  };
+
+  await expect(pathControlRow).toContainText("Choose folder");
+  await expectControlsAligned();
+  const pathHint = page.getByText("Choose an existing folder, or enter its path manually.", {
+    exact: true
+  });
+  await page.evaluate(() => {
+    document.documentElement.dataset.showExplanations = "false";
+  });
+  await expect(pathHint).toBeHidden();
+  await expectControlsAligned();
+  await page.evaluate(() => {
+    document.documentElement.dataset.showExplanations = "true";
+  });
+  await expect(pathHint).toBeVisible();
+
+  await page.setViewportSize({ width: 960, height: 640 });
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "light";
+    document.documentElement.dataset.textScale = "normal";
+  });
+  await expectControlsAligned();
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "dark";
+    document.documentElement.dataset.textScale = "large";
+  });
+  await expectControlsAligned();
+
+  await page.setViewportSize({ width: 480, height: 640 });
+  const narrowInputBox = await pathInput.boundingBox();
+  const narrowButtonBox = await chooseFolderButton.boundingBox();
+  expect(narrowInputBox).not.toBeNull();
+  expect(narrowButtonBox).not.toBeNull();
+  expect(narrowButtonBox?.y ?? 0).toBeGreaterThanOrEqual(
+    (narrowInputBox?.y ?? 0) + (narrowInputBox?.height ?? 0)
+  );
+
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "light";
+    document.documentElement.dataset.textScale = "normal";
+  });
+  await page.setViewportSize({ width: 1180, height: 760 });
+  await expectControlsAligned();
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "dark";
+    document.documentElement.dataset.textScale = "large";
+  });
+  await expectControlsAligned();
+  await page.evaluate(() => {
+    document.documentElement.dataset.theme = "light";
+    document.documentElement.dataset.textScale = "normal";
+  });
   await page.getByRole("button", { name: "Choose folder" }).click();
-  await expect(page.getByLabel("Local folder path")).toHaveValue("/tmp/desclop-alpha-e2e");
+  await expect(pathInput).toHaveValue("/tmp/desclop-alpha-e2e");
   await expect(page.getByText("Folder path: /tmp/desclop-alpha-e2e")).toBeVisible();
   await page.getByRole("button", { name: "Create project" }).click();
 

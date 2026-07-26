@@ -1353,6 +1353,10 @@ button.timeline-changed-files__trigger:focus-visible {
   align-items: center;
 }
 
+.path-picker__choose-button {
+  align-self: center;
+}
+
 .path-picker__input {
   color: var(--color-muted);
 }
@@ -3175,6 +3179,14 @@ label.inline-field input {
 
   .app-content {
     overflow-y: visible;
+  }
+
+  .path-picker__row {
+    grid-template-columns: 1fr;
+  }
+
+  .path-picker__choose-button {
+    justify-self: start;
   }
 
   .ui-toast {

@@ -47,6 +47,25 @@ describe("ProjectSetup", () => {
     expect(onCreate).not.toHaveBeenCalled();
   });
 
+  it("keeps the folder input and chooser in one control row", () => {
+    renderWithRouter(
+      <ProjectSetup onCreate={vi.fn()} onChooseFolder={vi.fn().mockResolvedValue(null)} />
+    );
+
+    const input = screen.getByLabelText("Local folder path");
+    const chooseButton = screen.getByRole("button", { name: "Choose folder" });
+    const controlRow = input.parentElement;
+
+    expect(controlRow).toHaveClass("path-picker__row");
+    expect(chooseButton.parentElement).toBe(controlRow);
+    expect(screen.getByText("Choose an existing folder, or enter its path manually.")).toHaveClass(
+      "ui-field__hint"
+    );
+    expect(input).toHaveAccessibleDescription(
+      "Choose an existing folder, or enter its path manually."
+    );
+  });
+
   it("selects a folder, displays the path, and shows Git as an optional hint", async () => {
     const user = userEvent.setup();
     const onCreate = vi.fn();
@@ -147,15 +166,19 @@ describe("ProjectSetup", () => {
   });
 
   it("disables submit while creating and shows creation errors", () => {
+    const onChooseFolder = vi.fn().mockResolvedValue(null);
+
     renderWithRouter(
       <ProjectSetup
         creating
         error="Unable to create project."
         onCreate={vi.fn()}
+        onChooseFolder={onChooseFolder}
       />
     );
 
     expect(screen.getByRole("button", { name: "Creating project" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Choose folder" })).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("Unable to create project.");
   });
 });
