@@ -157,6 +157,10 @@ impl<'a> TaskRepository<'a> {
         let updated_rows = tx.execute(
             "update tasks
              set status = ?1,
+                 next_step = case
+                   when ?1 = 'done' then ''
+                   else next_step
+                 end,
                  updated_at = ?2,
                  completed_at = case
                    when ?1 = 'done' and status != 'done' then ?2
@@ -689,6 +693,9 @@ mod tests {
             .expect("imported done task");
 
         assert_eq!(imported_done_task.completed_at, None);
+        repository
+            .update_next_step(&task.id, "Verify the local store")
+            .expect("save next step");
 
         repository
             .update_task_status(&task.id, "done")
@@ -701,6 +708,14 @@ mod tests {
             )
             .expect("completion timestamp");
         assert!(first_completed_at.is_some());
+        let completed_next_step: String = conn
+            .query_row(
+                "select next_step from tasks where id = ?1",
+                params![task.id],
+                |row| row.get(0),
+            )
+            .expect("completed task next step");
+        assert_eq!(completed_next_step, "");
 
         repository
             .update_task_status(&task.id, "done")
