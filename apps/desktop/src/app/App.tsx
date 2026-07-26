@@ -3,6 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import "../styles/base.css";
 import { exportProjectMarkdowns } from "../features/export-import/markdownExport";
+import {
+  findDefaultContextTaskId,
+  findPlanIdForTask,
+  orderTasks
+} from "../features/context-export/contextExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
 import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImportPreview";
 import { FirstRunHint } from "../features/onboarding/FirstRunHint";
@@ -326,6 +331,7 @@ function defaultQuickCaptureTaskId({
 export function App() {
   const projectContextRevision = useRef(0);
   const captureOperationRevision = useRef(0);
+  const contextExportOperationRevision = useRef(0);
   const deleteProjectInFlight = useRef(false);
   const projectsRef = useRef<Project[]>([]);
   const screenRef = useRef<AppScreen>("today");
@@ -389,6 +395,13 @@ export function App() {
   const [diagnostics, setDiagnostics] = useState<ProjectDiagnostics | null>(null);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
+  const [contextExportPlanId, setContextExportPlanId] = useState<string | null>(null);
+  const [contextExportTaskId, setContextExportTaskId] = useState<string | null>(null);
+  const [contextExportNotes, setContextExportNotes] = useState<Note[]>([]);
+  const [contextExportWorkEntries, setContextExportWorkEntries] = useState<WorkEntry[]>([]);
+  const [contextExportLinkedCommits, setContextExportLinkedCommits] = useState<GitCommit[]>([]);
+  const [contextExportLoading, setContextExportLoading] = useState(false);
+  const [contextExportError, setContextExportError] = useState<string | null>(null);
   const [relinkPath, setRelinkPath] = useState("");
   const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
   const [quickCaptureDefaultTaskId, setQuickCaptureDefaultTaskId] = useState<string | null>(null);
@@ -554,6 +567,14 @@ export function App() {
     setDiagnostics(null);
     setDiagnosticsLoading(false);
     setDiagnosticsError(null);
+    contextExportOperationRevision.current += 1;
+    setContextExportPlanId(null);
+    setContextExportTaskId(null);
+    setContextExportNotes([]);
+    setContextExportWorkEntries([]);
+    setContextExportLinkedCommits([]);
+    setContextExportLoading(false);
+    setContextExportError(null);
     setRelinkPath("");
     setQuickCaptureOpen(false);
     setQuickCaptureDefaultTaskId(null);
@@ -1019,6 +1040,133 @@ export function App() {
     setScreen("task-detail");
   }
 
+  function nextContextExportOperationRevision() {
+    contextExportOperationRevision.current += 1;
+    return contextExportOperationRevision.current;
+  }
+
+  function isCurrentContextExportOperation(projectRevision: number, operationRevision: number) {
+    return (
+      isCurrentProjectContext(projectRevision) &&
+      contextExportOperationRevision.current === operationRevision
+    );
+  }
+
+  async function loadContextExportTask(taskId: string | null, projectRevision: number) {
+    const operationRevision = nextContextExportOperationRevision();
+    setContextExportError(null);
+    setContextExportLoading(Boolean(taskId));
+
+    if (!project || !taskId) {
+      setContextExportNotes([]);
+      setContextExportWorkEntries([]);
+      setContextExportLinkedCommits([]);
+      setContextExportLoading(false);
+      return;
+    }
+
+    try {
+      const [notes, workEntries, linkedCommits] = await Promise.all([
+        Promise.resolve(api.listNotesForTask(project.id, taskId)).then((items) => items ?? []),
+        Promise.resolve(api.listWorkEntriesForTask(project.id, taskId)).then(
+          (items) => items ?? []
+        ),
+        project.gitEnabled
+          ? Promise.resolve(api.listLinkedCommitsForTask(project.id, taskId)).then(
+              (items) => items ?? []
+            )
+          : Promise.resolve([])
+      ]);
+      if (!isCurrentContextExportOperation(projectRevision, operationRevision)) {
+        return;
+      }
+      setContextExportNotes(notes);
+      setContextExportWorkEntries(workEntries);
+      setContextExportLinkedCommits(linkedCommits);
+    } catch {
+      if (!isCurrentContextExportOperation(projectRevision, operationRevision)) {
+        return;
+      }
+      setContextExportNotes([]);
+      setContextExportWorkEntries([]);
+      setContextExportLinkedCommits([]);
+      setContextExportError("Could not read local task context.");
+    } finally {
+      if (isCurrentContextExportOperation(projectRevision, operationRevision)) {
+        setContextExportLoading(false);
+      }
+    }
+  }
+
+  async function prepareContextExport() {
+    if (!project) {
+      return;
+    }
+
+    const projectRevision = projectContextRevision.current;
+    const tasks = projectPlan.tasks;
+    const plans = projectPlan.plans ?? [];
+    const nextTaskId =
+      contextExportTaskId && tasks.some((task) => task.id === contextExportTaskId)
+        ? contextExportTaskId
+        : findDefaultContextTaskId({
+            project,
+            resumeTaskId: resumeBrief?.taskId ?? null,
+            plans,
+            stages: projectPlan.stages,
+            tasks
+          });
+    const nextPlanId =
+      findPlanIdForTask(nextTaskId, tasks, projectPlan.stages) ??
+      (contextExportPlanId && plans.some((plan) => plan.id === contextExportPlanId)
+        ? contextExportPlanId
+        : plans[0]?.id ?? null);
+
+    setContextExportTaskId(nextTaskId);
+    setContextExportPlanId(nextPlanId);
+    await loadContextExportTask(nextTaskId, projectRevision);
+  }
+
+  function handleContextExportTaskChange(taskId: string) {
+    if (!project) {
+      return;
+    }
+
+    const nextTaskId = taskId || null;
+    const nextPlanId =
+      findPlanIdForTask(nextTaskId, projectPlan.tasks, projectPlan.stages) ?? contextExportPlanId;
+    setContextExportTaskId(nextTaskId);
+    setContextExportPlanId(nextPlanId);
+    void loadContextExportTask(nextTaskId, projectContextRevision.current);
+  }
+
+  function handleContextExportPlanChange(planId: string) {
+    if (!project) {
+      return;
+    }
+
+    const nextPlanId = planId || null;
+    const plans = projectPlan.plans ?? [];
+    const planTasks = projectPlan.tasks.filter((task) => {
+      const stage = projectPlan.stages.find((candidate) => candidate.id === task.stageId);
+      return (
+        !nextPlanId ||
+        stage?.planId === nextPlanId ||
+        (plans.length === 1 && !stage?.planId && plans[0]?.id === nextPlanId)
+      );
+    });
+    const currentTaskStillBelongs = planTasks.some(
+      (task) => task.id === contextExportTaskId
+    );
+    const nextTaskId = currentTaskStillBelongs
+      ? contextExportTaskId
+      : orderTasks(planTasks, nextPlanId ? plans.filter((plan) => plan.id === nextPlanId) : plans, projectPlan.stages)[0]?.id ?? null;
+
+    setContextExportPlanId(nextPlanId);
+    setContextExportTaskId(nextTaskId);
+    void loadContextExportTask(nextTaskId, projectContextRevision.current);
+  }
+
   function showProjectScreen(nextScreen: AppScreen) {
     setTimelineError(null);
     setReviewError(null);
@@ -1026,6 +1174,7 @@ export function App() {
     setScreen(nextScreen);
     if (nextScreen === "utilities") {
       void refreshProjectDiagnostics();
+      void prepareContextExport();
     }
   }
 
@@ -1886,6 +2035,14 @@ export function App() {
     await copyToClipboard(markdown, "Markdown copied", `Copied ${planTitle}.`);
   }
 
+  async function copyContext(markdown: string) {
+    await copyToClipboard(
+      markdown,
+      "Context copied",
+      "The reviewed local context is in your clipboard."
+    );
+  }
+
   async function copySupportDiagnostics() {
     if (!diagnostics) {
       return;
@@ -2148,6 +2305,24 @@ export function App() {
           diagnosticsLoading={diagnosticsLoading}
           diagnosticsError={diagnosticsError}
           relinkPath={relinkPath}
+          contextExport={{
+            project,
+            plans: projectPlan.plans ?? [],
+            stages: projectPlan.stages,
+            tasks: projectPlan.tasks,
+            checklistItems: projectPlan.checklistItems,
+            workEntries: contextExportWorkEntries,
+            notes: contextExportNotes,
+            linkedCommits: contextExportLinkedCommits,
+            selectedPlanId: contextExportPlanId,
+            selectedTaskId: contextExportTaskId,
+            loading: contextExportLoading,
+            error: contextExportError,
+            onPlanChange: handleContextExportPlanChange,
+            onTaskChange: handleContextExportTaskChange,
+            onRefresh: () => void prepareContextExport(),
+            onCopy: (markdown: string) => void copyContext(markdown)
+          }}
           onOpenImport={() => setScreen("import")}
           onChooseBundleDestination={() => void chooseBundleDestination()}
           onChooseBundleFile={() => void chooseBundleFile()}

@@ -1377,9 +1377,96 @@ button.timeline-changed-files__trigger:focus-visible {
 .utilities-markdown-exports,
 .utilities-markdown-export,
 .portable-restore,
-.utilities-support-report {
+.utilities-support-report,
+.context-export,
+.context-export__fields,
+.context-export__field {
   display: grid;
   gap: var(--space-3);
+}
+
+.context-export__selectors {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.context-export__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  cursor: pointer;
+  list-style: none;
+  font-weight: 700;
+}
+
+.context-export__summary::-webkit-details-marker {
+  display: none;
+}
+
+.context-export__summary-toggle {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.context-export__summary-toggle .context-export__toggle-close {
+  display: none;
+}
+
+.context-export[open] .context-export__summary-toggle .context-export__toggle-open {
+  display: none;
+}
+
+.context-export[open] .context-export__summary-toggle .context-export__toggle-close {
+  display: inline;
+}
+
+.context-export__toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.context-export__toggle input {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
+.context-export__toggle > span {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.context-export__field {
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.context-export__field:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.context-export__combined-code {
+  position: relative;
+}
+
+.context-export__combined-textarea {
+  display: block;
+  min-height: 220px;
+  padding: 52px 12px 12px;
+}
+
+.ui-button.context-export__copy {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  right: 10px;
+  min-height: 32px;
+  padding: 5px 10px;
 }
 
 .utilities-markdown-export {
@@ -1392,12 +1479,22 @@ button.timeline-changed-files__trigger:focus-visible {
   border-top: 0;
 }
 
-.utilities-markdown-export__header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
+.utilities-markdown-export__code {
+  position: relative;
+}
+
+.utilities-markdown-export__textarea {
+  display: block;
+  padding: 52px 12px 12px;
+}
+
+.ui-button.utilities-markdown-export__copy {
+  position: absolute;
+  z-index: 1;
+  top: 10px;
+  right: 10px;
+  min-height: 32px;
+  padding: 5px 10px;
 }
 
 .utilities-markdown-export__summary {
@@ -3050,6 +3147,10 @@ label.inline-field input {
   }
 
   .task-workbench-header {
+    grid-template-columns: 1fr;
+  }
+
+  .context-export__selectors {
     grid-template-columns: 1fr;
   }
 

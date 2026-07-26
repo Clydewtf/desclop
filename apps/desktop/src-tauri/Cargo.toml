@@ -1,6 +1,6 @@
 [package]
 name = "desclop-desktop"
-version = "0.1.0-beta.1"
+version = "0.2.0-beta.1"
 description = "Desclop desktop app"
 authors = ["Desclop"]
 license = ""
