@@ -2767,9 +2767,51 @@ label.inline-field input {
   box-shadow: 0 10px 24px rgba(23, 33, 43, 0.1);
 }
 
+.markdown-preview__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 .markdown-import__action,
 .markdown-preview__action {
   justify-self: start;
+}
+
+.markdown-import__file-picker {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface-muted);
+  padding: var(--space-4);
+}
+
+.markdown-import__file-picker--drag-active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.markdown-import__file-picker-copy {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-1);
+}
+
+.markdown-import__file-picker-copy strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.markdown-import__file-picker-copy p {
+  margin: 0;
+  color: var(--color-muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .plan-frame {
@@ -3230,6 +3272,11 @@ label.inline-field input {
 
   .markdown-import__guide-actions {
     justify-content: flex-start;
+  }
+
+  .markdown-import__file-picker {
+    grid-template-columns: 1fr;
+    align-items: start;
   }
 
   .today-view__grid {

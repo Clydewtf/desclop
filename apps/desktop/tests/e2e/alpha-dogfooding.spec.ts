@@ -47,6 +47,34 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
       };
     }
 
+    const callbacks = new Map();
+    const eventListeners = new Map();
+    let nextCallbackId = 0;
+
+    function transformCallback(callback) {
+      const callbackId = ++nextCallbackId;
+      callbacks.set(callbackId, callback);
+      return callbackId;
+    }
+
+    function unregisterCallback(callbackId) {
+      callbacks.delete(callbackId);
+    }
+
+    function unregisterListener(eventName, eventId) {
+      eventListeners.get(eventName)?.delete(eventId);
+      unregisterCallback(eventId);
+    }
+
+    function emitTauriEvent(eventName, payload) {
+      for (const callbackId of eventListeners.get(eventName) ?? []) {
+        callbacks.get(callbackId)?.({ event: eventName, id: callbackId, payload });
+      }
+    }
+
+    window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener };
+    window.__emitTauriEvent = emitTauriEvent;
+
     window.__TAURI_INTERNALS__ = {
       invoke: async (cmd, args = {}) => {
         if (cmd === "get_database_status") {
@@ -61,8 +89,35 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
           };
         }
 
+        if (cmd === "plugin:event|listen") {
+          const listeners = eventListeners.get(args.event) ?? new Set();
+          listeners.add(args.handler);
+          eventListeners.set(args.event, listeners);
+          return args.handler;
+        }
+
+        if (cmd === "plugin:event|unlisten") {
+          unregisterListener(args.event, args.eventId);
+          return undefined;
+        }
+
         if (cmd === "plugin:dialog|open") {
+          const filters = args.options?.filters ?? [];
+          if (
+            filters.some((filter) =>
+              filter.extensions?.some((extension) => ["md", "markdown", "txt"].includes(extension))
+            )
+          ) {
+            return "/tmp/desclop-alpha-plan.md";
+          }
           return "/tmp/desclop-alpha-e2e";
+        }
+
+        if (cmd === "read_markdown_file") {
+          return {
+            fileName: "desclop-alpha-plan.md",
+            text: "## Alpha File UX\n- [ ] Read file\n  - [ ] Keep draft"
+          };
         }
 
         if (cmd === "list_projects") {
@@ -276,10 +331,10 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
 
         throw new Error(`Unhandled invoke: ${cmd}`);
       },
-      transformCallback: () => 1,
-      unregisterCallback: () => undefined,
-      runCallback: () => undefined,
-      callbacks: new Map(),
+      transformCallback,
+      unregisterCallback,
+      runCallback: (callbackId, data) => callbacks.get(callbackId)?.(data),
+      callbacks,
       convertFileSrc: (filePath) => filePath
     };
   });
@@ -374,6 +429,34 @@ test("alpha dogfooding flow is navigable", async ({ page }) => {
   await page.getByRole("button", { name: "Create project" }).click();
 
   await page.getByRole("button", { name: "Import Plan", exact: true }).click();
+  const fileMarkdown = "## Alpha File UX\n- [ ] Read file\n  - [ ] Keep draft";
+  await page.getByRole("button", { name: "Choose Markdown file" }).click();
+  await expect(page.getByLabel("Markdown plan")).toHaveValue(fileMarkdown);
+  await page.getByRole("button", { name: "Preview import" }).click();
+  await expect(page.getByRole("heading", { name: "Alpha File UX" })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Import preview" }).getByText("Read file", { exact: true })
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Cancel preview" }).click();
+  await expect(page.getByText("Nothing to preview yet")).toBeVisible();
+
+  await page.waitForTimeout(100);
+  await page.evaluate((payload: { paths: string[] }) => {
+    const emitter = (
+      window as Window & {
+        __emitTauriEvent?: (eventName: string, eventPayload: unknown) => void;
+      }
+    ).__emitTauriEvent;
+    emitter?.("tauri://drag-drop", payload);
+  }, { paths: ["/tmp/desclop-alpha-plan.md"] });
+  await expect(page.getByLabel("Markdown plan")).toHaveValue(fileMarkdown);
+  await page.getByRole("button", { name: "Preview import" }).click();
+  await expect(page.getByRole("heading", { name: "Alpha File UX" })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: "Import preview" }).getByText("Read file", { exact: true })
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Cancel preview" }).click();
+
   await page
     .getByLabel("Markdown plan")
     .fill("## Alpha UX\n- [ ] Restructure Today\n  - [ ] Add current task card");

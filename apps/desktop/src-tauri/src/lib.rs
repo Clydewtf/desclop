@@ -152,6 +152,7 @@ pub fn run() {
             commands::diagnostics::get_database_status,
             commands::diagnostics::get_project_diagnostics,
             commands::plans::import_plan,
+            commands::markdown::read_markdown_file,
             commands::tasks::load_project_plan,
             commands::tasks::update_task_status,
             commands::tasks::set_active_task,

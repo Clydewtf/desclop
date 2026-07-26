@@ -9,10 +9,26 @@ describe("ProjectSetup", () => {
     renderWithRouter(<ProjectSetup onCreate={vi.fn()} />);
 
     expect(screen.getByRole("heading", { name: "Create a local project", level: 1 })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "No project setup", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "No local project yet", level: 2 })).toBeInTheDocument();
+    expect(
+      screen.getByText("Enter a project name and choose a local folder below. Git is optional.")
+    ).toBeInTheDocument();
     expect(screen.getByRole("complementary", { name: "Your first project" })).toBeInTheDocument();
+    expect(
+      screen.getByText("After creating the project, add one plan with a task you can continue today.")
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Choose the folder where your project already lives, then create one plan with a task you can continue today."
+      )
+    ).not.toBeInTheDocument();
     expect(screen.getByLabelText("Project name")).toBeInTheDocument();
-    expect(screen.getByLabelText("Local folder path")).toBeInTheDocument();
+    const folderInput = screen.getByLabelText("Local folder path");
+
+    expect(folderInput).toBeInTheDocument();
+    expect(folderInput).toHaveValue("");
+    expect(folderInput).toHaveAttribute("placeholder", "Choose a folder or enter its path");
+    expect(folderInput).not.toHaveValue(expect.stringContaining("/Users/clyde"));
     expect(screen.getByRole("button", { name: "Create project" })).toBeEnabled();
   });
 
@@ -23,13 +39,13 @@ describe("ProjectSetup", () => {
     renderWithRouter(<ProjectSetup onCreate={onCreate} />);
 
     await user.type(screen.getByLabelText("Project name"), "Desclop");
-    await user.type(screen.getByLabelText("Local folder path"), "/Users/clyde/projects/desclop");
+    await user.type(screen.getByLabelText("Local folder path"), "/tmp/desclop-project");
     await user.click(screen.getByRole("checkbox", { name: "Connect local Git repository" }));
     await user.click(screen.getByRole("button", { name: "Create project" }));
 
     expect(onCreate).toHaveBeenCalledWith({
       name: "Desclop",
-      localPath: "/Users/clyde/projects/desclop",
+      localPath: "/tmp/desclop-project",
       gitEnabled: true
     });
   });
@@ -45,6 +61,12 @@ describe("ProjectSetup", () => {
 
     expect(onRestoreBackup).toHaveBeenCalledTimes(1);
     expect(onCreate).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Create project" })).toHaveClass(
+      "ui-button--primary"
+    );
+    expect(screen.getByRole("button", { name: "Restore a backup" })).toHaveClass(
+      "ui-button--secondary"
+    );
   });
 
   it("keeps the folder input and chooser in one control row", () => {
@@ -117,6 +139,30 @@ describe("ProjectSetup", () => {
     expect(onValidateFolder).toHaveBeenCalledWith("/tmp/missing-project");
     expect(onCreate).not.toHaveBeenCalled();
     expect(screen.getByText("The selected folder does not exist.")).toBeInTheDocument();
+  });
+
+  it("keeps a long valid path readable and saves it", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn();
+    const onValidateFolder = vi.fn().mockResolvedValue({ gitRepository: false });
+    const longPath = `/tmp/${"nested-project/".repeat(24)}final-project`;
+
+    renderWithRouter(
+      <ProjectSetup onCreate={onCreate} onValidateFolder={onValidateFolder} />
+    );
+
+    await user.type(screen.getByLabelText("Project name"), "Long path project");
+    await user.type(screen.getByLabelText("Local folder path"), longPath);
+
+    expect(screen.getByText(longPath)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Create project" }));
+
+    expect(onCreate).toHaveBeenCalledWith({
+      name: "Long path project",
+      localPath: longPath,
+      gitEnabled: false
+    });
   });
 
   it("does not replace a manually entered path when the picker is cancelled", async () => {

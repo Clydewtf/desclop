@@ -1,5 +1,5 @@
 import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
 import { MarkdownImportPreview } from "./MarkdownImportPreview";
 
@@ -78,5 +78,21 @@ describe("MarkdownImportPreview", () => {
     expect(screen.getByText("Plan 2")).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("A plan without tasks cannot be created.");
     expect(screen.getByRole("button", { name: "Import 0 tasks" })).toBeDisabled();
+  });
+
+  it("allows the current preview to be cancelled", async () => {
+    const onCancel = vi.fn();
+
+    renderWithRouter(
+      <MarkdownImportPreview
+        parsed={{ planTitle: "Plan", stages: [], warnings: [] }}
+        onImport={() => undefined}
+        onCancel={onCancel}
+      />
+    );
+
+    screen.getByRole("button", { name: "Cancel preview" }).click();
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });

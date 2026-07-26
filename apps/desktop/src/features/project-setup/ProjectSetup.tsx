@@ -164,15 +164,15 @@ export function ProjectSetup({
         description="Desclop stores project workflow data locally and works without Git."
       />
       <EmptyState
-        title="No project setup"
-        body="Create a local project record to connect Desclop to this folder."
+        title="No local project yet"
+        body="Enter a project name and choose a local folder below. Git is optional."
       />
       <FirstRunHint
         storageKey="desclop.first-run-help.project-setup.dismissed"
         title="Your first project"
         onOpenHelp={onOpenHelp}
       >
-        <p>Choose the folder where your project already lives, then create one plan with a task you can continue today.</p>
+        <p>After creating the project, add one plan with a task you can continue today.</p>
       </FirstRunHint>
       {error ? <InlineAlert tone="error">{error}</InlineAlert> : null}
       <form className="stack" onSubmit={submit}>
@@ -206,7 +206,7 @@ export function ProjectSetup({
                 setLocalPath(event.target.value);
                 resetFolderValidation();
               }}
-              placeholder="/Users/clyde/projects/desclop"
+              placeholder="Choose a folder or enter its path"
               aria-describedby={[
                 "project-path-hint",
                 validationErrors.localPath ? "project-path-error" : undefined

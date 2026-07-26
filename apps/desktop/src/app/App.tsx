@@ -9,6 +9,7 @@ import {
   orderTasks
 } from "../features/context-export/contextExport";
 import { FocusMode } from "../features/focus-mode/FocusMode";
+import { MarkdownFilePicker } from "../features/markdown-import/MarkdownFilePicker";
 import { MarkdownImportPreview } from "../features/markdown-import/MarkdownImportPreview";
 import { FirstRunHint } from "../features/onboarding/FirstRunHint";
 import { FirstRunHelp } from "../features/onboarding/FirstRunHelp";
@@ -63,7 +64,11 @@ import {
   type ProjectDiagnostics,
   type ProjectPlanPayload
 } from "../shared/api/client";
-import { chooseFolder, choosePortableBackupFile } from "../shared/api/folderDialog";
+import {
+  chooseFolder,
+  chooseMarkdownFile,
+  choosePortableBackupFile
+} from "../shared/api/folderDialog";
 import { formatUserFacingError } from "../shared/errors/safeError";
 import {
   type GitCommit,
@@ -383,6 +388,7 @@ export function App() {
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null);
   const [manualReviewTaskId, setManualReviewTaskId] = useState<string | null>(null);
   const [markdownDraft, setMarkdownDraft] = useState("");
+  const [markdownFileName, setMarkdownFileName] = useState<string | null>(null);
   const [parsedPlan, setParsedPlan] = useState<ParsedMarkdownPlan | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
@@ -555,6 +561,7 @@ export function App() {
     setFocusSession(null);
     setManualReviewTaskId(null);
     setMarkdownDraft("");
+    setMarkdownFileName(null);
     setParsedPlan(null);
     setImportError(null);
     setImporting(false);
@@ -1721,6 +1728,19 @@ export function App() {
 
   function updateMarkdownDraft(nextDraft: string) {
     setMarkdownDraft(nextDraft);
+    setMarkdownFileName(null);
+    setParsedPlan(null);
+    setImportError(null);
+  }
+
+  function loadMarkdownFile(file: { name: string; text: string }) {
+    setMarkdownDraft(file.text);
+    setMarkdownFileName(file.name);
+    setParsedPlan(null);
+    setImportError(null);
+  }
+
+  function clearImportPreview() {
     setParsedPlan(null);
     setImportError(null);
   }
@@ -2179,6 +2199,15 @@ export function App() {
                 disabled={importing}
                 onChange={(event) => updateMarkdownDraft(event.target.value)}
               />
+              <MarkdownFilePicker
+                draft={markdownDraft}
+                fileName={markdownFileName}
+                disabled={importing}
+                onChooseFile={chooseMarkdownFile}
+                onReadFile={api.readMarkdownFile}
+                onFileLoaded={loadMarkdownFile}
+                onError={setImportError}
+              />
               <Button
                 type="button"
                 className="markdown-import__action"
@@ -2248,6 +2277,7 @@ export function App() {
             parsed={parsedPlan}
             fallbackPlanTitle={nextPlanTitle(projectPlan)}
             onImport={() => void importMarkdownPlan()}
+            onCancel={clearImportPreview}
             importing={importing}
           />
         </section>

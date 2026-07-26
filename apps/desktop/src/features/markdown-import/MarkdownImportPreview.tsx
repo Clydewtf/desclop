@@ -11,6 +11,7 @@ interface MarkdownImportPreviewProps {
   fallbackPlanTitle?: string;
   importing?: boolean;
   onImport: () => void;
+  onCancel?: () => void;
 }
 
 function pluralize(count: number, singular: string, plural = `${singular}s`) {
@@ -21,7 +22,8 @@ export function MarkdownImportPreview({
   parsed,
   fallbackPlanTitle = "Plan 1",
   importing = false,
-  onImport
+  onImport,
+  onCancel
 }: MarkdownImportPreviewProps) {
   if (!parsed) {
     return (
@@ -168,16 +170,21 @@ export function MarkdownImportPreview({
             ? `Ready to add ${pluralize(taskCount, "task")}.`
             : "Preview is ready, but there are no tasks to import."}
         </p>
-        <Button
-          type="button"
-          className="markdown-preview__action"
-          disabled={!canImport || importing}
-          onClick={onImport}
-        >
-          {importing
-            ? "Importing plan"
-            : `Import ${pluralize(taskCount, "task")}`}
-        </Button>
+        <div className="markdown-preview__actions">
+          {onCancel ? (
+            <Button type="button" variant="secondary" onClick={onCancel} disabled={importing}>
+              Cancel preview
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            className="markdown-preview__action"
+            disabled={!canImport || importing}
+            onClick={onImport}
+          >
+            {importing ? "Importing plan" : `Import ${pluralize(taskCount, "task")}`}
+          </Button>
+        </div>
       </div>
     </section>
   );

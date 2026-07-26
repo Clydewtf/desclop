@@ -242,6 +242,11 @@ Today should not become a dense dashboard.
 
 Planner displays the project plan as Stage Frames.
 
+The beta.2 plan editor contract is fixed in
+[`docs/plan-editor-mvp.md`](docs/plan-editor-mvp.md): structural editing has
+one explicit **Edit plan** mode inside Planner, preserves local task history,
+and does not provide a parallel Markdown overwrite flow.
+
 It should support:
 
 - collapsed completed stages;

@@ -13,3 +13,12 @@ export async function choosePortableBackupFile() {
   });
   return typeof selected === "string" ? selected : null;
 }
+
+export async function chooseMarkdownFile() {
+  const selected = await open({
+    directory: false,
+    multiple: false,
+    filters: [{ name: "Markdown plan", extensions: ["md", "markdown", "txt"] }]
+  });
+  return typeof selected === "string" ? selected : null;
+}

@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "./test-utils";
 import { App } from "./App";
 import { api } from "../shared/api/client";
-import { chooseFolder, choosePortableBackupFile } from "../shared/api/folderDialog";
+import {
+  chooseFolder,
+  chooseMarkdownFile,
+  choosePortableBackupFile
+} from "../shared/api/folderDialog";
 import type { ResumeBrief } from "../shared/domain/types";
 import { SETTINGS_SCHEMA_VERSION, SETTINGS_STORAGE_KEY } from "../features/settings/settings";
 import { LAST_PROJECT_STORAGE_KEY } from "../features/project-setup/projectSelection";
@@ -31,6 +35,7 @@ vi.mock("../shared/api/client", () => ({
     listProjects: vi.fn(),
     listProjectSummaries: vi.fn(),
     inspectProjectFolder: vi.fn(),
+    readMarkdownFile: vi.fn(),
     createProject: vi.fn(),
     deleteProject: vi.fn(),
     relinkProjectFolder: vi.fn(),
@@ -71,6 +76,7 @@ vi.mock("../shared/api/client", () => ({
 
 vi.mock("../shared/api/folderDialog", () => ({
   chooseFolder: vi.fn(),
+  chooseMarkdownFile: vi.fn(),
   choosePortableBackupFile: vi.fn()
 }));
 
@@ -81,6 +87,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 const listProjects = vi.mocked(api.listProjects);
 const listProjectSummaries = vi.mocked(api.listProjectSummaries);
 const inspectProjectFolder = vi.mocked(api.inspectProjectFolder);
+const readMarkdownFile = vi.mocked(api.readMarkdownFile);
 const createProject = vi.mocked(api.createProject);
 const deleteProject = vi.mocked(api.deleteProject);
 const relinkProjectFolder = vi.mocked(api.relinkProjectFolder);
@@ -112,6 +119,7 @@ const exportProjectBundle = vi.mocked(api.exportProjectBundle);
 const inspectProjectBundle = vi.mocked(api.inspectProjectBundle);
 const importProjectBundle = vi.mocked(api.importProjectBundle);
 const chooseFolderMock = vi.mocked(chooseFolder);
+const chooseMarkdownFileMock = vi.mocked(chooseMarkdownFile);
 const choosePortableBackupFileMock = vi.mocked(choosePortableBackupFile);
 const FIRST_RUN_HELP_STORAGE_KEY = "desclop.first-run-help.dismissed";
 const onboardingStorage = new Map<string, string>();
@@ -393,6 +401,7 @@ beforeEach(() => {
   });
   inspectProjectBundle.mockResolvedValue(portableBundlePreview());
   inspectProjectFolder.mockResolvedValue({ gitRepository: false });
+  readMarkdownFile.mockResolvedValue({ fileName: "plan.md", text: "" });
   readCurrentGitBranch.mockResolvedValue(null);
 });
 
@@ -402,6 +411,7 @@ afterEach(() => {
   vi.useRealTimers();
   tauriEventMock.listeners.clear();
   chooseFolderMock.mockReset();
+  chooseMarkdownFileMock.mockReset();
   choosePortableBackupFileMock.mockReset();
   vi.clearAllMocks();
   Reflect.deleteProperty(navigator, "clipboard");
@@ -1526,6 +1536,10 @@ describe("App", () => {
     await user.click(await screen.findByRole("button", { name: "Import Plan" }));
 
     expect(screen.getByPlaceholderText(/Optional plan name/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Choose Markdown file" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("group", { name: "Markdown file drop zone" })
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("complementary", { name: "Start with the supported plan shape" })
     ).toBeInTheDocument();
@@ -1533,6 +1547,13 @@ describe("App", () => {
     expect(screen.getByText("Nothing to preview yet")).toBeInTheDocument();
     const planGuide = screen.getByRole("heading", { name: "Plan structure" }).closest("details");
     expect(planGuide).not.toHaveAttribute("open");
+
+    const fileText = "# File plan\n## Foundation\n- [ ] Read file";
+    chooseMarkdownFileMock.mockResolvedValue("/tmp/plan.md");
+    readMarkdownFile.mockResolvedValue({ fileName: "plan.md", text: fileText });
+    await user.click(screen.getByRole("button", { name: "Choose Markdown file" }));
+    await waitFor(() => expect(screen.getByLabelText("Markdown plan")).toHaveValue(fileText));
+    expect(screen.getByText("Selected file: plan.md")).toBeInTheDocument();
 
     await user.click(screen.getByRole("heading", { name: "Plan structure" }));
     expect(planGuide).toHaveAttribute("open");
@@ -1557,6 +1578,8 @@ describe("App", () => {
     await waitFor(() =>
       expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" })
     );
+    await user.click(screen.getByRole("button", { name: "Cancel preview" }));
+    expect(screen.getByText("Nothing to preview yet")).toBeInTheDocument();
 
     if (originalScrollIntoView) {
       Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
@@ -1566,6 +1589,39 @@ describe("App", () => {
     } else {
       Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
     }
+  });
+
+  it("uses the same preview for a selected file and pasted Markdown without importing", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue({ plans: [], stages: [], tasks: [], checklistItems: [] });
+
+    const markdown = "# Shared plan\n## Foundation\n- [ ] Read file\n  - [ ] Keep local";
+    chooseMarkdownFileMock.mockResolvedValue("/tmp/shared-plan.md");
+    readMarkdownFile.mockResolvedValue({ fileName: "shared-plan.md", text: markdown });
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Import Plan" }));
+    await user.click(screen.getByRole("button", { name: "Choose Markdown file" }));
+    await waitFor(() => expect(screen.getByLabelText("Markdown plan")).toHaveValue(markdown));
+    await user.click(screen.getByRole("button", { name: "Preview import" }));
+
+    expect(screen.getByRole("heading", { name: "Foundation" })).toBeInTheDocument();
+    expect(screen.getByText("Read file")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Import preview" })).getByText(/Keep local/)).toBeInTheDocument();
+    expect(importPlan).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Cancel preview" }));
+    fireEvent.change(screen.getByLabelText("Markdown plan"), { target: { value: markdown } });
+    await user.click(screen.getByRole("button", { name: "Preview import" }));
+
+    expect(screen.getByRole("heading", { name: "Foundation" })).toBeInTheDocument();
+    expect(screen.getByText("Read file")).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Import preview" })).getByText(/Keep local/)).toBeInTheDocument();
+    expect(importPlan).not.toHaveBeenCalled();
   });
 
   it("navigates to Timeline and Utilities from the shell", async () => {

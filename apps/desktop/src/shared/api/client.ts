@@ -29,6 +29,11 @@ export interface ProjectFolderInspection {
   gitRepository: boolean;
 }
 
+export interface MarkdownFileReadResult {
+  fileName: string;
+  text: string;
+}
+
 export interface ProjectPlanPayload {
   plans?: Plan[];
   stages: Stage[];
@@ -156,6 +161,8 @@ export const api = {
     invoke<ProjectSummary[]>("list_project_summaries"),
   inspectProjectFolder: (localPath: string) =>
     invoke<ProjectFolderInspection>("inspect_project_folder", { localPath }),
+  readMarkdownFile: (filePath: string) =>
+    invoke<MarkdownFileReadResult>("read_markdown_file", { filePath }),
   createProject: (input: CreateProjectInput) =>
     invoke<Project>("create_project", { input }),
   deleteProject: (projectId: string) =>

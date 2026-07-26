@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { chooseFolder, choosePortableBackupFile } from "./folderDialog";
+import { chooseFolder, chooseMarkdownFile, choosePortableBackupFile } from "./folderDialog";
 
 const { open } = vi.hoisted(() => ({
   open: vi.fn()
@@ -42,6 +42,17 @@ describe("chooseFolder", () => {
       directory: false,
       multiple: false,
       filters: [{ name: "Desclop backup", extensions: ["desclop"] }]
+    });
+  });
+
+  it("filters for one Markdown plan file", async () => {
+    open.mockResolvedValue("/path/to/plan.markdown");
+
+    await expect(chooseMarkdownFile()).resolves.toBe("/path/to/plan.markdown");
+    expect(open).toHaveBeenCalledWith({
+      directory: false,
+      multiple: false,
+      filters: [{ name: "Markdown plan", extensions: ["md", "markdown", "txt"] }]
     });
   });
 });
