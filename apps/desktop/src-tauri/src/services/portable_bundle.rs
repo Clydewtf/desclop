@@ -1214,6 +1214,10 @@ fn bundle_readme() -> &'static str {
 mod tests {
     use super::*;
     use crate::db::{create_memory_connection, run_migrations};
+    use crate::repositories::plan_structure::{
+        CreateTaskInput, MoveTaskInput, PlanStructureRepository, UpdateChecklistItemDetailsInput,
+        UpdatePlanInput, UpdateStageInput, UpdateTaskInput,
+    };
     use crate::repositories::plans::{
         ImportChecklistItem, ImportStage, ImportTask, PlanRepository,
     };
@@ -1692,6 +1696,223 @@ mod tests {
         assert_eq!(resume.next_step, "Keep older task waiting");
         assert_eq!(restored_plan_count, 1);
         assert_eq!(restored_stage_has_plan, 1);
+    }
+
+    #[test]
+    fn export_and_import_preserve_local_plan_structure_edits() {
+        let mut source = create_memory_connection().expect("source database");
+        run_migrations(&source).expect("migrations");
+        let project = ProjectRepository::new(&source)
+            .create_project(
+                "Edited plan".to_string(),
+                "/tmp/edited-plan-source".to_string(),
+                false,
+            )
+            .expect("create project");
+        PlanRepository::new(&mut source)
+            .import_plan(
+                &project.id,
+                "Original plan",
+                vec![
+                    ImportStage {
+                        title: "Discovery".to_string(),
+                        description: "Original discovery".to_string(),
+                        position: 0,
+                        tasks: vec![ImportTask {
+                            title: "Original task".to_string(),
+                            description: "Original task description".to_string(),
+                            status: "todo".to_string(),
+                            checklist: vec![ImportChecklistItem {
+                                title: "Original checklist".to_string(),
+                                description: "Original checklist description".to_string(),
+                                completed: false,
+                                position: 0,
+                            }],
+                            position: 0,
+                        }],
+                    },
+                    ImportStage {
+                        title: "Delivery".to_string(),
+                        description: "Ship it".to_string(),
+                        position: 1,
+                        tasks: vec![ImportTask {
+                            title: "Ship task".to_string(),
+                            description: String::new(),
+                            status: "todo".to_string(),
+                            checklist: vec![],
+                            position: 0,
+                        }],
+                    },
+                ],
+            )
+            .expect("import plan");
+
+        let plan_id: String = source
+            .query_row(
+                "select id from plans where project_id = ?1",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("plan id");
+        let discovery_stage_id: String = source
+            .query_row(
+                "select id from stages where project_id = ?1 and title = 'Discovery'",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("discovery stage id");
+        let delivery_stage_id: String = source
+            .query_row(
+                "select id from stages where project_id = ?1 and title = 'Delivery'",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("delivery stage id");
+        let original_task_id: String = source
+            .query_row(
+                "select id from tasks where project_id = ?1 and title = 'Original task'",
+                params![project.id],
+                |row| row.get(0),
+            )
+            .expect("task id");
+        let original_checklist_id: String = source
+            .query_row(
+                "select id from checklist_items where task_id = ?1",
+                params![original_task_id],
+                |row| row.get(0),
+            )
+            .expect("checklist id");
+
+        let mut structure = PlanStructureRepository::new(&mut source);
+        structure
+            .update_plan(&UpdatePlanInput {
+                plan_id,
+                title: "Release plan".to_string(),
+            })
+            .expect("rename plan");
+        structure
+            .update_stage(&UpdateStageInput {
+                stage_id: discovery_stage_id.clone(),
+                title: "Research".to_string(),
+                description: "Edited discovery context".to_string(),
+            })
+            .expect("edit stage");
+        structure
+            .update_task(&UpdateTaskInput {
+                task_id: original_task_id.clone(),
+                title: "Finalize release".to_string(),
+                description: "Edited task context".to_string(),
+            })
+            .expect("edit task");
+        structure
+            .update_checklist_item(&UpdateChecklistItemDetailsInput {
+                item_id: original_checklist_id,
+                title: "Check release notes".to_string(),
+                description: "Edited checklist context".to_string(),
+            })
+            .expect("edit checklist");
+        structure
+            .create_task(&CreateTaskInput {
+                stage_id: discovery_stage_id,
+                title: "Document release".to_string(),
+                description: "Keep this in research".to_string(),
+                position: Some(1),
+            })
+            .expect("create task");
+        structure
+            .move_task(&MoveTaskInput {
+                task_id: original_task_id,
+                to_stage_id: delivery_stage_id,
+                position: Some(0),
+            })
+            .expect("move task");
+
+        let destination = temp_bundle_destination("edited-plan");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project.id, &destination).expect("export");
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+        let imported_project_id =
+            import_project_bundle_from_folder(&mut target, &bundle_path, "/tmp/edited-plan-target")
+                .expect("import");
+
+        let plan_title: String = target
+            .query_row(
+                "select title from plans where project_id = ?1",
+                params![imported_project_id],
+                |row| row.get(0),
+            )
+            .expect("restored plan title");
+        let research: (String, String) = target
+            .query_row(
+                "select title, description from stages where project_id = ?1 and title = 'Research'",
+                params![imported_project_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("restored research stage");
+        let delivery_tasks: Vec<(String, i64)> = {
+            let mut statement = target
+                .prepare(
+                    "select tasks.title, tasks.position
+                     from tasks
+                     inner join stages on stages.id = tasks.stage_id
+                     where tasks.project_id = ?1 and stages.title = 'Delivery'
+                     order by tasks.position asc",
+                )
+                .expect("prepare delivery tasks");
+            statement
+                .query_map(params![imported_project_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?))
+                })
+                .expect("delivery tasks")
+                .collect::<rusqlite::Result<_>>()
+                .expect("collect delivery tasks")
+        };
+        let checklist: (String, String, String) = target
+            .query_row(
+                "select checklist_items.title, checklist_items.description, tasks.title
+                 from checklist_items
+                 inner join tasks on tasks.id = checklist_items.task_id
+                 where tasks.project_id = ?1 and tasks.title = 'Finalize release'",
+                params![imported_project_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("restored checklist");
+        let research_task: (String, i64) = target
+            .query_row(
+                "select tasks.title, tasks.position
+                 from tasks
+                 inner join stages on stages.id = tasks.stage_id
+                 where tasks.project_id = ?1 and stages.title = 'Research'",
+                params![imported_project_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("restored research task");
+
+        assert_eq!(plan_title, "Release plan");
+        assert_eq!(
+            research,
+            (
+                "Research".to_string(),
+                "Edited discovery context".to_string()
+            )
+        );
+        assert_eq!(
+            delivery_tasks,
+            vec![
+                ("Finalize release".to_string(), 0),
+                ("Ship task".to_string(), 1)
+            ]
+        );
+        assert_eq!(
+            checklist,
+            (
+                "Check release notes".to_string(),
+                "Edited checklist context".to_string(),
+                "Finalize release".to_string()
+            )
+        );
+        assert_eq!(research_task, ("Document release".to_string(), 0));
     }
 
     #[test]

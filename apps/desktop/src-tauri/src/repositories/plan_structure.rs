@@ -18,6 +18,20 @@ pub enum PlanStructureError {
     InvalidPosition,
     #[error("Tasks can only move to a stage in the same plan.")]
     CrossPlanTaskMove,
+    #[error("Move or remove this stage's tasks before deleting the stage.")]
+    StageHasTasks,
+    #[error("This stage is still referenced by a Resume Brief and can't be deleted. Refresh Resume Brief before deleting the stage.")]
+    StageHasResumeBrief,
+    #[error("This task has work history, notes, Inbox items, or linked commits and can't be deleted. Complete, move, or hide it instead.")]
+    TaskHasHistory,
+    #[error("This task is still referenced by a Resume Brief and can't be deleted. Complete, move, or hide it instead.")]
+    TaskHasResumeBrief,
+    #[error("Choose a new active task or clear it before deleting this task.")]
+    ActiveTaskDelete,
+    #[error("Confirm deleting this task and its checklist items before continuing.")]
+    TaskChecklistConfirmationRequired,
+    #[error("Confirm deleting this checklist item before continuing.")]
+    ChecklistConfirmationRequired,
     #[error(transparent)]
     Database(#[from] rusqlite::Error),
 }
@@ -110,6 +124,28 @@ pub struct MoveTaskInput {
     pub task_id: String,
     pub to_stage_id: String,
     pub position: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteStageInput {
+    pub stage_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteTaskInput {
+    pub task_id: String,
+    #[serde(default)]
+    pub confirmed: bool,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteChecklistItemInput {
+    pub item_id: String,
+    #[serde(default)]
+    pub confirmed: bool,
 }
 
 pub struct PlanStructureRepository<'a> {
@@ -411,6 +447,87 @@ impl<'a> PlanStructureRepository<'a> {
         tx.commit()?;
         Ok(())
     }
+
+    pub fn delete_stage(&mut self, input: &DeleteStageInput) -> Result<(), PlanStructureError> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self.conn.transaction()?;
+        let (project_id, plan_id) = find_stage_context(&tx, &input.stage_id)?;
+
+        if stage_has_tasks(&tx, &input.stage_id)? {
+            return Err(PlanStructureError::StageHasTasks);
+        }
+        if stage_has_resume_brief(&tx, &input.stage_id)? {
+            return Err(PlanStructureError::StageHasResumeBrief);
+        }
+
+        let ids = stage_ids(&tx, &project_id, plan_id.as_deref())?;
+        let changes = removal_position_changes(&ids, &input.stage_id)?;
+        tx.execute("delete from stages where id = ?1", params![input.stage_id])?;
+        if !changes.is_empty() {
+            apply_position_changes(&tx, "stages", &changes, &now)?;
+        }
+        touch_project(&tx, &project_id, &now)?;
+        recalculate_stage_statuses(&tx, &project_id)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn delete_task(&mut self, input: &DeleteTaskInput) -> Result<(), PlanStructureError> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self.conn.transaction()?;
+        let (project_id, stage_id, _) = find_task_context(&tx, &input.task_id)?;
+
+        if is_active_task(&tx, &project_id, &input.task_id)? {
+            return Err(PlanStructureError::ActiveTaskDelete);
+        }
+        if task_has_history(&tx, &input.task_id)? {
+            return Err(PlanStructureError::TaskHasHistory);
+        }
+        if task_has_resume_brief(&tx, &input.task_id)? {
+            return Err(PlanStructureError::TaskHasResumeBrief);
+        }
+        if task_has_checklist_items(&tx, &input.task_id)? && !input.confirmed {
+            return Err(PlanStructureError::TaskChecklistConfirmationRequired);
+        }
+
+        let ids = task_ids(&tx, &project_id, &stage_id)?;
+        let changes = removal_position_changes(&ids, &input.task_id)?;
+        tx.execute("delete from tasks where id = ?1", params![input.task_id])?;
+        if !changes.is_empty() {
+            apply_position_changes(&tx, "tasks", &changes, &now)?;
+        }
+        touch_project(&tx, &project_id, &now)?;
+        recalculate_stage_statuses(&tx, &project_id)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn delete_checklist_item(
+        &mut self,
+        input: &DeleteChecklistItemInput,
+    ) -> Result<(), PlanStructureError> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self.conn.transaction()?;
+        let (project_id, task_id) = find_checklist_context(&tx, &input.item_id)?;
+
+        if !input.confirmed {
+            return Err(PlanStructureError::ChecklistConfirmationRequired);
+        }
+
+        let ids = checklist_item_ids(&tx, &task_id)?;
+        let changes = removal_position_changes(&ids, &input.item_id)?;
+        tx.execute(
+            "delete from checklist_items where id = ?1",
+            params![input.item_id],
+        )?;
+        if !changes.is_empty() {
+            apply_position_changes(&tx, "checklist_items", &changes, &now)?;
+        }
+        touch_task(&tx, &task_id, &now)?;
+        touch_project(&tx, &project_id, &now)?;
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 fn required_title(title: &str) -> Result<String, PlanStructureError> {
@@ -485,6 +602,75 @@ fn find_checklist_context(
     )
     .optional()?
     .ok_or(PlanStructureError::NotFound)
+}
+
+fn stage_has_tasks(tx: &Transaction<'_>, stage_id: &str) -> Result<bool, PlanStructureError> {
+    Ok(tx.query_row(
+        "select exists(select 1 from tasks where stage_id = ?1)",
+        params![stage_id],
+        |row| row.get::<_, i64>(0),
+    )? != 0)
+}
+
+fn stage_has_resume_brief(
+    tx: &Transaction<'_>,
+    stage_id: &str,
+) -> Result<bool, PlanStructureError> {
+    Ok(tx.query_row(
+        "select exists(select 1 from resume_briefs where stage_id = ?1)",
+        params![stage_id],
+        |row| row.get::<_, i64>(0),
+    )? != 0)
+}
+
+fn is_active_task(
+    tx: &Transaction<'_>,
+    project_id: &str,
+    task_id: &str,
+) -> Result<bool, PlanStructureError> {
+    Ok(tx.query_row(
+        "select exists(
+           select 1 from projects where id = ?1 and active_task_id = ?2
+         )",
+        params![project_id, task_id],
+        |row| row.get::<_, i64>(0),
+    )? != 0)
+}
+
+fn task_has_history(tx: &Transaction<'_>, task_id: &str) -> Result<bool, PlanStructureError> {
+    Ok(tx.query_row(
+        "select exists(
+           select 1 from notes where task_id = ?1
+           union all
+           select 1 from work_entries where task_id = ?1
+           union all
+           select 1 from inbox_items where task_id = ?1
+           union all
+           select 1 from commit_task_links where task_id = ?1
+           limit 1
+         )",
+        params![task_id],
+        |row| row.get::<_, i64>(0),
+    )? != 0)
+}
+
+fn task_has_resume_brief(tx: &Transaction<'_>, task_id: &str) -> Result<bool, PlanStructureError> {
+    Ok(tx.query_row(
+        "select exists(select 1 from resume_briefs where task_id = ?1)",
+        params![task_id],
+        |row| row.get::<_, i64>(0),
+    )? != 0)
+}
+
+fn task_has_checklist_items(
+    tx: &Transaction<'_>,
+    task_id: &str,
+) -> Result<bool, PlanStructureError> {
+    Ok(tx.query_row(
+        "select exists(select 1 from checklist_items where task_id = ?1)",
+        params![task_id],
+        |row| row.get::<_, i64>(0),
+    )? != 0)
 }
 
 fn plan_ids(tx: &Transaction<'_>, project_id: &str) -> Result<Vec<String>, PlanStructureError> {
@@ -755,6 +941,31 @@ mod tests {
         .expect("checklist id")
     }
 
+    fn insert_empty_stage(
+        conn: &Connection,
+        project_id: &str,
+        plan_id: &str,
+        position: i64,
+    ) -> String {
+        let now = "2026-07-27T00:00:00Z";
+        let stage_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "update stages
+             set position = position + 1
+             where project_id = ?1 and plan_id = ?2 and position >= ?3",
+            params![project_id, plan_id, position],
+        )
+        .expect("make space for empty stage");
+        conn.execute(
+            "insert into stages (
+                id, project_id, plan_id, title, description, position, status, created_at, updated_at
+             ) values (?1, ?2, ?3, 'Empty stage', '', ?4, 'future', ?5, ?5)",
+            params![stage_id, project_id, plan_id, position, now],
+        )
+        .expect("insert empty stage");
+        stage_id
+    }
+
     #[test]
     fn updates_and_reorders_every_structure_level_inside_its_container() {
         let mut conn = create_memory_connection().expect("memory database");
@@ -1021,6 +1232,293 @@ mod tests {
             )
             .expect("task stage");
         assert_eq!(stage_id_after, original_stage_id);
+    }
+
+    #[test]
+    fn deletes_only_empty_stages_and_never_removes_a_resume_brief() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project_id = seed_project(&mut conn);
+        let discovery_stage_id = stage_id(&conn, &project_id, "Discovery");
+
+        let result = PlanStructureRepository::new(&mut conn).delete_stage(&DeleteStageInput {
+            stage_id: discovery_stage_id.clone(),
+        });
+        assert!(matches!(result, Err(PlanStructureError::StageHasTasks)));
+        let stage_count: i64 = conn
+            .query_row(
+                "select count(*) from stages where id = ?1",
+                params![discovery_stage_id],
+                |row| row.get(0),
+            )
+            .expect("stage count");
+        assert_eq!(stage_count, 1);
+
+        let alpha_plan_id = plan_id(&conn, &project_id, "Alpha");
+        let empty_stage_id = insert_empty_stage(&conn, &project_id, &alpha_plan_id, 1);
+        conn.execute(
+            "insert into resume_briefs (
+                id, project_id, task_id, stage_id, latest_note, next_step, facts_json, generated_at
+             ) values ('empty-stage-brief', ?1, null, ?2, '', '', '[]', '2026-07-27T00:00:00Z')",
+            params![project_id, empty_stage_id],
+        )
+        .expect("insert resume brief");
+
+        let result = PlanStructureRepository::new(&mut conn).delete_stage(&DeleteStageInput {
+            stage_id: empty_stage_id.clone(),
+        });
+        assert!(matches!(
+            result,
+            Err(PlanStructureError::StageHasResumeBrief)
+        ));
+        let brief_count: i64 = conn
+            .query_row(
+                "select count(*) from resume_briefs where id = 'empty-stage-brief'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("resume brief count");
+        assert_eq!(brief_count, 1);
+
+        conn.execute(
+            "delete from resume_briefs where id = 'empty-stage-brief'",
+            [],
+        )
+        .expect("remove test resume brief");
+        PlanStructureRepository::new(&mut conn)
+            .delete_stage(&DeleteStageInput {
+                stage_id: empty_stage_id,
+            })
+            .expect("delete empty stage");
+
+        let delivery_position: i64 = conn
+            .query_row(
+                "select position from stages where project_id = ?1 and title = 'Delivery'",
+                params![project_id],
+                |row| row.get(0),
+            )
+            .expect("delivery position");
+        assert_eq!(delivery_position, 1);
+    }
+
+    #[test]
+    fn deleting_a_task_requires_clearing_active_state_and_confirming_its_checklist() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project_id = seed_project(&mut conn);
+        let first_task_id = task_id(&conn, &project_id, "First task");
+
+        TaskRepository::new(&conn)
+            .set_active_task(&project_id, &first_task_id)
+            .expect("set active task");
+        let result = PlanStructureRepository::new(&mut conn).delete_task(&DeleteTaskInput {
+            task_id: first_task_id.clone(),
+            confirmed: true,
+        });
+        assert!(matches!(result, Err(PlanStructureError::ActiveTaskDelete)));
+
+        TaskRepository::new(&conn)
+            .update_task_status(&first_task_id, "todo")
+            .expect("clear active task");
+        let result = PlanStructureRepository::new(&mut conn).delete_task(&DeleteTaskInput {
+            task_id: first_task_id.clone(),
+            confirmed: false,
+        });
+        assert!(matches!(
+            result,
+            Err(PlanStructureError::TaskChecklistConfirmationRequired)
+        ));
+        let checklist_count: i64 = conn
+            .query_row(
+                "select count(*) from checklist_items where task_id = ?1",
+                params![first_task_id],
+                |row| row.get(0),
+            )
+            .expect("checklist count");
+        assert_eq!(checklist_count, 2);
+
+        PlanStructureRepository::new(&mut conn)
+            .delete_task(&DeleteTaskInput {
+                task_id: first_task_id.clone(),
+                confirmed: true,
+            })
+            .expect("delete task with confirmed checklist removal");
+
+        let deleted_task_count: i64 = conn
+            .query_row(
+                "select count(*) from tasks where id = ?1",
+                params![first_task_id],
+                |row| row.get(0),
+            )
+            .expect("deleted task count");
+        let remaining_task: (String, i64) = conn
+            .query_row(
+                "select title, position from tasks where project_id = ?1 and title = 'Second task'",
+                params![project_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("remaining task");
+        let active_task_id: Option<String> = conn
+            .query_row(
+                "select active_task_id from projects where id = ?1",
+                params![project_id],
+                |row| row.get(0),
+            )
+            .expect("active task");
+        assert_eq!(deleted_task_count, 0);
+        assert_eq!(remaining_task, ("Second task".to_string(), 0));
+        assert_eq!(active_task_id, None);
+    }
+
+    #[test]
+    fn blocks_task_deletion_for_notes_work_inbox_and_git_history() {
+        for history_kind in ["note", "work", "inbox", "commit"] {
+            let mut conn = create_memory_connection().expect("memory database");
+            run_migrations(&conn).expect("migrations");
+            let project_id = seed_project(&mut conn);
+            let first_task_id = task_id(&conn, &project_id, "First task");
+
+            match history_kind {
+                "note" => {
+                    conn.execute(
+                        "insert into notes (id, project_id, task_id, body, created_at)
+                         values ('history-note', ?1, ?2, 'Keep note', '2026-07-27T00:00:00Z')",
+                        params![project_id, first_task_id],
+                    )
+                    .expect("insert note");
+                }
+                "work" => {
+                    conn.execute(
+                        "insert into work_entries (
+                            id, project_id, task_id, source, done, remains, next_step, created_at
+                         ) values ('history-work', ?1, ?2, 'manual', '', '', '', '2026-07-27T00:00:00Z')",
+                        params![project_id, first_task_id],
+                    )
+                    .expect("insert work entry");
+                }
+                "inbox" => {
+                    conn.execute(
+                        "insert into inbox_items (
+                            id, project_id, task_id, body, kind, status, created_at, updated_at
+                         ) values ('history-inbox', ?1, ?2, 'Follow up', 'question', 'attached', '2026-07-27T00:00:00Z', '2026-07-27T00:00:00Z')",
+                        params![project_id, first_task_id],
+                    )
+                    .expect("insert inbox item");
+                }
+                "commit" => {
+                    conn.execute(
+                        "insert into commits (
+                            project_id, sha, branch, message, author_name, committed_at, changed_files_json
+                         ) values (?1, 'history-commit', 'main', 'Keep commit', 'Clyde', '2026-07-27T00:00:00Z', '[]')",
+                        params![project_id],
+                    )
+                    .expect("insert commit");
+                    conn.execute(
+                        "insert into commit_task_links (
+                            id, project_id, task_id, commit_sha, link_mode, created_at
+                         ) values ('history-link', ?1, ?2, 'history-commit', 'manual', '2026-07-27T00:00:00Z')",
+                        params![project_id, first_task_id],
+                    )
+                    .expect("insert commit link");
+                }
+                _ => unreachable!("known history kind"),
+            }
+
+            let result = PlanStructureRepository::new(&mut conn).delete_task(&DeleteTaskInput {
+                task_id: first_task_id.clone(),
+                confirmed: true,
+            });
+            assert!(matches!(result, Err(PlanStructureError::TaskHasHistory)));
+            let task_count: i64 = conn
+                .query_row(
+                    "select count(*) from tasks where id = ?1",
+                    params![first_task_id],
+                    |row| row.get(0),
+                )
+                .expect("task count");
+            assert_eq!(task_count, 1, "{history_kind} history must be retained");
+        }
+    }
+
+    #[test]
+    fn blocks_task_deletion_when_a_resume_brief_references_the_task() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project_id = seed_project(&mut conn);
+        let first_task_id = task_id(&conn, &project_id, "First task");
+        let discovery_stage_id = stage_id(&conn, &project_id, "Discovery");
+        conn.execute(
+            "insert into resume_briefs (
+                id, project_id, task_id, stage_id, latest_note, next_step, facts_json, generated_at
+             ) values ('task-brief', ?1, ?2, ?3, '', 'Keep task', '[]', '2026-07-27T00:00:00Z')",
+            params![project_id, first_task_id, discovery_stage_id],
+        )
+        .expect("insert resume brief");
+
+        let result = PlanStructureRepository::new(&mut conn).delete_task(&DeleteTaskInput {
+            task_id: first_task_id.clone(),
+            confirmed: true,
+        });
+
+        assert!(matches!(
+            result,
+            Err(PlanStructureError::TaskHasResumeBrief)
+        ));
+        let brief_count: i64 = conn
+            .query_row(
+                "select count(*) from resume_briefs where id = 'task-brief' and task_id = ?1",
+                params![first_task_id],
+                |row| row.get(0),
+            )
+            .expect("resume brief count");
+        assert_eq!(brief_count, 1);
+    }
+
+    #[test]
+    fn deleting_a_checklist_item_requires_confirmation_and_keeps_task_status() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project_id = seed_project(&mut conn);
+        let first_task_id = task_id(&conn, &project_id, "First task");
+        let first_check_id = checklist_id(&conn, &first_task_id, "First check");
+        TaskRepository::new(&conn)
+            .update_task_status(&first_task_id, "blocked")
+            .expect("block task");
+
+        let result = PlanStructureRepository::new(&mut conn).delete_checklist_item(
+            &DeleteChecklistItemInput {
+                item_id: first_check_id.clone(),
+                confirmed: false,
+            },
+        );
+        assert!(matches!(
+            result,
+            Err(PlanStructureError::ChecklistConfirmationRequired)
+        ));
+
+        PlanStructureRepository::new(&mut conn)
+            .delete_checklist_item(&DeleteChecklistItemInput {
+                item_id: first_check_id,
+                confirmed: true,
+            })
+            .expect("delete confirmed checklist item");
+
+        let task_status: String = conn
+            .query_row(
+                "select status from tasks where id = ?1",
+                params![first_task_id],
+                |row| row.get(0),
+            )
+            .expect("task status");
+        let remaining_checklist: (String, i64) = conn
+            .query_row(
+                "select title, position from checklist_items where task_id = ?1",
+                params![first_task_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .expect("remaining checklist");
+        assert_eq!(task_status, "blocked");
+        assert_eq!(remaining_checklist, ("Second check".to_string(), 0));
     }
 
     #[test]

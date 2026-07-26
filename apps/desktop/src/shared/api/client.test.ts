@@ -45,6 +45,9 @@ describe("api", () => {
     await api.createTask({ stageId: "stage-1", title: "New task", description: "Context", position: 1 });
     await api.createChecklistItem({ taskId: "task-1", title: "New check", description: "Context", position: 1 });
     await api.moveTask({ taskId: "task-1", toStageId: "stage-2", position: 0 });
+    await api.deleteStage({ stageId: "stage-1" });
+    await api.deleteTask({ taskId: "task-1", confirmed: true });
+    await api.deleteChecklistItem({ itemId: "item-1", confirmed: true });
 
     expect(invoke).toHaveBeenNthCalledWith(1, "update_plan", {
       input: { planId: "plan-1", title: "Plan" }
@@ -78,6 +81,15 @@ describe("api", () => {
     });
     expect(invoke).toHaveBeenNthCalledWith(11, "move_task", {
       input: { taskId: "task-1", toStageId: "stage-2", position: 0 }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(12, "delete_stage", {
+      input: { stageId: "stage-1" }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(13, "delete_task", {
+      input: { taskId: "task-1", confirmed: true }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(14, "delete_checklist_item", {
+      input: { itemId: "item-1", confirmed: true }
     });
   });
 

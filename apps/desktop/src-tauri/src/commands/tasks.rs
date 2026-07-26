@@ -2,8 +2,10 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::app_state::AppState;
+use crate::commands::git::sync_active_task_commits_before_completion;
 use crate::domain::{ChecklistItem, Plan, Stage, Task};
 use crate::repositories::tasks::TaskRepository;
+use crate::services::git_adapter::read_recent_commits;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -44,6 +46,12 @@ pub fn update_task_status(
     status: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    if status == "done" {
+        // The active task is cleared by the status update below. Discover and
+        // persist any new local Git links first, while the task is still the
+        // automatic link target. Git availability never blocks task work.
+        let _ = sync_active_task_commits_before_completion(&task_id, &state, read_recent_commits);
+    }
     let conn = state.connection()?;
     TaskRepository::new(&conn)
         .update_task_status(&task_id, &status)

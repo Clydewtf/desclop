@@ -3,9 +3,10 @@ use tauri::State;
 use crate::app_state::AppState;
 use crate::domain::{ChecklistItem, Task};
 use crate::repositories::plan_structure::{
-    CreateChecklistItemInput, CreateTaskInput, MoveTaskInput, PlanStructureRepository,
-    ReorderChecklistItemInput, ReorderPlanInput, ReorderStageInput, ReorderTaskInput,
-    UpdateChecklistItemDetailsInput, UpdatePlanInput, UpdateStageInput, UpdateTaskInput,
+    CreateChecklistItemInput, CreateTaskInput, DeleteChecklistItemInput, DeleteStageInput,
+    DeleteTaskInput, MoveTaskInput, PlanStructureRepository, ReorderChecklistItemInput,
+    ReorderPlanInput, ReorderStageInput, ReorderTaskInput, UpdateChecklistItemDetailsInput,
+    UpdatePlanInput, UpdateStageInput, UpdateTaskInput,
 };
 
 #[tauri::command]
@@ -102,5 +103,32 @@ pub fn move_task(input: MoveTaskInput, state: State<'_, AppState>) -> Result<(),
     let mut conn = state.connection()?;
     PlanStructureRepository::new(&mut conn)
         .move_task(&input)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn delete_stage(input: DeleteStageInput, state: State<'_, AppState>) -> Result<(), String> {
+    let mut conn = state.connection()?;
+    PlanStructureRepository::new(&mut conn)
+        .delete_stage(&input)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn delete_task(input: DeleteTaskInput, state: State<'_, AppState>) -> Result<(), String> {
+    let mut conn = state.connection()?;
+    PlanStructureRepository::new(&mut conn)
+        .delete_task(&input)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn delete_checklist_item(
+    input: DeleteChecklistItemInput,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state.connection()?;
+    PlanStructureRepository::new(&mut conn)
+        .delete_checklist_item(&input)
         .map_err(|err| err.to_string())
 }

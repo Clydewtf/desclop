@@ -104,6 +104,20 @@ export interface MoveTaskInput {
   position?: number | null;
 }
 
+export interface DeleteStageInput {
+  stageId: string;
+}
+
+export interface DeleteTaskInput {
+  taskId: string;
+  confirmed: boolean;
+}
+
+export interface DeleteChecklistItemInput {
+  itemId: string;
+  confirmed: boolean;
+}
+
 export interface CaptureInboxItemInput {
   projectId: string;
   body: string;
@@ -261,6 +275,12 @@ export const api = {
     invoke<ChecklistItem>("create_checklist_item", { input }),
   moveTask: (input: MoveTaskInput) =>
     invoke<void>("move_task", { input }),
+  deleteStage: (input: DeleteStageInput) =>
+    invoke<void>("delete_stage", { input }),
+  deleteTask: (input: DeleteTaskInput) =>
+    invoke<void>("delete_task", { input }),
+  deleteChecklistItem: (input: DeleteChecklistItemInput) =>
+    invoke<void>("delete_checklist_item", { input }),
   updateTaskStatus: (taskId: string, status: TaskStatus) =>
     invoke<void>("update_task_status", { taskId, status }),
   setActiveTask: (projectId: string, taskId: string) =>

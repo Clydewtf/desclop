@@ -2820,6 +2820,68 @@ describe("App", () => {
     });
   });
 
+  it("syncs Git before completing the active task and refreshes its linked commits", async () => {
+    const user = userEvent.setup();
+    const activePlan = twoTaskPlanFixture({
+      firstStatus: "active",
+      secondStatus: "todo"
+    });
+    const initialPlan = {
+      ...activePlan,
+      tasks: [
+        { ...activePlan.tasks[0], nextStep: "Close the history protection task" },
+        activePlan.tasks[1]
+      ]
+    };
+    const completedPlan = {
+      ...initialPlan,
+      tasks: initialPlan.tasks.map((task) =>
+        task.id === "t1" ? { ...task, status: "done" as const } : task
+      )
+    };
+    const linkedCommit = {
+      sha: "finish123",
+      projectId: "p1",
+      branch: "main",
+      message: "Protect task history",
+      authorName: "Clyde",
+      committedAt: "2026-07-27T10:00:00Z",
+      changedFiles: []
+    };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: true })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    getResumeBrief.mockResolvedValueOnce(
+      resumeBriefFixture({ projectId: "p1", taskId: "t1", stageId: "s1" })
+    );
+    loadProjectPlan
+      .mockResolvedValueOnce(initialPlan)
+      .mockResolvedValueOnce(completedPlan);
+    syncGitCommits.mockResolvedValueOnce([]).mockResolvedValueOnce([linkedCommit]);
+    readCurrentGitBranch.mockResolvedValue("main");
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    listLinkedCommitsForTask.mockResolvedValueOnce([]).mockResolvedValueOnce([linkedCommit]);
+    vi.mocked(api.updateTaskStatus).mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    expect(await screen.findByText("0 linked commits")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Task status"), "done");
+
+    await waitFor(() => {
+      expect(api.updateTaskStatus).toHaveBeenCalledWith("t1", "done");
+    });
+    expect(await screen.findByText("1 linked commits")).toBeInTheDocument();
+    expect(screen.getByText("Protect task history")).toBeInTheDocument();
+
+    const completionSyncCall = syncGitCommits.mock.invocationCallOrder[1];
+    const statusUpdateCall = vi.mocked(api.updateTaskStatus).mock.invocationCallOrder[0];
+    expect(completionSyncCall).toBeLessThan(statusUpdateCall);
+  });
+
   it("ignores a pending task status refresh after switching projects", async () => {
     const user = userEvent.setup();
     let resolveStatusUpdate: () => void = () => {};

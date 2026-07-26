@@ -849,6 +849,59 @@ export function App() {
     return true;
   }
 
+  async function refreshGitData(activeProject: Project, revision: number) {
+    const gitResult = await loadGitCommits(activeProject);
+    if (!isCurrentProjectContext(revision)) {
+      return false;
+    }
+    if (!gitResult.unavailable) {
+      setGitCommits(gitResult.commits);
+      setGitCurrentBranch(gitResult.currentBranch);
+      setGitLastSyncedAt(gitResult.syncedAt);
+    }
+    setGitError(gitResult.unavailable ? "Git unavailable." : null);
+    return true;
+  }
+
+  useEffect(() => {
+    if (!project?.gitEnabled) {
+      return;
+    }
+
+    let disposed = false;
+    let syncing = false;
+    const activeProject = project;
+
+    function refreshAfterReturningToTheApp() {
+      if (syncing) {
+        return;
+      }
+      syncing = true;
+      const revision = projectContextRevision.current;
+      void (async () => {
+        try {
+          if (!(await refreshGitData(activeProject, revision)) || disposed) {
+            return;
+          }
+          const taskId = selectedTaskIdRef.current;
+          const isSelectedTask = () =>
+            screenRef.current === "task-detail" && selectedTaskIdRef.current === taskId;
+          if (taskId && isSelectedTask()) {
+            await loadTaskContext(taskId, revision, isSelectedTask);
+          }
+        } finally {
+          syncing = false;
+        }
+      })();
+    }
+
+    window.addEventListener("focus", refreshAfterReturningToTheApp);
+    return () => {
+      disposed = true;
+      window.removeEventListener("focus", refreshAfterReturningToTheApp);
+    };
+  }, [project?.gitEnabled, project?.id]);
+
   async function refreshProjectData(projectId: string, revision: number) {
     let plan: ProjectPlanPayload;
     let resumeResult: ResumeLoadResult;
@@ -1331,18 +1384,24 @@ export function App() {
   }
 
   async function changeTaskStatus(taskId: string, status: TaskStatus) {
-    const projectId = project?.id;
-    if (!projectId) {
+    const activeProject = project;
+    if (!activeProject) {
       return;
     }
 
     const revision = projectContextRevision.current;
+    if (status === "done" && activeProject.gitEnabled) {
+      await refreshGitData(activeProject, revision);
+      if (!isCurrentProjectContext(revision)) {
+        return;
+      }
+    }
     await api.updateTaskStatus(taskId, status);
-    markProjectRecentlyChanged(projectId);
+    markProjectRecentlyChanged(activeProject.id);
     if (!isCurrentProjectContext(revision)) {
       return;
     }
-    if (!(await refreshProjectData(projectId, revision))) {
+    if (!(await refreshProjectData(activeProject.id, revision))) {
       return;
     }
     if (selectedTaskId === taskId) {
