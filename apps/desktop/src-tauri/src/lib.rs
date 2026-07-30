@@ -157,6 +157,7 @@ pub fn run() {
             commands::plan_structure::reorder_plan,
             commands::plan_structure::update_stage,
             commands::plan_structure::reorder_stage,
+            commands::plan_structure::save_plan_editor,
             commands::plan_structure::update_task,
             commands::plan_structure::reorder_task,
             commands::plan_structure::update_checklist_item_details,

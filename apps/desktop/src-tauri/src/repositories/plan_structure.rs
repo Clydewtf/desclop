@@ -1,6 +1,7 @@
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Deserialize;
+use std::collections::HashSet;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -16,6 +17,8 @@ pub enum PlanStructureError {
     NotFound,
     #[error("The requested position is outside this list.")]
     InvalidPosition,
+    #[error("This plan changed while you were editing. Reload it before saving your changes.")]
+    PlanChanged,
     #[error("Tasks can only move to a stage in the same plan.")]
     CrossPlanTaskMove,
     #[error("Move or remove this stage's tasks before deleting the stage.")]
@@ -64,6 +67,26 @@ pub struct UpdateStageInput {
 pub struct ReorderStageInput {
     pub stage_id: String,
     pub position: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavePlanEditorStageInput {
+    pub stage_id: Option<String>,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavePlanEditorInput {
+    pub plan_id: String,
+    pub title: String,
+    pub stages: Vec<SavePlanEditorStageInput>,
+    #[serde(default)]
+    pub deleted_stage_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -218,6 +241,108 @@ impl<'a> PlanStructureRepository<'a> {
             recalculate_stage_statuses(&tx, &project_id)?;
         }
 
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn save_plan_editor(
+        &mut self,
+        input: &SavePlanEditorInput,
+    ) -> Result<(), PlanStructureError> {
+        let plan_title = required_title(&input.title)?;
+        let now = Utc::now().to_rfc3339();
+        let tx = self.conn.transaction()?;
+        let project_id = find_plan_project_id(&tx, &input.plan_id)?;
+        let existing_ids = stage_ids(&tx, &project_id, Some(&input.plan_id))?;
+        let existing_id_set: HashSet<String> = existing_ids.iter().cloned().collect();
+        let mut retained_ids = HashSet::new();
+        let mut deleted_ids = HashSet::new();
+
+        for (position, stage) in input.stages.iter().enumerate() {
+            if stage.position != position as i64 {
+                return Err(PlanStructureError::InvalidPosition);
+            }
+
+            if let Some(stage_id) = &stage.stage_id {
+                if !existing_id_set.contains(stage_id) || !retained_ids.insert(stage_id.clone()) {
+                    return Err(PlanStructureError::PlanChanged);
+                }
+            }
+            required_title(&stage.title)?;
+        }
+
+        for stage_id in &input.deleted_stage_ids {
+            if !existing_id_set.contains(stage_id)
+                || retained_ids.contains(stage_id)
+                || !deleted_ids.insert(stage_id.clone())
+            {
+                return Err(PlanStructureError::PlanChanged);
+            }
+        }
+
+        if retained_ids.len() + deleted_ids.len() != existing_id_set.len() {
+            return Err(PlanStructureError::PlanChanged);
+        }
+
+        for stage_id in &deleted_ids {
+            if stage_has_tasks(&tx, stage_id)? {
+                return Err(PlanStructureError::StageHasTasks);
+            }
+            if stage_has_resume_brief(&tx, stage_id)? {
+                return Err(PlanStructureError::StageHasResumeBrief);
+            }
+        }
+
+        tx.execute(
+            "update plans set title = ?1, updated_at = ?2 where id = ?3",
+            params![plan_title, now, input.plan_id],
+        )?;
+
+        for stage_id in &deleted_ids {
+            tx.execute("delete from stages where id = ?1", params![stage_id])?;
+        }
+
+        let mut final_stage_ids = Vec::with_capacity(input.stages.len());
+        for stage in &input.stages {
+            let title = required_title(&stage.title)?;
+            let stage_id = if let Some(stage_id) = &stage.stage_id {
+                tx.execute(
+                    "update stages
+                     set title = ?1, description = ?2, position = ?3, updated_at = ?4
+                     where id = ?5",
+                    params![title, stage.description, stage.position, now, stage_id],
+                )?;
+                stage_id.clone()
+            } else {
+                let stage_id = Uuid::new_v4().to_string();
+                tx.execute(
+                    "insert into stages (
+                        id, project_id, plan_id, title, description, position, status, created_at, updated_at
+                     ) values (?1, ?2, ?3, ?4, ?5, ?6, 'future', ?7, ?7)",
+                    params![
+                        stage_id,
+                        project_id,
+                        input.plan_id,
+                        title,
+                        stage.description,
+                        stage.position,
+                        now
+                    ],
+                )?;
+                stage_id
+            };
+            final_stage_ids.push(stage_id);
+        }
+
+        for (position, stage_id) in final_stage_ids.iter().enumerate() {
+            tx.execute(
+                "update stages set position = ?1, updated_at = ?2 where id = ?3",
+                params![position as i64, now, stage_id],
+            )?;
+        }
+
+        touch_project(&tx, &project_id, &now)?;
+        recalculate_stage_statuses(&tx, &project_id)?;
         tx.commit()?;
         Ok(())
     }
@@ -1090,6 +1215,101 @@ mod tests {
                 .description,
             "Use the local contract"
         );
+    }
+
+    #[test]
+    fn saves_plan_and_stage_draft_atomically_with_stable_existing_ids() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project_id = seed_project(&mut conn);
+        let alpha_plan_id = plan_id(&conn, &project_id, "Alpha");
+        let discovery_stage_id = stage_id(&conn, &project_id, "Discovery");
+        let delivery_stage_id = stage_id(&conn, &project_id, "Delivery");
+
+        let result =
+            PlanStructureRepository::new(&mut conn).save_plan_editor(&SavePlanEditorInput {
+                plan_id: alpha_plan_id.clone(),
+                title: "Should stay unchanged".to_string(),
+                stages: vec![SavePlanEditorStageInput {
+                    stage_id: Some(delivery_stage_id.clone()),
+                    title: "Delivery".to_string(),
+                    description: String::new(),
+                    position: 0,
+                }],
+                deleted_stage_ids: vec![discovery_stage_id.clone()],
+            });
+        assert!(matches!(result, Err(PlanStructureError::StageHasTasks)));
+        let unchanged_title: String = conn
+            .query_row(
+                "select title from plans where id = ?1",
+                params![alpha_plan_id],
+                |row| row.get(0),
+            )
+            .expect("plan title");
+        assert_eq!(unchanged_title, "Alpha");
+
+        let empty_stage_id = insert_empty_stage(&conn, &project_id, &alpha_plan_id, 2);
+        PlanStructureRepository::new(&mut conn)
+            .save_plan_editor(&SavePlanEditorInput {
+                plan_id: alpha_plan_id.clone(),
+                title: "Alpha revised".to_string(),
+                stages: vec![
+                    SavePlanEditorStageInput {
+                        stage_id: Some(delivery_stage_id.clone()),
+                        title: "Delivery revised".to_string(),
+                        description: "Ship the change".to_string(),
+                        position: 0,
+                    },
+                    SavePlanEditorStageInput {
+                        stage_id: Some(discovery_stage_id.clone()),
+                        title: "Discovery revised".to_string(),
+                        description: "Clarify the work".to_string(),
+                        position: 1,
+                    },
+                    SavePlanEditorStageInput {
+                        stage_id: None,
+                        title: "New stage".to_string(),
+                        description: String::new(),
+                        position: 2,
+                    },
+                ],
+                deleted_stage_ids: vec![empty_stage_id],
+            })
+            .expect("save plan editor");
+
+        let saved_plan_title: String = conn
+            .query_row(
+                "select title from plans where id = ?1",
+                params![alpha_plan_id],
+                |row| row.get(0),
+            )
+            .expect("saved plan title");
+        assert_eq!(saved_plan_title, "Alpha revised");
+        let saved_stages: Vec<(String, String, i64)> = {
+            let mut statement = conn
+                .prepare(
+                    "select id, title, position from stages where plan_id = ?1 order by position",
+                )
+                .expect("prepare stages");
+            statement
+                .query_map(params![alpha_plan_id], |row| {
+                    Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+                })
+                .expect("query stages")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("collect stages")
+        };
+        assert_eq!(saved_stages.len(), 3);
+        assert_eq!(
+            saved_stages[0],
+            (delivery_stage_id, "Delivery revised".to_string(), 0)
+        );
+        assert_eq!(
+            saved_stages[1],
+            (discovery_stage_id, "Discovery revised".to_string(), 1)
+        );
+        assert_eq!(saved_stages[2].1, "New stage");
+        assert_eq!(saved_stages[2].2, 2);
     }
 
     #[test]

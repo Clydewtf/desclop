@@ -2837,14 +2837,19 @@ label.inline-field input {
 }
 
 .planner-edit-panel {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
   gap: var(--space-4);
   border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
   border-radius: var(--radius);
   background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface));
   padding: var(--space-4);
+}
+
+.planner-edit-panel__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
 }
 
 .planner-edit-panel__copy {
@@ -2862,6 +2867,64 @@ label.inline-field input {
   color: var(--color-text) !important;
   font-size: 0.85rem;
   font-weight: 700;
+}
+
+.planner-edit-panel__fields {
+  max-width: 720px;
+}
+
+.planner-edit-stage-list {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.planner-edit-stage {
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  padding: var(--space-4);
+}
+
+.planner-edit-stage__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.planner-edit-stage__header > div:first-child {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.planner-edit-stage__header strong {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.planner-edit-stage__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.planner-edit-stage__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+  gap: var(--space-3);
+}
+
+.planner-edit-stage-list__empty {
+  margin: 0;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-muted);
+  padding: var(--space-4);
 }
 
 .planner-edit-panel__actions {
@@ -2911,8 +2974,17 @@ label.inline-field input {
 }
 
 @media (max-width: 760px) {
-  .planner-edit-panel {
+  .planner-edit-panel__header,
+  .planner-edit-stage__header {
     flex-direction: column;
+  }
+
+  .planner-edit-stage__fields {
+    grid-template-columns: 1fr;
+  }
+
+  .planner-edit-stage__actions {
+    justify-content: flex-start;
   }
 
   .planner-edit-panel__actions {

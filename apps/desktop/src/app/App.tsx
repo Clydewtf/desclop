@@ -19,7 +19,7 @@ import {
   parseMarkdownPlan,
   type ParsedMarkdownPlan
 } from "../features/markdown-import/markdownParser";
-import { Planner } from "../features/planner/Planner";
+import { Planner, type PlanEditorDraft } from "../features/planner/Planner";
 import { PortableRestoreForm } from "../features/portable-backup/PortableRestoreForm";
 import { buildPlanFrames } from "../features/planner/plannerEngine";
 import {
@@ -923,6 +923,31 @@ export function App() {
     setResumeBrief(resumeResult.brief);
     setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
     return true;
+  }
+
+  async function savePlanEditor(draft: PlanEditorDraft) {
+    const activeProject = project;
+    if (!activeProject) {
+      throw new Error("No project is open.");
+    }
+
+    const revision = projectContextRevision.current;
+    await api.savePlanEditor({
+      planId: draft.planId,
+      title: draft.title.trim(),
+      stages: draft.stages.map((stage, position) => ({
+        stageId: stage.isNew ? null : stage.id,
+        title: stage.title.trim(),
+        description: stage.description,
+        position
+      })),
+      deletedStageIds: draft.deletedStageIds
+    });
+    markProjectRecentlyChanged(activeProject.id);
+    if (!isCurrentProjectContext(revision)) {
+      return;
+    }
+    await refreshProjectData(activeProject.id, revision);
   }
 
   async function loadProjectIntoState(
@@ -2357,6 +2382,7 @@ export function App() {
             archivedPlanIds={archivedPlanIds}
             onArchivePlan={archivePlan}
             onRestorePlan={restorePlan}
+            onSavePlan={savePlanEditor}
             onOpenTask={(taskId, options) => void openTask(taskId, options)}
           />
       );

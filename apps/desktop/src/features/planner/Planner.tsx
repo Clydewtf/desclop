@@ -8,7 +8,28 @@ import {
   writePlannerViewState,
   type PlannerViewState
 } from "./plannerViewState";
-import { Button, ScreenHeader, TaskStatusBadge } from "../../shared/ui";
+import {
+  Button,
+  InlineAlert,
+  ScreenHeader,
+  TaskStatusBadge,
+  TextArea,
+  TextField
+} from "../../shared/ui";
+
+export interface PlanEditorStageDraft {
+  id: string;
+  title: string;
+  description: string;
+  isNew: boolean;
+}
+
+export interface PlanEditorDraft {
+  planId: string;
+  title: string;
+  stages: PlanEditorStageDraft[];
+  deletedStageIds: string[];
+}
 
 interface PlannerProps {
   frames?: PlannerFrame[];
@@ -17,11 +38,13 @@ interface PlannerProps {
   archivedPlanIds?: string[];
   onArchivePlan?: (planId: string) => void;
   onRestorePlan?: (planId: string) => void;
+  onSavePlan?: (draft: PlanEditorDraft) => Promise<void>;
   onOpenTask: (taskId: string, options: { activate: boolean }) => void;
 }
 
 interface EditPlanConfirmation {
   planId: string;
+  action: "save" | "discard";
 }
 
 export function Planner({
@@ -31,25 +54,37 @@ export function Planner({
   archivedPlanIds = [],
   onArchivePlan,
   onRestorePlan,
+  onSavePlan,
   onOpenTask
 }: PlannerProps) {
   const [viewState, setViewState] = useState<PlannerViewState>(() =>
     readCurrentPlannerViewState(projectId)
   );
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [editingDraft, setEditingDraft] = useState<PlanEditorDraft | null>(null);
+  const [editingBaseline, setEditingBaseline] = useState<PlanEditorDraft | null>(null);
   const [focusPlanId, setFocusPlanId] = useState<string | null>(null);
   const [pendingConfirmation, setPendingConfirmation] =
     useState<EditPlanConfirmation | null>(null);
+  const [validationFieldId, setValidationFieldId] = useState<string | null>(null);
+  const [stageDeleteWarningId, setStageDeleteWarningId] = useState<string | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [savingPlan, setSavingPlan] = useState(false);
   const editPlanButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const confirmationStayButtonRef = useRef<HTMLButtonElement | null>(null);
+  const draftStageSequence = useRef(0);
 
   useEffect(() => {
     setViewState(readCurrentPlannerViewState(projectId));
     setEditingPlanId(null);
-    setHasUnsavedChanges(false);
+    setEditingDraft(null);
+    setEditingBaseline(null);
     setFocusPlanId(null);
     setPendingConfirmation(null);
+    setValidationFieldId(null);
+    setStageDeleteWarningId(null);
+    setEditorError(null);
+    setSavingPlan(false);
   }, [projectId]);
 
   useEffect(() => {
@@ -78,6 +113,19 @@ export function Planner({
     window.addEventListener("keydown", handleConfirmationKeyDown);
     return () => window.removeEventListener("keydown", handleConfirmationKeyDown);
   }, [pendingConfirmation]);
+
+  useEffect(() => {
+    if (!validationFieldId) {
+      return;
+    }
+
+    document.getElementById(validationFieldId)?.focus();
+  }, [validationFieldId]);
+
+  const hasUnsavedChanges =
+    editingDraft !== null &&
+    editingBaseline !== null &&
+    !arePlanEditorDraftsEqual(editingDraft, editingBaseline);
 
   const renderedPlanFrames = planFrames ?? legacyPlanFrames(frames);
   const archivedIdSet = new Set(archivedPlanIds);
@@ -128,24 +176,159 @@ export function Planner({
   }
 
   function enterEditPlan(planId: string) {
+    const planFrame = renderedPlanFrames.find((frame) => frame.plan.id === planId);
+    if (!planFrame) {
+      return;
+    }
+
+    const draft = makePlanEditorDraft(planFrame);
     setEditingPlanId(planId);
-    setHasUnsavedChanges(false);
+    setEditingDraft(draft);
+    setEditingBaseline(draft);
     setPendingConfirmation(null);
+    setValidationFieldId(null);
+    setStageDeleteWarningId(null);
+    setEditorError(null);
   }
 
   function closeEditPlan(planId: string) {
     setEditingPlanId(null);
-    setHasUnsavedChanges(false);
+    setEditingDraft(null);
+    setEditingBaseline(null);
+    setValidationFieldId(null);
+    setStageDeleteWarningId(null);
+    setEditorError(null);
+    setSavingPlan(false);
     setFocusPlanId(planId);
   }
 
   function requestExitEditPlan(planId: string) {
     if (hasUnsavedChanges) {
-      setPendingConfirmation({ planId });
+      setPendingConfirmation({ planId, action: "discard" });
       return;
     }
 
     closeEditPlan(planId);
+  }
+
+  function requestSaveEditPlan(planId: string) {
+    if (!hasUnsavedChanges || savingPlan) {
+      return;
+    }
+
+    setPendingConfirmation({ planId, action: "save" });
+  }
+
+  function updateEditingDraft(update: (draft: PlanEditorDraft) => PlanEditorDraft) {
+    setEditingDraft((draft) => (draft ? update(draft) : draft));
+    setValidationFieldId(null);
+    setStageDeleteWarningId(null);
+    setEditorError(null);
+  }
+
+  function updatePlanTitle(title: string) {
+    updateEditingDraft((draft) => ({ ...draft, title }));
+  }
+
+  function updateStageDraft(
+    stageId: string,
+    update: (stage: PlanEditorStageDraft) => PlanEditorStageDraft
+  ) {
+    updateEditingDraft((draft) => ({
+      ...draft,
+      stages: draft.stages.map((stage) =>
+        stage.id === stageId ? update(stage) : stage
+      )
+    }));
+  }
+
+  function addStageToDraft() {
+    draftStageSequence.current += 1;
+    const stageId = `draft-stage-${draftStageSequence.current}`;
+    updateEditingDraft((draft) => ({
+      ...draft,
+      stages: [
+        ...draft.stages,
+        { id: stageId, title: "New stage", description: "", isNew: true }
+      ]
+    }));
+  }
+
+  function moveStageInDraft(stageId: string, offset: -1 | 1) {
+    updateEditingDraft((draft) => {
+      const currentIndex = draft.stages.findIndex((stage) => stage.id === stageId);
+      const targetIndex = currentIndex + offset;
+      if (
+        currentIndex < 0 ||
+        targetIndex < 0 ||
+        targetIndex >= draft.stages.length
+      ) {
+        return draft;
+      }
+
+      const stages = [...draft.stages];
+      const [stage] = stages.splice(currentIndex, 1);
+      stages.splice(targetIndex, 0, stage);
+      return { ...draft, stages };
+    });
+  }
+
+  function requestDeleteStage(stageId: string, taskCount: number) {
+    if (taskCount > 0) {
+      setStageDeleteWarningId(stageId);
+      return;
+    }
+
+    updateEditingDraft((draft) => {
+      const stage = draft.stages.find((candidate) => candidate.id === stageId);
+      if (!stage) {
+        return draft;
+      }
+
+      return {
+        ...draft,
+        stages: draft.stages.filter((candidate) => candidate.id !== stageId),
+        deletedStageIds: stage.isNew
+          ? draft.deletedStageIds
+          : [...draft.deletedStageIds, stage.id]
+      };
+    });
+  }
+
+  async function saveEditingPlan(planId: string) {
+    if (!editingDraft || editingDraft.planId !== planId || savingPlan) {
+      return false;
+    }
+
+    const validation = validatePlanEditorDraft(editingDraft);
+    if (validation) {
+      setValidationFieldId(validation.fieldId);
+      setEditorError(validation.message);
+      return false;
+    }
+
+    setSavingPlan(true);
+    setEditorError(null);
+    try {
+      await onSavePlan?.(editingDraft);
+      closeEditPlan(planId);
+      return true;
+    } catch {
+      setEditorError("Couldn't save plan changes. Nothing was changed. Try again.");
+      return false;
+    } finally {
+      setSavingPlan(false);
+    }
+  }
+
+  async function confirmSaveFromDialog() {
+    if (!pendingConfirmation) {
+      return;
+    }
+
+    const { planId } = pendingConfirmation;
+    setPendingConfirmation(null);
+    await saveEditingPlan(planId);
   }
 
   function confirmDiscardEditPlan() {
@@ -248,18 +431,20 @@ export function Planner({
                         Edit plan
                       </Button>
                     ) : null}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="planner-map__collapse-button"
-                      aria-expanded={!planCollapsed}
-                      aria-controls={`${planFrame.plan.id}-content`}
-                      aria-label={`${planToggleLabel} ${planFrame.plan.title}`}
-                      title={`${planToggleLabel} ${planFrame.plan.title}`}
-                      onClick={() => togglePlan(planFrame)}
-                    >
-                      <CollapseChevron direction={planCollapsed ? "down" : "up"} />
-                    </Button>
+                    {!isEditingPlan ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        className="planner-map__collapse-button"
+                        aria-expanded={!planCollapsed}
+                        aria-controls={`${planFrame.plan.id}-content`}
+                        aria-label={`${planToggleLabel} ${planFrame.plan.title}`}
+                        title={`${planToggleLabel} ${planFrame.plan.title}`}
+                        onClick={() => togglePlan(planFrame)}
+                      >
+                        <CollapseChevron direction={planCollapsed ? "down" : "up"} />
+                      </Button>
+                    ) : null}
                     {planFrame.collapsed && onArchivePlan && !isEditingPlan ? (
                       <Button
                         type="button"
@@ -288,28 +473,158 @@ export function Planner({
                   className="planner-edit-panel"
                   aria-label={`Editing ${planFrame.plan.title}`}
                 >
-                  <div className="planner-edit-panel__copy">
-                    <strong>Edit plan</strong>
-                    <p>Changes stay local until you save.</p>
-                    <p className="planner-edit-panel__status" role="status">
-                      {hasUnsavedChanges ? "Unsaved changes" : "No unsaved changes"}
-                    </p>
-                  </div>
-                  <div className="planner-edit-panel__actions">
-                    <Button type="button" disabled={!hasUnsavedChanges}>
-                      Save
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={() => requestExitEditPlan(planFrame.plan.id)}
-                    >
-                      Cancel
-                    </Button>
-                  </div>
+                  {editingDraft ? (
+                    <>
+                      <div className="planner-edit-panel__header">
+                        <div className="planner-edit-panel__copy">
+                          <strong>Edit plan</strong>
+                          <p>Changes stay local until you save.</p>
+                          <p className="planner-edit-panel__status" role="status">
+                            {hasUnsavedChanges ? "Unsaved changes" : "No unsaved changes"}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          onClick={addStageToDraft}
+                          disabled={savingPlan}
+                        >
+                          Add stage
+                        </Button>
+                      </div>
+
+                      <div className="planner-edit-panel__fields">
+                        <TextField
+                          id={`planner-edit-plan-title-${planFrame.plan.id}`}
+                          label="Plan title"
+                          value={editingDraft.title}
+                          onChange={(event) => updatePlanTitle(event.target.value)}
+                          aria-invalid={
+                            validationFieldId ===
+                            `planner-edit-plan-title-${planFrame.plan.id}`
+                          }
+                        />
+                      </div>
+
+                      <div className="planner-edit-stage-list">
+                        {editingDraft.stages.length > 0 ? (
+                          editingDraft.stages.map((stage, index) => {
+                            const sourceFrame = planFrame.stageFrames.find(
+                              (frame) => frame.stage.id === stage.id
+                            );
+                            const taskCount = sourceFrame?.tasks.length ?? 0;
+                            const stageTitleId = `planner-edit-stage-title-${stage.id}`;
+                            const stageDescriptionId = `planner-edit-stage-description-${stage.id}`;
+
+                            return (
+                              <article className="planner-edit-stage" key={stage.id}>
+                                <div className="planner-edit-stage__header">
+                                  <div>
+                                    <p className="stage-frame__status">
+                                      {stage.isNew
+                                        ? "New stage"
+                                        : stageStatusLabel(sourceFrame?.stage.status ?? "future")}
+                                    </p>
+                                    <strong>{taskCount} {pluralize(taskCount, "task")}</strong>
+                                  </div>
+                                  <div className="planner-edit-stage__actions">
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      aria-label={`Move stage ${stage.title} up`}
+                                      title="Move up"
+                                      disabled={index === 0 || savingPlan}
+                                      onClick={() => moveStageInDraft(stage.id, -1)}
+                                    >
+                                      Move up
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      aria-label={`Move stage ${stage.title} down`}
+                                      title="Move down"
+                                      disabled={
+                                        index === editingDraft.stages.length - 1 || savingPlan
+                                      }
+                                      onClick={() => moveStageInDraft(stage.id, 1)}
+                                    >
+                                      Move down
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="danger"
+                                      aria-label={`Delete stage ${stage.title}`}
+                                      disabled={savingPlan}
+                                      onClick={() => requestDeleteStage(stage.id, taskCount)}
+                                    >
+                                      Delete stage
+                                    </Button>
+                                  </div>
+                                </div>
+                                <div className="planner-edit-stage__fields">
+                                  <TextField
+                                    id={stageTitleId}
+                                    label="Stage title"
+                                    value={stage.title}
+                                    onChange={(event) =>
+                                      updateStageDraft(stage.id, (current) => ({
+                                        ...current,
+                                        title: event.target.value
+                                      }))
+                                    }
+                                    aria-invalid={validationFieldId === stageTitleId}
+                                  />
+                                  <TextArea
+                                    id={stageDescriptionId}
+                                    label="Stage description"
+                                    value={stage.description}
+                                    onChange={(event) =>
+                                      updateStageDraft(stage.id, (current) => ({
+                                        ...current,
+                                        description: event.target.value
+                                      }))
+                                    }
+                                  />
+                                </div>
+                                {stageDeleteWarningId === stage.id ? (
+                                  <InlineAlert tone="warning">
+                                    Move or remove this stage's tasks before deleting the stage.
+                                  </InlineAlert>
+                                ) : null}
+                              </article>
+                            );
+                          })
+                        ) : (
+                          <p className="planner-edit-stage-list__empty">
+                            This plan has no stages yet. Add a stage to start structuring the work.
+                          </p>
+                        )}
+                      </div>
+
+                      {editorError ? <InlineAlert tone="error">{editorError}</InlineAlert> : null}
+
+                      <div className="planner-edit-panel__actions">
+                        <Button
+                          type="button"
+                          disabled={!hasUnsavedChanges || savingPlan}
+                          onClick={() => requestSaveEditPlan(planFrame.plan.id)}
+                        >
+                          {savingPlan ? "Saving…" : "Save"}
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          disabled={savingPlan}
+                          onClick={() => requestExitEditPlan(planFrame.plan.id)}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </>
+                  ) : null}
                 </section>
               ) : null}
-              {planCollapsed ? (
+              {planCollapsed && !isEditingPlan ? (
                 <div
                   id={`${planFrame.plan.id}-content`}
                   className="stage-frame__summary plan-frame__summary"
@@ -328,7 +643,7 @@ export function Planner({
                     </p>
                   ) : null}
                 </div>
-              ) : (
+              ) : !isEditingPlan ? (
                 <div id={`${planFrame.plan.id}-content`} className="stage-list">
                   {planFrame.stageFrames.map((frame) =>
                     renderStageFrame(
@@ -340,7 +655,7 @@ export function Planner({
                     )
                   )}
                 </div>
-              )}
+              ) : null}
             </article>
           );
         })}
@@ -394,9 +709,15 @@ export function Planner({
             aria-labelledby="planner-confirmation-title"
             aria-describedby="planner-confirmation-description"
           >
-            <h2 id="planner-confirmation-title">Discard unsaved changes?</h2>
+            <h2 id="planner-confirmation-title">
+              {pendingConfirmation.action === "save"
+                ? "Save plan changes?"
+                : "Discard unsaved changes?"}
+            </h2>
             <p id="planner-confirmation-description">
-              Your saved plan will stay unchanged.
+              {pendingConfirmation.action === "save"
+                ? "Your local draft will replace the saved plan."
+                : "Your saved plan will stay unchanged."}
             </p>
             <div className="planner-confirmation__actions">
               <Button
@@ -407,8 +728,25 @@ export function Planner({
               >
                 Stay
               </Button>
-              <Button type="button" variant="danger" onClick={confirmDiscardEditPlan}>
-                Discard changes
+              {pendingConfirmation.action === "discard" ? (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={confirmSaveFromDialog}
+                >
+                  Save changes
+                </Button>
+              ) : null}
+              <Button
+                type="button"
+                variant={pendingConfirmation.action === "save" ? "primary" : "danger"}
+                onClick={
+                  pendingConfirmation.action === "save"
+                    ? confirmSaveFromDialog
+                    : confirmDiscardEditPlan
+                }
+              >
+                {pendingConfirmation.action === "save" ? "Save changes" : "Discard changes"}
               </Button>
             </div>
           </section>
@@ -470,6 +808,59 @@ function persistPlannerViewState(projectId: string | undefined, state: PlannerVi
   } catch {
     // Local storage is a best-effort UI preference.
   }
+}
+
+function makePlanEditorDraft(planFrame: PlanFrame): PlanEditorDraft {
+  return {
+    planId: planFrame.plan.id,
+    title: planFrame.plan.title,
+    stages: planFrame.stageFrames.map((frame) => ({
+      id: frame.stage.id,
+      title: frame.stage.title,
+      description: frame.stage.description,
+      isNew: false
+    })),
+    deletedStageIds: []
+  };
+}
+
+function arePlanEditorDraftsEqual(left: PlanEditorDraft, right: PlanEditorDraft) {
+  return (
+    left.planId === right.planId &&
+    left.title === right.title &&
+    left.deletedStageIds.length === right.deletedStageIds.length &&
+    left.deletedStageIds.every((stageId, index) => stageId === right.deletedStageIds[index]) &&
+    left.stages.length === right.stages.length &&
+    left.stages.every((stage, index) => {
+      const other = right.stages[index];
+      return (
+        other !== undefined &&
+        stage.id === other.id &&
+        stage.title === other.title &&
+        stage.description === other.description &&
+        stage.isNew === other.isNew
+      );
+    })
+  );
+}
+
+function validatePlanEditorDraft(draft: PlanEditorDraft) {
+  if (!draft.title.trim()) {
+    return {
+      fieldId: `planner-edit-plan-title-${draft.planId}`,
+      message: "Enter a name before saving."
+    };
+  }
+
+  const invalidStage = draft.stages.find((stage) => !stage.title.trim());
+  if (invalidStage) {
+    return {
+      fieldId: `planner-edit-stage-title-${invalidStage.id}`,
+      message: "Enter a name before saving."
+    };
+  }
+
+  return null;
 }
 
 function comparePlanFrames(left: PlanFrame, right: PlanFrame) {

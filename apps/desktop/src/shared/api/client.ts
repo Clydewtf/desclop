@@ -62,6 +62,20 @@ export interface ReorderStageInput {
   position: number;
 }
 
+export interface SavePlanEditorStageInput {
+  stageId: string | null;
+  title: string;
+  description: string;
+  position: number;
+}
+
+export interface SavePlanEditorInput {
+  planId: string;
+  title: string;
+  stages: SavePlanEditorStageInput[];
+  deletedStageIds: string[];
+}
+
 export interface UpdateTaskInput {
   taskId: string;
   title: string;
@@ -261,6 +275,8 @@ export const api = {
     invoke<void>("update_stage", { input }),
   reorderStage: (input: ReorderStageInput) =>
     invoke<void>("reorder_stage", { input }),
+  savePlanEditor: (input: SavePlanEditorInput) =>
+    invoke<void>("save_plan_editor", { input }),
   updateTask: (input: UpdateTaskInput) =>
     invoke<void>("update_task", { input }),
   reorderTask: (input: ReorderTaskInput) =>

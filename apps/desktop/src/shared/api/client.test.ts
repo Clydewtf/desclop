@@ -38,6 +38,15 @@ describe("api", () => {
     await api.reorderPlan({ planId: "plan-1", position: 1 });
     await api.updateStage({ stageId: "stage-1", title: "Stage", description: "Context" });
     await api.reorderStage({ stageId: "stage-1", position: 0 });
+    await api.savePlanEditor({
+      planId: "plan-1",
+      title: "Plan",
+      stages: [
+        { stageId: "stage-1", title: "Stage", description: "Context", position: 0 },
+        { stageId: null, title: "New stage", description: "", position: 1 }
+      ],
+      deletedStageIds: []
+    });
     await api.updateTask({ taskId: "task-1", title: "Task", description: "Context" });
     await api.reorderTask({ taskId: "task-1", position: 1 });
     await api.updateChecklistItemDetails({ itemId: "item-1", title: "Check", description: "Context" });
@@ -61,34 +70,45 @@ describe("api", () => {
     expect(invoke).toHaveBeenNthCalledWith(4, "reorder_stage", {
       input: { stageId: "stage-1", position: 0 }
     });
-    expect(invoke).toHaveBeenNthCalledWith(5, "update_task", {
+    expect(invoke).toHaveBeenNthCalledWith(5, "save_plan_editor", {
+      input: {
+        planId: "plan-1",
+        title: "Plan",
+        stages: [
+          { stageId: "stage-1", title: "Stage", description: "Context", position: 0 },
+          { stageId: null, title: "New stage", description: "", position: 1 }
+        ],
+        deletedStageIds: []
+      }
+    });
+    expect(invoke).toHaveBeenNthCalledWith(6, "update_task", {
       input: { taskId: "task-1", title: "Task", description: "Context" }
     });
-    expect(invoke).toHaveBeenNthCalledWith(6, "reorder_task", {
+    expect(invoke).toHaveBeenNthCalledWith(7, "reorder_task", {
       input: { taskId: "task-1", position: 1 }
     });
-    expect(invoke).toHaveBeenNthCalledWith(7, "update_checklist_item_details", {
+    expect(invoke).toHaveBeenNthCalledWith(8, "update_checklist_item_details", {
       input: { itemId: "item-1", title: "Check", description: "Context" }
     });
-    expect(invoke).toHaveBeenNthCalledWith(8, "reorder_checklist_item", {
+    expect(invoke).toHaveBeenNthCalledWith(9, "reorder_checklist_item", {
       input: { itemId: "item-1", position: 0 }
     });
-    expect(invoke).toHaveBeenNthCalledWith(9, "create_task", {
+    expect(invoke).toHaveBeenNthCalledWith(10, "create_task", {
       input: { stageId: "stage-1", title: "New task", description: "Context", position: 1 }
     });
-    expect(invoke).toHaveBeenNthCalledWith(10, "create_checklist_item", {
+    expect(invoke).toHaveBeenNthCalledWith(11, "create_checklist_item", {
       input: { taskId: "task-1", title: "New check", description: "Context", position: 1 }
     });
-    expect(invoke).toHaveBeenNthCalledWith(11, "move_task", {
+    expect(invoke).toHaveBeenNthCalledWith(12, "move_task", {
       input: { taskId: "task-1", toStageId: "stage-2", position: 0 }
     });
-    expect(invoke).toHaveBeenNthCalledWith(12, "delete_stage", {
+    expect(invoke).toHaveBeenNthCalledWith(13, "delete_stage", {
       input: { stageId: "stage-1" }
     });
-    expect(invoke).toHaveBeenNthCalledWith(13, "delete_task", {
+    expect(invoke).toHaveBeenNthCalledWith(14, "delete_task", {
       input: { taskId: "task-1", confirmed: true }
     });
-    expect(invoke).toHaveBeenNthCalledWith(14, "delete_checklist_item", {
+    expect(invoke).toHaveBeenNthCalledWith(15, "delete_checklist_item", {
       input: { itemId: "item-1", confirmed: true }
     });
   });

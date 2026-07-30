@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
@@ -326,6 +326,95 @@ describe("Planner", () => {
 
     expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit plan Current work" })).toHaveFocus();
+  });
+
+  it("keeps plan and stage edits local until the confirmed save", async () => {
+    const user = userEvent.setup();
+    const onSavePlan = vi.fn().mockResolvedValue(undefined);
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving"
+      })
+    ];
+
+    renderWithRouter(
+      <Planner
+        planFrames={planFrames}
+        onSavePlan={onSavePlan}
+        onOpenTask={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    await user.clear(screen.getByRole("textbox", { name: "Plan title" }));
+    await user.type(screen.getByRole("textbox", { name: "Plan title" }), "Release plan");
+    await user.clear(screen.getByRole("textbox", { name: "Stage title" }));
+    await user.type(screen.getByRole("textbox", { name: "Stage title" }), "Build release");
+    await user.click(screen.getByRole("button", { name: "Add stage" }));
+
+    expect(screen.getByRole("textbox", { name: "Plan title" })).toHaveValue("Release plan");
+    expect(screen.getAllByRole("textbox", { name: "Stage title" })).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Move stage New stage up" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "Move stage New stage up" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(screen.getByRole("dialog", { name: "Save plan changes?" })).toBeInTheDocument();
+    expect(onSavePlan).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSavePlan).toHaveBeenCalledTimes(1));
+    expect(onSavePlan).toHaveBeenCalledWith({
+      planId: "current-plan",
+      title: "Release plan",
+      stages: [
+        {
+          id: "draft-stage-1",
+          title: "New stage",
+          description: "",
+          isNew: true
+        },
+        {
+          id: "current-plan-stage",
+          title: "Build release",
+          description: "",
+          isNew: false
+        }
+      ],
+      deletedStageIds: []
+    });
+    expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
+  });
+
+  it("warns instead of deleting a stage that still contains tasks", async () => {
+    const user = userEvent.setup();
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving"
+      })
+    ];
+
+    renderWithRouter(<Planner planFrames={planFrames} onOpenTask={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    await user.click(screen.getByRole("button", { name: "Delete stage Current work stage" }));
+
+    expect(
+      screen.getByText("Move or remove this stage's tasks before deleting the stage.")
+    ).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Stage title" })).toHaveValue(
+      "Current work stage"
+    );
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 });
 
