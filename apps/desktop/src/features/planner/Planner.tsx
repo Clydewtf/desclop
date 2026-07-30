@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Pencil } from "lucide-react";
 import type { ChecklistItem, Task } from "../../shared/domain/types";
 import type { PlanFrame, PlannerFrame } from "./plannerEngine";
 import {
@@ -19,6 +20,10 @@ interface PlannerProps {
   onOpenTask: (taskId: string, options: { activate: boolean }) => void;
 }
 
+interface EditPlanConfirmation {
+  planId: string;
+}
+
 export function Planner({
   frames = [],
   planFrames,
@@ -34,13 +39,17 @@ export function Planner({
   const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [focusPlanId, setFocusPlanId] = useState<string | null>(null);
+  const [pendingConfirmation, setPendingConfirmation] =
+    useState<EditPlanConfirmation | null>(null);
   const editPlanButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const confirmationStayButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     setViewState(readCurrentPlannerViewState(projectId));
     setEditingPlanId(null);
     setHasUnsavedChanges(false);
     setFocusPlanId(null);
+    setPendingConfirmation(null);
   }, [projectId]);
 
   useEffect(() => {
@@ -51,6 +60,24 @@ export function Planner({
     editPlanButtonRefs.current[focusPlanId]?.focus();
     setFocusPlanId(null);
   }, [focusPlanId]);
+
+  useEffect(() => {
+    if (!pendingConfirmation) {
+      return;
+    }
+
+    confirmationStayButtonRef.current?.focus();
+
+    function handleConfirmationKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setPendingConfirmation(null);
+      }
+    }
+
+    window.addEventListener("keydown", handleConfirmationKeyDown);
+    return () => window.removeEventListener("keydown", handleConfirmationKeyDown);
+  }, [pendingConfirmation]);
 
   const renderedPlanFrames = planFrames ?? legacyPlanFrames(frames);
   const archivedIdSet = new Set(archivedPlanIds);
@@ -103,19 +130,32 @@ export function Planner({
   function enterEditPlan(planId: string) {
     setEditingPlanId(planId);
     setHasUnsavedChanges(false);
+    setPendingConfirmation(null);
   }
 
-  function exitEditPlan(planId: string) {
-    if (
-      hasUnsavedChanges &&
-      !window.confirm("Discard unsaved changes? Your saved plan will stay unchanged.")
-    ) {
-      return;
-    }
-
+  function closeEditPlan(planId: string) {
     setEditingPlanId(null);
     setHasUnsavedChanges(false);
     setFocusPlanId(planId);
+  }
+
+  function requestExitEditPlan(planId: string) {
+    if (hasUnsavedChanges) {
+      setPendingConfirmation({ planId });
+      return;
+    }
+
+    closeEditPlan(planId);
+  }
+
+  function confirmDiscardEditPlan() {
+    if (!pendingConfirmation) {
+      return;
+    }
+
+    const { planId } = pendingConfirmation;
+    setPendingConfirmation(null);
+    closeEditPlan(planId);
   }
 
   return (
@@ -195,11 +235,14 @@ export function Planner({
                     {!editingPlanId ? (
                       <Button
                         type="button"
-                        variant="secondary"
+                        variant="ghost"
+                        className="planner-map__edit-button"
+                        icon={<Pencil aria-hidden="true" />}
                         ref={(button) => {
                           editPlanButtonRefs.current[planFrame.plan.id] = button;
                         }}
                         aria-label={`Edit plan ${planFrame.plan.title}`}
+                        title={`Edit plan ${planFrame.plan.title}`}
                         onClick={() => enterEditPlan(planFrame.plan.id)}
                       >
                         Edit plan
@@ -259,7 +302,7 @@ export function Planner({
                     <Button
                       type="button"
                       variant="secondary"
-                      onClick={() => exitEditPlan(planFrame.plan.id)}
+                      onClick={() => requestExitEditPlan(planFrame.plan.id)}
                     >
                       Cancel
                     </Button>
@@ -341,6 +384,35 @@ export function Planner({
             </div>
           </section>
         </>
+      ) : null}
+      {pendingConfirmation ? (
+        <div className="planner-confirmation-backdrop">
+          <section
+            className="planner-confirmation"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="planner-confirmation-title"
+            aria-describedby="planner-confirmation-description"
+          >
+            <h2 id="planner-confirmation-title">Discard unsaved changes?</h2>
+            <p id="planner-confirmation-description">
+              Your saved plan will stay unchanged.
+            </p>
+            <div className="planner-confirmation__actions">
+              <Button
+                ref={confirmationStayButtonRef}
+                type="button"
+                variant="secondary"
+                onClick={() => setPendingConfirmation(null)}
+              >
+                Stay
+              </Button>
+              <Button type="button" variant="danger" onClick={confirmDiscardEditPlan}>
+                Discard changes
+              </Button>
+            </div>
+          </section>
+        </div>
       ) : null}
     </section>
   );
