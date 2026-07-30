@@ -287,6 +287,46 @@ describe("Planner", () => {
     );
     expect(onRestorePlan).toHaveBeenCalledWith("completed-plan");
   });
+
+  it("enters Edit plan explicitly and returns focus after cancelling without changes", async () => {
+    const user = userEvent.setup();
+    const onOpenTask = vi.fn();
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving"
+      }),
+      planFrameFixture({
+        planId: "other-plan",
+        title: "Other work",
+        isCurrent: false,
+        taskId: "task-2",
+        taskTitle: "Review later"
+      })
+    ];
+
+    renderWithRouter(<Planner planFrames={planFrames} onOpenTask={onOpenTask} />);
+
+    const editButton = screen.getByRole("button", { name: "Edit plan Current work" });
+    expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
+
+    await user.click(editButton);
+
+    expect(screen.getByRole("region", { name: "Editing Current work" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("No unsaved changes");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit plan Other work" })).not.toBeInTheDocument();
+    expect(onOpenTask).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit plan Current work" })).toHaveFocus();
+  });
 });
 
 function planFrameFixture({

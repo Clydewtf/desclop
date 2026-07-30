@@ -2831,6 +2831,56 @@ label.inline-field input {
   border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
 }
 
+.plan-frame--editing {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.planner-edit-panel {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface));
+  padding: var(--space-4);
+}
+
+.planner-edit-panel__copy {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.planner-edit-panel__copy p {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.planner-edit-panel__status {
+  color: var(--color-text) !important;
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.planner-edit-panel__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@media (max-width: 760px) {
+  .planner-edit-panel {
+    flex-direction: column;
+  }
+
+  .planner-edit-panel__actions {
+    width: 100%;
+  }
+}
+
 .plan-frame__header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ChecklistItem, Task } from "../../shared/domain/types";
 import type { PlanFrame, PlannerFrame } from "./plannerEngine";
 import {
@@ -31,10 +31,26 @@ export function Planner({
   const [viewState, setViewState] = useState<PlannerViewState>(() =>
     readCurrentPlannerViewState(projectId)
   );
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [focusPlanId, setFocusPlanId] = useState<string | null>(null);
+  const editPlanButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   useEffect(() => {
     setViewState(readCurrentPlannerViewState(projectId));
+    setEditingPlanId(null);
+    setHasUnsavedChanges(false);
+    setFocusPlanId(null);
   }, [projectId]);
+
+  useEffect(() => {
+    if (!focusPlanId) {
+      return;
+    }
+
+    editPlanButtonRefs.current[focusPlanId]?.focus();
+    setFocusPlanId(null);
+  }, [focusPlanId]);
 
   const renderedPlanFrames = planFrames ?? legacyPlanFrames(frames);
   const archivedIdSet = new Set(archivedPlanIds);
@@ -84,6 +100,24 @@ export function Planner({
     });
   }
 
+  function enterEditPlan(planId: string) {
+    setEditingPlanId(planId);
+    setHasUnsavedChanges(false);
+  }
+
+  function exitEditPlan(planId: string) {
+    if (
+      hasUnsavedChanges &&
+      !window.confirm("Discard unsaved changes? Your saved plan will stay unchanged.")
+    ) {
+      return;
+    }
+
+    setEditingPlanId(null);
+    setHasUnsavedChanges(false);
+    setFocusPlanId(planId);
+  }
+
   return (
     <section className="planner-map stack" aria-label="Plan">
       <ScreenHeader
@@ -110,6 +144,7 @@ export function Planner({
       <div className="plan-list">
         {visiblePlanFrames.map((planFrame) => {
           const planCollapsed = isPlanCollapsed(planFrame);
+          const isEditingPlan = editingPlanId === planFrame.plan.id;
           const planRecommendation = findTask(planFrame, planFrame.recommendedTaskId);
           const planToggleLabel = planCollapsed
             ? planFrame.collapsed
@@ -124,7 +159,7 @@ export function Planner({
               aria-labelledby={`${planFrame.plan.id}-title`}
               className={`plan-frame${planFrame.collapsed ? " plan-frame--collapsed" : ""}${
                 planFrame.isCurrent ? " plan-frame--current" : ""
-              }`}
+              }${isEditingPlan ? " plan-frame--editing" : ""}`}
               key={planFrame.plan.id}
             >
               <header className="plan-frame__header">
@@ -143,7 +178,7 @@ export function Planner({
                     ) : null}
                   </div>
                   <div className="plan-frame__actions">
-                    {planRecommendation ? (
+                    {!editingPlanId && planRecommendation ? (
                       <Button
                         type="button"
                         variant="secondary"
@@ -155,6 +190,19 @@ export function Planner({
                         }
                       >
                         Continue plan
+                      </Button>
+                    ) : null}
+                    {!editingPlanId ? (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        ref={(button) => {
+                          editPlanButtonRefs.current[planFrame.plan.id] = button;
+                        }}
+                        aria-label={`Edit plan ${planFrame.plan.title}`}
+                        onClick={() => enterEditPlan(planFrame.plan.id)}
+                      >
+                        Edit plan
                       </Button>
                     ) : null}
                     <Button
@@ -169,7 +217,7 @@ export function Planner({
                     >
                       <CollapseChevron direction={planCollapsed ? "down" : "up"} />
                     </Button>
-                    {planFrame.collapsed && onArchivePlan ? (
+                    {planFrame.collapsed && onArchivePlan && !isEditingPlan ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -192,6 +240,32 @@ export function Planner({
                   <span style={{ width: `${planFrame.progress.percent}%` }} />
                 </div>
               </header>
+              {isEditingPlan ? (
+                <section
+                  className="planner-edit-panel"
+                  aria-label={`Editing ${planFrame.plan.title}`}
+                >
+                  <div className="planner-edit-panel__copy">
+                    <strong>Edit plan</strong>
+                    <p>Changes stay local until you save.</p>
+                    <p className="planner-edit-panel__status" role="status">
+                      {hasUnsavedChanges ? "Unsaved changes" : "No unsaved changes"}
+                    </p>
+                  </div>
+                  <div className="planner-edit-panel__actions">
+                    <Button type="button" disabled={!hasUnsavedChanges}>
+                      Save
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => exitEditPlan(planFrame.plan.id)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </section>
+              ) : null}
               {planCollapsed ? (
                 <div
                   id={`${planFrame.plan.id}-content`}
