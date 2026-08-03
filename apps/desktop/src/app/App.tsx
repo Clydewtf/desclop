@@ -19,7 +19,11 @@ import {
   parseMarkdownPlan,
   type ParsedMarkdownPlan
 } from "../features/markdown-import/markdownParser";
-import { Planner, type PlanEditorDraft } from "../features/planner/Planner";
+import {
+  Planner,
+  type PlanEditorDraft,
+  type PlanEditorLeaveResolution
+} from "../features/planner/Planner";
 import { PortableRestoreForm } from "../features/portable-backup/PortableRestoreForm";
 import { buildPlanFrames } from "../features/planner/plannerEngine";
 import {
@@ -137,6 +141,7 @@ function writeArchivedPlansForProject(projectId: string, planIds: string[]) {
 }
 
 const QUICK_CAPTURE_OPEN_EVENT = "quick-capture:open";
+const APP_QUIT_REQUESTED_EVENT = "app-quit-requested";
 
 interface ResumeLoadResult {
   brief: ResumeBrief | null;
@@ -163,6 +168,18 @@ type AppScreen =
   | "utilities"
   | "settings"
   | "setup";
+
+type AppLeaveIntent =
+  | { kind: "navigate"; destination: AppDestination }
+  | { kind: "open-task"; taskId: string; options: { activate: boolean } }
+  | { kind: "switch-project" }
+  | { kind: "close-window" }
+  | { kind: "quit" };
+
+interface PendingPlanLeave {
+  id: number;
+  intent: AppLeaveIntent;
+}
 
 interface FocusSession {
   taskId: string;
@@ -341,6 +358,10 @@ export function App() {
   const projectsRef = useRef<Project[]>([]);
   const screenRef = useRef<AppScreen>("today");
   const selectedTaskIdRef = useRef<string | null>(null);
+  const planEditorDirtyRef = useRef(false);
+  const planLeaveSequenceRef = useRef(0);
+  const pendingPlanLeaveRef = useRef<PendingPlanLeave | null>(null);
+  const requestAppLeaveRef = useRef<(intent: AppLeaveIntent) => void>(() => {});
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectSummaries, setProjectSummaries] = useState<Record<string, ProjectSummary>>({});
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
@@ -368,6 +389,7 @@ export function App() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [screen, setScreen] = useState<AppScreen>("today");
+  const [pendingPlanLeave, setPendingPlanLeave] = useState<PendingPlanLeave | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [selectedNotes, setSelectedNotes] = useState<Note[]>([]);
@@ -418,6 +440,10 @@ export function App() {
   const [settingsStatus, setSettingsStatus] = useState<string | null>(null);
   const [toast, setToast] = useState<AppToast | null>(null);
   const toastSequence = useRef(0);
+
+  const handlePlanEditorDirtyChange = useCallback((hasUnsavedChanges: boolean) => {
+    planEditorDirtyRef.current = hasUnsavedChanges;
+  }, []);
 
   function invalidateProjectContext() {
     projectContextRevision.current += 1;
@@ -516,7 +542,17 @@ export function App() {
     setSettingsStatus(saved ? "Settings saved on this machine." : "Settings applied for this session.");
   }
 
-  function quitApplication() {
+  function closeMainWindow() {
+    if (!hasTauriInternals()) {
+      return;
+    }
+
+    void Promise.resolve(api.closeMainWindow()).catch((error) => {
+      setSettingsError(getSettingsErrorMessage("Window", error));
+    });
+  }
+
+  function quitApplicationNow() {
     if (!hasTauriInternals()) {
       setSettingsStatus("Quit is available in the desktop app.");
       return;
@@ -527,8 +563,166 @@ export function App() {
     });
   }
 
+  function proceedWithLeave(intent: AppLeaveIntent) {
+    if (intent.kind === "navigate") {
+      performNavigation(intent.destination);
+      return;
+    }
+
+    if (intent.kind === "open-task") {
+      void openTask(intent.taskId, intent.options);
+      return;
+    }
+
+    if (intent.kind === "switch-project") {
+      closeProject();
+      return;
+    }
+
+    if (intent.kind === "close-window") {
+      closeMainWindow();
+      return;
+    }
+
+    quitApplicationNow();
+  }
+
+  function requestAppLeave(intent: AppLeaveIntent) {
+    if (
+      intent.kind === "navigate" &&
+      screenRef.current === "plan" &&
+      intent.destination === "plan"
+    ) {
+      return;
+    }
+
+    if (screenRef.current !== "plan" || !planEditorDirtyRef.current) {
+      proceedWithLeave(intent);
+      return;
+    }
+
+    if (pendingPlanLeaveRef.current) {
+      return;
+    }
+
+    const pending = {
+      id: ++planLeaveSequenceRef.current,
+      intent
+    };
+    pendingPlanLeaveRef.current = pending;
+    setPendingPlanLeave(pending);
+  }
+
+  function resolvePlanLeaveRequest(
+    requestId: number,
+    resolution: PlanEditorLeaveResolution
+  ) {
+    const pending = pendingPlanLeaveRef.current;
+    if (!pending || pending.id !== requestId) {
+      return;
+    }
+
+    pendingPlanLeaveRef.current = null;
+    setPendingPlanLeave(null);
+    if (resolution !== "stay") {
+      proceedWithLeave(pending.intent);
+    }
+  }
+
+  function quitApplication() {
+    if (!hasTauriInternals()) {
+      setSettingsStatus("Quit is available in the desktop app.");
+      return;
+    }
+
+    requestAppLeave({ kind: "quit" });
+  }
+
+  requestAppLeaveRef.current = requestAppLeave;
+
+  useEffect(() => {
+    if (!hasTauriInternals()) {
+      return;
+    }
+
+    let active = true;
+    let unlisten: (() => void) | null = null;
+
+    try {
+      void getCurrentWindow()
+        .onCloseRequested((event) => {
+          event.preventDefault();
+          requestAppLeaveRef.current({ kind: "close-window" });
+        })
+        .then((nextUnlisten) => {
+          if (active) {
+            unlisten = nextUnlisten;
+            return;
+          }
+
+          nextUnlisten();
+        })
+        .catch(() => {});
+    } catch {
+      // The web test runtime exposes a partial Tauri surface without a window handle.
+    }
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!hasTauriInternals()) {
+      return;
+    }
+
+    let active = true;
+    let unlisten: (() => void) | null = null;
+
+    void listen(APP_QUIT_REQUESTED_EVENT, () => {
+      requestAppLeaveRef.current({ kind: "quit" });
+    })
+      .then((nextUnlisten) => {
+        if (active) {
+          unlisten = nextUnlisten;
+          return;
+        }
+
+        nextUnlisten();
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (hasTauriInternals()) {
+      return;
+    }
+
+    function confirmBrowserClose(event: BeforeUnloadEvent) {
+      if (screenRef.current !== "plan" || !planEditorDirtyRef.current) {
+        return;
+      }
+
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", confirmBrowserClose);
+    return () => window.removeEventListener("beforeunload", confirmBrowserClose);
+  }, []);
+
   function resetProjectContext() {
     invalidateCaptureOperations();
+    planEditorDirtyRef.current = false;
+    pendingPlanLeaveRef.current = null;
+    setPendingPlanLeave(null);
     setSelectedProjectId(null);
     setLoadError(null);
     setPickerError(null);
@@ -1385,7 +1579,7 @@ export function App() {
     }
   }
 
-  function handleNavigate(destination: AppDestination) {
+  function performNavigation(destination: AppDestination) {
     if (destination === "settings") {
       setScreen("settings");
       return;
@@ -1402,6 +1596,10 @@ export function App() {
     }
 
     showProjectScreen(destination);
+  }
+
+  function handleNavigate(destination: AppDestination) {
+    requestAppLeave({ kind: "navigate", destination });
   }
 
   function openHelp() {
@@ -2410,8 +2608,13 @@ export function App() {
             onArchivePlan={archivePlan}
             onRestorePlan={restorePlan}
             onSavePlan={savePlanEditor}
+            onEditPlanDirtyChange={handlePlanEditorDirtyChange}
+            leaveRequest={pendingPlanLeave}
+            onResolveLeaveRequest={resolvePlanLeaveRequest}
             activeTaskId={project?.activeTaskId ?? null}
-            onOpenTask={(taskId, options) => void openTask(taskId, options)}
+            onOpenTask={(taskId, options) =>
+              requestAppLeave({ kind: "open-task", taskId, options })
+            }
           />
       );
     }
@@ -2760,7 +2963,7 @@ export function App() {
       projectStatus={resumeError}
       onQuickCapture={openQuickCapture}
       onOpenHelp={openHelp}
-      onCloseProject={closeProject}
+      onCloseProject={() => requestAppLeave({ kind: "switch-project" })}
     >
       {resumeError ? (
         <InlineAlert tone="warning">
@@ -2800,7 +3003,7 @@ export function App() {
       <FirstRunHelp
         open={helpOpen}
         onOpenChange={setHelpOpen}
-        onOpenPlanImport={() => setScreen("import")}
+        onOpenPlanImport={() => requestAppLeave({ kind: "navigate", destination: "import" })}
       />
     </AppShell>
   );

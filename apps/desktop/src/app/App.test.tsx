@@ -44,6 +44,7 @@ vi.mock("../shared/api/client", () => ({
     getResumeBrief: vi.fn(),
     loadProjectPlan: vi.fn(),
     importPlan: vi.fn(),
+    savePlanEditor: vi.fn(),
     updateTaskStatus: vi.fn(),
     setActiveTask: vi.fn(),
     updateChecklistItem: vi.fn(),
@@ -70,6 +71,7 @@ vi.mock("../shared/api/client", () => ({
     importProjectBundle: vi.fn(),
     setCloseBehavior: vi.fn(),
     setCaptureShortcut: vi.fn(),
+    closeMainWindow: vi.fn(),
     quitApp: vi.fn()
   }
 }));
@@ -106,6 +108,7 @@ const updateChecklistItem = vi.mocked(api.updateChecklistItem);
 const updateNextStep = vi.mocked(api.updateNextStep);
 const setActiveTask = vi.mocked(api.setActiveTask);
 const addNote = vi.mocked(api.addNote);
+const quitApp = vi.mocked(api.quitApp);
 const listNotesForProject = vi.mocked(api.listNotesForProject);
 const listNotesForTask = vi.mocked(api.listNotesForTask);
 const listWorkEntriesForProject = vi.mocked(api.listWorkEntriesForProject);
@@ -1964,6 +1967,73 @@ describe("App", () => {
 
     expect(listNotesForTask).toHaveBeenCalledWith("p1", "t1");
     expect(await screen.findByRole("button", { name: "Start focus" })).toBeInTheDocument();
+  });
+
+  it("guards Sidebar navigation while a changed plan draft is open", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: null })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Edit plan Build MVP" }));
+    const title = screen.getByRole("textbox", { name: "Plan title" });
+    await user.clear(title);
+    await user.type(title, "Changed MVP");
+
+    await user.click(screen.getByRole("button", { name: "Today" }));
+
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Stay" }));
+    expect(screen.getByRole("textbox", { name: "Plan title" })).toHaveValue("Changed MVP");
+
+    await user.click(screen.getByRole("button", { name: "Today" }));
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    expect(screen.getByRole("button", { name: "Today" })).toHaveAttribute(
+      "aria-current",
+      "page"
+    );
+    expect(screen.queryByRole("region", { name: "Editing Build MVP" })).not.toBeInTheDocument();
+  });
+
+  it("guards a native quit request while a changed plan draft is open", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: null })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Edit plan Build MVP" }));
+    await user.clear(screen.getByRole("textbox", { name: "Plan title" }));
+    await user.type(screen.getByRole("textbox", { name: "Plan title" }), "Changed MVP");
+    await waitFor(() =>
+      expect(tauriEventMock.listen).toHaveBeenCalledWith(
+        "app-quit-requested",
+        expect.any(Function)
+      )
+    );
+
+    act(() => {
+      emitTauriEvent("app-quit-requested");
+    });
+
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Stay" }));
+    expect(quitApp).not.toHaveBeenCalled();
+
+    act(() => {
+      emitTauriEvent("app-quit-requested");
+    });
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+
+    await waitFor(() => expect(quitApp).toHaveBeenCalledTimes(1));
   });
 
   it("opens Quick capture from Plan without navigating and defaults to the active task", async () => {

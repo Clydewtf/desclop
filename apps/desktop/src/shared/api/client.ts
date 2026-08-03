@@ -365,6 +365,7 @@ export const api = {
     invoke<void>("set_close_behavior", { behavior }),
   setCaptureShortcut: (shortcut: string) =>
     invoke<void>("set_capture_shortcut", { shortcut }),
+  closeMainWindow: () => invoke<void>("close_main_window"),
   quitApp: () => invoke<void>("quit_app"),
   readGitCommits: (localPath: string) =>
     invoke<GitCommitMetadata[]>("read_git_commits", { localPath }),

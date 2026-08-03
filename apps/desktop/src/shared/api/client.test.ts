@@ -177,6 +177,7 @@ describe("api", () => {
   it("invokes native desktop settings commands", async () => {
     await api.setCloseBehavior("quit");
     await api.setCaptureShortcut("F8");
+    await api.closeMainWindow();
     await api.quitApp();
 
     expect(invoke).toHaveBeenNthCalledWith(1, "set_close_behavior", {
@@ -185,6 +186,7 @@ describe("api", () => {
     expect(invoke).toHaveBeenNthCalledWith(2, "set_capture_shortcut", {
       shortcut: "F8"
     });
-    expect(invoke).toHaveBeenNthCalledWith(3, "quit_app");
+    expect(invoke).toHaveBeenNthCalledWith(3, "close_main_window");
+    expect(invoke).toHaveBeenNthCalledWith(4, "quit_app");
   });
 });

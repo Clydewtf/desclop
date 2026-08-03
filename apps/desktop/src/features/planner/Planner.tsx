@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -60,6 +59,12 @@ export interface PlanEditorDraft {
   confirmedChecklistItemIds: string[];
 }
 
+export interface PlanEditorLeaveRequest {
+  id: number;
+}
+
+export type PlanEditorLeaveResolution = "save" | "discard" | "stay";
+
 interface PlannerProps {
   frames?: PlannerFrame[];
   planFrames?: PlanFrame[];
@@ -68,15 +73,22 @@ interface PlannerProps {
   onArchivePlan?: (planId: string) => void;
   onRestorePlan?: (planId: string) => void;
   onSavePlan?: (draft: PlanEditorDraft) => Promise<void>;
+  onEditPlanDirtyChange?: (hasUnsavedChanges: boolean) => void;
+  leaveRequest?: PlanEditorLeaveRequest | null;
+  onResolveLeaveRequest?: (
+    requestId: number,
+    resolution: PlanEditorLeaveResolution
+  ) => void;
   activeTaskId?: string | null;
   onOpenTask: (taskId: string, options: { activate: boolean }) => void;
 }
 
 interface EditPlanConfirmation {
   planId: string;
-  action: "save" | "discard" | "delete-task" | "delete-checklist-item";
+  action: "save" | "discard" | "leave" | "delete-task" | "delete-checklist-item";
   taskId?: string;
   checklistItemId?: string;
+  leaveRequestId?: number;
 }
 
 interface StagePointerDrag {
@@ -89,7 +101,10 @@ interface StagePointerDrag {
   width: number;
   height: number;
   active: boolean;
-  originalStages: PlanEditorStageDraft[];
+  insertionIndex: number;
+  latestClientX: number;
+  latestClientY: number;
+  frameRequestId: number | null;
   dropTargetStageId: string | null;
   listeners: {
     move: (event: PointerEvent) => void;
@@ -103,7 +118,19 @@ interface StageDragPreview {
   stageId: string;
   width: number;
   height: number;
+  insertionIndex: number;
 }
+
+type PlanEditorStageListItem =
+  | {
+      kind: "stage";
+      stage: PlanEditorStageDraft;
+    }
+  | {
+      kind: "placeholder";
+      stageId: string;
+      height: number;
+    };
 
 export function Planner({
   frames = [],
@@ -113,6 +140,9 @@ export function Planner({
   onArchivePlan,
   onRestorePlan,
   onSavePlan,
+  onEditPlanDirtyChange,
+  leaveRequest = null,
+  onResolveLeaveRequest,
   activeTaskId = null,
   onOpenTask
 }: PlannerProps) {
@@ -137,9 +167,12 @@ export function Planner({
   const [dropTargetStageId, setDropTargetStageId] = useState<string | null>(null);
   const [keyboardGrabbedStageId, setKeyboardGrabbedStageId] = useState<string | null>(null);
   const [stageDragPreview, setStageDragPreview] = useState<StageDragPreview | null>(null);
+  const [collapsedEditorTaskIds, setCollapsedEditorTaskIds] = useState<string[]>([]);
+  const [collapsedEditorChecklistTaskIds, setCollapsedEditorChecklistTaskIds] = useState<string[]>([]);
   const editPlanButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const confirmationStayButtonRef = useRef<HTMLButtonElement | null>(null);
   const editingDraftRef = useRef<PlanEditorDraft | null>(null);
+  const stageListRef = useRef<HTMLDivElement | null>(null);
   const stageCardRefs = useRef<Record<string, HTMLElement | null>>({});
   const stagePositionRefs = useRef<Record<string, number>>({});
   const stageAnimationRefs = useRef<Record<string, Animation>>({});
@@ -148,10 +181,24 @@ export function Planner({
   const draftStageSequence = useRef(0);
   const draftTaskSequence = useRef(0);
   const draftChecklistSequence = useRef(0);
+  const handledLeaveRequestIdRef = useRef<number | null>(null);
+
+  const hasUnsavedChanges =
+    editingDraft !== null &&
+    editingBaseline !== null &&
+    !arePlanEditorDraftsEqual(editingDraft, editingBaseline);
 
   useEffect(() => {
     editingDraftRef.current = editingDraft;
   }, [editingDraft]);
+
+  useEffect(() => {
+    onEditPlanDirtyChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onEditPlanDirtyChange]);
+
+  useEffect(() => {
+    return () => onEditPlanDirtyChange?.(false);
+  }, [onEditPlanDirtyChange]);
 
   useLayoutEffect(() => {
     const previousPositions = stagePositionRefs.current;
@@ -163,13 +210,19 @@ export function Planner({
         continue;
       }
 
+      const isPointerDragged = stageDragPreview?.stageId === stage.id;
+      if (stageDragPreview && !isPointerDragged) {
+        stageAnimationRefs.current[stage.id]?.cancel();
+        delete stageAnimationRefs.current[stage.id];
+      }
+
       const currentTop = element.getBoundingClientRect().top;
       nextPositions[stage.id] = currentTop;
       const previousTop = previousPositions[stage.id];
       if (
         previousTop === undefined ||
         Math.abs(previousTop - currentTop) < 1 ||
-        stageDragPreview?.stageId === stage.id ||
+        isPointerDragged ||
         skipStageAnimationRef.current === stage.id ||
         typeof element.animate !== "function"
       ) {
@@ -197,7 +250,11 @@ export function Planner({
 
     stagePositionRefs.current = nextPositions;
     skipStageAnimationRef.current = null;
-  }, [editingDraft?.stages, stageDragPreview?.stageId]);
+  }, [
+    editingDraft?.stages,
+    stageDragPreview?.insertionIndex,
+    stageDragPreview?.stageId
+  ]);
 
   useEffect(() => {
     cancelStagePointerDrag();
@@ -216,6 +273,9 @@ export function Planner({
     setDraggedStageId(null);
     setDropTargetStageId(null);
     setKeyboardGrabbedStageId(null);
+    setCollapsedEditorTaskIds([]);
+    setCollapsedEditorChecklistTaskIds([]);
+    handledLeaveRequestIdRef.current = null;
   }, [projectId]);
 
   useEffect(() => {
@@ -236,6 +296,14 @@ export function Planner({
     setFocusPlanId(null);
   }, [focusPlanId]);
 
+  function dismissPendingConfirmation() {
+    const confirmation = pendingConfirmation;
+    setPendingConfirmation(null);
+    if (confirmation?.action === "leave" && confirmation.leaveRequestId !== undefined) {
+      onResolveLeaveRequest?.(confirmation.leaveRequestId, "stay");
+    }
+  }
+
   useEffect(() => {
     if (!pendingConfirmation) {
       return;
@@ -246,13 +314,13 @@ export function Planner({
     function handleConfirmationKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
         event.preventDefault();
-        setPendingConfirmation(null);
+        dismissPendingConfirmation();
       }
     }
 
     window.addEventListener("keydown", handleConfirmationKeyDown);
     return () => window.removeEventListener("keydown", handleConfirmationKeyDown);
-  }, [pendingConfirmation]);
+  }, [pendingConfirmation, onResolveLeaveRequest]);
 
   useEffect(() => {
     if (!validationFieldId) {
@@ -262,10 +330,30 @@ export function Planner({
     document.getElementById(validationFieldId)?.focus();
   }, [validationFieldId]);
 
-  const hasUnsavedChanges =
-    editingDraft !== null &&
-    editingBaseline !== null &&
-    !arePlanEditorDraftsEqual(editingDraft, editingBaseline);
+  useEffect(() => {
+    if (!leaveRequest || handledLeaveRequestIdRef.current === leaveRequest.id) {
+      return;
+    }
+
+    handledLeaveRequestIdRef.current = leaveRequest.id;
+    const planId = editingDraft?.planId ?? editingPlanId;
+    if (!planId || !hasUnsavedChanges) {
+      onResolveLeaveRequest?.(leaveRequest.id, "discard");
+      return;
+    }
+
+    setPendingConfirmation({
+      planId,
+      action: "leave",
+      leaveRequestId: leaveRequest.id
+    });
+  }, [
+    editingDraft?.planId,
+    editingPlanId,
+    hasUnsavedChanges,
+    leaveRequest,
+    onResolveLeaveRequest
+  ]);
 
   const renderedPlanFrames = planFrames ?? legacyPlanFrames(frames);
   const archivedIdSet = new Set(archivedPlanIds);
@@ -335,6 +423,16 @@ export function Planner({
     setDraggedStageId(null);
     setDropTargetStageId(null);
     setKeyboardGrabbedStageId(null);
+    setCollapsedEditorTaskIds(
+      draft.stages.flatMap((stage) => stage.tasks.map((task) => task.id))
+    );
+    setCollapsedEditorChecklistTaskIds(
+      draft.stages.flatMap((stage) =>
+        stage.tasks
+          .filter((task) => task.checklist.length > 0)
+          .map((task) => task.id)
+      )
+    );
   }
 
   function closeEditPlan(planId: string) {
@@ -351,6 +449,8 @@ export function Planner({
     setDraggedStageId(null);
     setDropTargetStageId(null);
     setKeyboardGrabbedStageId(null);
+    setCollapsedEditorTaskIds([]);
+    setCollapsedEditorChecklistTaskIds([]);
     setFocusPlanId(planId);
   }
 
@@ -381,6 +481,22 @@ export function Planner({
     setStageDeleteWarningId(null);
     setTaskDeleteWarning(null);
     setEditorError(null);
+  }
+
+  function isEditorTaskCollapsed(taskId: string) {
+    return collapsedEditorTaskIds.includes(taskId);
+  }
+
+  function isEditorChecklistCollapsed(taskId: string) {
+    return collapsedEditorChecklistTaskIds.includes(taskId);
+  }
+
+  function toggleEditorTask(taskId: string) {
+    setCollapsedEditorTaskIds((current) => toggleId(current, taskId));
+  }
+
+  function toggleEditorChecklist(taskId: string) {
+    setCollapsedEditorChecklistTaskIds((current) => toggleId(current, taskId));
   }
 
   function updatePlanTitle(title: string) {
@@ -443,6 +559,10 @@ export function Planner({
   function addTaskToDraft(stageId: string) {
     draftTaskSequence.current += 1;
     const taskId = `draft-task-${draftTaskSequence.current}`;
+    setCollapsedEditorTaskIds((current) => current.filter((candidate) => candidate !== taskId));
+    setCollapsedEditorChecklistTaskIds((current) =>
+      current.filter((candidate) => candidate !== taskId)
+    );
     updateStageDraft(stageId, (stage) => ({
       ...stage,
       tasks: [
@@ -455,6 +575,10 @@ export function Planner({
   function addChecklistItemToDraft(taskId: string) {
     draftChecklistSequence.current += 1;
     const itemId = `draft-checklist-${draftChecklistSequence.current}`;
+    setCollapsedEditorTaskIds((current) => current.filter((candidate) => candidate !== taskId));
+    setCollapsedEditorChecklistTaskIds((current) =>
+      current.filter((candidate) => candidate !== taskId)
+    );
     updateTaskDraft(taskId, (task) => ({
       ...task,
       checklist: [
@@ -688,13 +812,7 @@ export function Planner({
     return true;
   }
 
-  function clearStageDragPresentation(stageId?: string) {
-    if (stageId) {
-      const element = stageCardRefs.current[stageId];
-      element?.style.removeProperty("--planner-stage-drag-x");
-      element?.style.removeProperty("--planner-stage-drag-y");
-    }
-
+  function clearStageDragPresentation() {
     setDraggedStageId(null);
     setDropTargetStageId(null);
     setStageDragPreview(null);
@@ -707,23 +825,16 @@ export function Planner({
     window.removeEventListener("blur", drag.listeners.blur);
   }
 
-  function cancelStagePointerDrag(restoreOrder = false) {
+  function cancelStagePointerDrag() {
     const drag = stagePointerDragRef.current;
     if (!drag) {
       clearStageDragPresentation();
       return;
     }
 
-    if (restoreOrder && drag.active) {
-      const draft = editingDraftRef.current;
-      if (draft) {
-        const restoredDraft = {
-          ...draft,
-          stages: drag.originalStages.map((stage) => ({ ...stage }))
-        };
-        editingDraftRef.current = restoredDraft;
-        setEditingDraft(restoredDraft);
-      }
+    if (drag.frameRequestId !== null) {
+      window.cancelAnimationFrame(drag.frameRequestId);
+      drag.frameRequestId = null;
     }
 
     if (drag.active) {
@@ -732,7 +843,7 @@ export function Planner({
 
     detachStagePointerListeners(drag);
     stagePointerDragRef.current = null;
-    clearStageDragPresentation(drag.stageId);
+    clearStageDragPresentation();
   }
 
   function isInteractiveStageTarget(target: EventTarget | null) {
@@ -755,7 +866,7 @@ export function Planner({
         return false;
       }
 
-      const bounds = element.getBoundingClientRect();
+      const bounds = getStageLayoutBounds(element);
       return clientY < bounds.top + bounds.height / 2;
     });
 
@@ -772,7 +883,20 @@ export function Planner({
     element.style.setProperty("--planner-stage-drag-y", `${clientY - drag.offsetY}px`);
   }
 
-  function syncStageOrderToPointer(drag: StagePointerDrag, clientY: number) {
+  function getStageLayoutBounds(element: HTMLElement) {
+    const stageList = stageListRef.current;
+    if (stageList && element.offsetParent === stageList && element.offsetHeight > 0) {
+      const listBounds = stageList.getBoundingClientRect();
+      return {
+        top: listBounds.top + element.offsetTop - stageList.scrollTop,
+        height: element.offsetHeight
+      };
+    }
+
+    return element.getBoundingClientRect();
+  }
+
+  function syncStageDropTargetToPointer(drag: StagePointerDrag, clientY: number) {
     const draft = editingDraftRef.current;
     const insertionIndex = getStageInsertionIndex(drag.stageId, clientY);
     if (!draft || insertionIndex === null) {
@@ -787,10 +911,46 @@ export function Planner({
       setDropTargetStageId(drag.dropTargetStageId);
     }
 
-    const sourceIndex = draft.stages.findIndex((stage) => stage.id === drag.stageId);
-    if (sourceIndex !== insertionIndex) {
-      moveStageToIndex(drag.stageId, insertionIndex);
+    if (drag.insertionIndex !== insertionIndex) {
+      drag.insertionIndex = insertionIndex;
+      setStageDragPreview((preview) => {
+        if (
+          !preview ||
+          preview.stageId !== drag.stageId ||
+          preview.insertionIndex === insertionIndex
+        ) {
+          return preview;
+        }
+
+        return { ...preview, insertionIndex };
+      });
     }
+  }
+
+  function scheduleStagePointerFrame(drag: StagePointerDrag) {
+    if (drag.frameRequestId !== null) {
+      return;
+    }
+
+    drag.frameRequestId = window.requestAnimationFrame(() => {
+      drag.frameRequestId = null;
+      if (stagePointerDragRef.current !== drag || !drag.active) {
+        return;
+      }
+
+      moveStageDragPreview(drag, drag.latestClientX, drag.latestClientY);
+      syncStageDropTargetToPointer(drag, drag.latestClientY);
+    });
+  }
+
+  function flushStagePointerFrame(drag: StagePointerDrag) {
+    if (drag.frameRequestId !== null) {
+      window.cancelAnimationFrame(drag.frameRequestId);
+      drag.frameRequestId = null;
+    }
+
+    moveStageDragPreview(drag, drag.latestClientX, drag.latestClientY);
+    syncStageDropTargetToPointer(drag, drag.latestClientY);
   }
 
   function handleStagePointerDown(
@@ -810,6 +970,11 @@ export function Planner({
       return;
     }
 
+    const sourceIndex = draft.stages.findIndex((stage) => stage.id === stageId);
+    if (sourceIndex < 0) {
+      return;
+    }
+
     event.preventDefault();
     const bounds = event.currentTarget.getBoundingClientRect();
     const clientX = Number.isFinite(event.clientX) ? event.clientX : 0;
@@ -820,7 +985,7 @@ export function Planner({
       move: (pointerEvent: PointerEvent) => handleStagePointerMove(pointerEvent),
       up: (pointerEvent: PointerEvent) => finishStagePointerDrag(pointerEvent),
       cancel: (pointerEvent: PointerEvent) => finishStagePointerDrag(pointerEvent, true),
-      blur: () => cancelStagePointerDrag(true)
+      blur: () => cancelStagePointerDrag()
     };
     const drag: StagePointerDrag = {
       stageId,
@@ -832,7 +997,10 @@ export function Planner({
       width: bounds.width,
       height: bounds.height,
       active: false,
-      originalStages: draft.stages.map((stage) => ({ ...stage })),
+      insertionIndex: sourceIndex,
+      latestClientX: clientX,
+      latestClientY: clientY,
+      frameRequestId: null,
       dropTargetStageId: null,
       listeners
     };
@@ -861,20 +1029,25 @@ export function Planner({
 
     if (!drag.active) {
       drag.active = true;
+      drag.latestClientX = clientX;
+      drag.latestClientY = clientY;
+      moveStageDragPreview(drag, clientX, clientY);
       setDraggedStageId(drag.stageId);
       setDropTargetStageId(null);
       setKeyboardGrabbedStageId(null);
       setStageDragPreview({
         stageId: drag.stageId,
         width: drag.width,
-        height: drag.height
+        height: drag.height,
+        insertionIndex: drag.insertionIndex
       });
       setEditorError(null);
     }
 
     event.preventDefault();
-    moveStageDragPreview(drag, clientX, clientY);
-    syncStageOrderToPointer(drag, clientY);
+    drag.latestClientX = clientX;
+    drag.latestClientY = clientY;
+    scheduleStagePointerFrame(drag);
   }
 
   function finishStagePointerDrag(event: PointerEvent, cancelled = false) {
@@ -884,11 +1057,18 @@ export function Planner({
     }
 
     if (drag.active && !cancelled) {
-      const clientY = Number.isFinite(event.clientY) ? event.clientY : 0;
-      syncStageOrderToPointer(drag, clientY);
+      if (Number.isFinite(event.clientX)) {
+        drag.latestClientX = event.clientX;
+      }
+      if (Number.isFinite(event.clientY)) {
+        drag.latestClientY = event.clientY;
+      }
+
+      flushStagePointerFrame(drag);
+      moveStageToIndex(drag.stageId, drag.insertionIndex);
     }
 
-    cancelStagePointerDrag(cancelled);
+    cancelStagePointerDrag();
   }
 
   function handleStageHandleKeyDown(
@@ -957,6 +1137,8 @@ export function Planner({
 
     const validation = validatePlanEditorDraft(editingDraft);
     if (validation) {
+      setCollapsedEditorTaskIds([]);
+      setCollapsedEditorChecklistTaskIds([]);
       setValidationFieldId(validation.fieldId);
       setEditorError(validation.message);
       return false;
@@ -979,24 +1161,35 @@ export function Planner({
   async function confirmSaveFromDialog() {
     if (
       !pendingConfirmation ||
-      (pendingConfirmation.action !== "save" && pendingConfirmation.action !== "discard")
+      (pendingConfirmation.action !== "save" &&
+        pendingConfirmation.action !== "discard" &&
+        pendingConfirmation.action !== "leave")
     ) {
       return;
     }
 
-    const { planId } = pendingConfirmation;
+    const { action, leaveRequestId, planId } = pendingConfirmation;
     setPendingConfirmation(null);
-    await saveEditingPlan(planId);
+    const saved = await saveEditingPlan(planId);
+    if (saved && action === "leave" && leaveRequestId !== undefined) {
+      onResolveLeaveRequest?.(leaveRequestId, "save");
+    }
   }
 
   function confirmDiscardEditPlan() {
-    if (!pendingConfirmation || pendingConfirmation.action !== "discard") {
+    if (
+      !pendingConfirmation ||
+      (pendingConfirmation.action !== "discard" && pendingConfirmation.action !== "leave")
+    ) {
       return;
     }
 
-    const { planId } = pendingConfirmation;
+    const { action, leaveRequestId, planId } = pendingConfirmation;
     setPendingConfirmation(null);
     closeEditPlan(planId);
+    if (action === "leave" && leaveRequestId !== undefined) {
+      onResolveLeaveRequest?.(leaveRequestId, "discard");
+    }
   }
 
   function confirmDeleteFromDialog() {
@@ -1180,9 +1373,24 @@ export function Planner({
                         />
                       </div>
 
-                      <div className="planner-edit-stage-list">
+                      <div className="planner-edit-stage-list" ref={stageListRef}>
                         {editingDraft.stages.length > 0 ? (
-                          editingDraft.stages.map((stage) => {
+                          buildPlanEditorStageListItems(
+                            editingDraft.stages,
+                            stageDragPreview
+                          ).map((item) => {
+                            if (item.kind === "placeholder") {
+                              return (
+                                <div
+                                  className="planner-edit-stage__placeholder"
+                                  key={`stage-drag-placeholder-${item.stageId}`}
+                                  aria-hidden="true"
+                                  style={{ height: `${item.height}px` }}
+                                />
+                              );
+                            }
+
+                            const { stage } = item;
                             const sourceFrame = planFrame.stageFrames.find(
                               (frame) => frame.stage.id === stage.id
                             );
@@ -1197,15 +1405,8 @@ export function Planner({
                             const isDropTarget = dropTargetStageId === stage.id;
 
                             return (
-                              <Fragment key={stage.id}>
-                                {isPointerDragged ? (
-                                  <div
-                                    className="planner-edit-stage__placeholder"
-                                    aria-hidden="true"
-                                    style={{ height: `${stageDragPreview?.height ?? 0}px` }}
-                                  />
-                                ) : null}
                                 <article
+                                  key={stage.id}
                                   ref={(element) => {
                                     stageCardRefs.current[stage.id] = element;
                                   }}
@@ -1324,14 +1525,38 @@ export function Planner({
                                         const taskDescriptionId =
                                           `planner-edit-task-description-${task.id}`;
                                         const taskStageId = `planner-edit-task-stage-${task.id}`;
+                                        const taskContentId = `planner-edit-task-content-${task.id}`;
+                                        const checklistContentId =
+                                          `planner-edit-checklist-content-${task.id}`;
+                                        const taskCollapsed = isEditorTaskCollapsed(task.id);
+                                        const checklistCollapsed = isEditorChecklistCollapsed(task.id);
 
                                         return (
                                           <article className="planner-edit-task" key={task.id}>
                                             <header className="planner-edit-task__header">
                                               <div className="planner-edit-task__identity">
-                                                <p className="stage-frame__status">
-                                                  {task.isNew ? "New task" : "Task"}
-                                                </p>
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  className="planner-edit-disclosure-button"
+                                                  aria-expanded={!taskCollapsed}
+                                                  aria-controls={taskContentId}
+                                                  aria-label={`${taskCollapsed ? "Expand" : "Collapse"} task ${
+                                                    task.title || "Untitled task"
+                                                  }`}
+                                                  title={taskCollapsed ? "Expand task" : "Collapse task"}
+                                                  onClick={() => toggleEditorTask(task.id)}
+                                                >
+                                                  <CollapseChevron
+                                                    direction={taskCollapsed ? "down" : "up"}
+                                                  />
+                                                </Button>
+                                                <div className="planner-edit-task__identity-copy">
+                                                  <p className="stage-frame__status">
+                                                    {task.isNew ? "New task" : "Task"}
+                                                  </p>
+                                                  <strong>{task.title || "Untitled task"}</strong>
+                                                </div>
                                                 <TaskStatusBadge status={taskStatus} />
                                               </div>
                                               <div className="planner-edit-structure__actions">
@@ -1380,6 +1605,16 @@ export function Planner({
                                                 </Button>
                                               </div>
                                             </header>
+                                            {taskDeleteWarning?.taskId === task.id ? (
+                                              <InlineAlert tone="warning">
+                                                {taskDeleteWarning.message}
+                                              </InlineAlert>
+                                            ) : null}
+                                            <div
+                                              id={taskContentId}
+                                              className="planner-edit-task__content"
+                                              hidden={taskCollapsed}
+                                            >
                                             <div className="planner-edit-task__fields">
                                               <TextField
                                                 id={taskTitleId}
@@ -1422,22 +1657,41 @@ export function Planner({
                                                 ))}
                                               </SelectField>
                                             </div>
-                                            {taskDeleteWarning?.taskId === task.id ? (
-                                              <InlineAlert tone="warning">
-                                                {taskDeleteWarning.message}
-                                              </InlineAlert>
-                                            ) : null}
                                             <section
                                               className="planner-edit-checklist"
                                               aria-label={`Checklist for ${task.title}`}
                                             >
                                               <header className="planner-edit-checklist__header">
-                                                <div>
-                                                  <h4>Checklist</h4>
-                                                  <span>
-                                                    {task.checklist.length}{" "}
-                                                    {pluralize(task.checklist.length, "item")}
-                                                  </span>
+                                                <div className="planner-edit-checklist__identity">
+                                                  {task.checklist.length > 0 ? (
+                                                    <Button
+                                                      type="button"
+                                                      variant="ghost"
+                                                      className="planner-edit-disclosure-button"
+                                                      aria-expanded={!checklistCollapsed}
+                                                      aria-controls={checklistContentId}
+                                                      aria-label={`${
+                                                        checklistCollapsed ? "Expand" : "Collapse"
+                                                      } checklist for ${task.title || "Untitled task"}`}
+                                                      title={
+                                                        checklistCollapsed
+                                                          ? "Expand checklist"
+                                                          : "Collapse checklist"
+                                                      }
+                                                      onClick={() => toggleEditorChecklist(task.id)}
+                                                    >
+                                                      <CollapseChevron
+                                                        direction={checklistCollapsed ? "down" : "up"}
+                                                      />
+                                                    </Button>
+                                                  ) : null}
+                                                  <div>
+                                                    <h4>Checklist</h4>
+                                                    <span>
+                                                      {task.checklist.length}{" "}
+                                                      {pluralize(task.checklist.length, "item")}
+                                                    </span>
+                                                  </div>
                                                 </div>
                                                 <Button
                                                   type="button"
@@ -1450,7 +1704,11 @@ export function Planner({
                                                 </Button>
                                               </header>
                                               {task.checklist.length > 0 ? (
-                                                <div className="planner-edit-checklist__items">
+                                                <div
+                                                  id={checklistContentId}
+                                                  className="planner-edit-checklist__items"
+                                                  hidden={checklistCollapsed}
+                                                >
                                                   {task.checklist.map((item, itemIndex) => {
                                                     const itemTitleId =
                                                       `planner-edit-checklist-title-${item.id}`;
@@ -1561,6 +1819,7 @@ export function Planner({
                                                 </p>
                                               )}
                                             </section>
+                                            </div>
                                           </article>
                                         );
                                       })}
@@ -1577,7 +1836,6 @@ export function Planner({
                                   </InlineAlert>
                                 ) : null}
                                 </article>
-                              </Fragment>
                             );
                           })
                         ) : (
@@ -1698,7 +1956,7 @@ export function Planner({
             <h2 id="planner-confirmation-title">
               {pendingConfirmation.action === "save"
                 ? "Save plan changes?"
-                : pendingConfirmation.action === "discard"
+                : pendingConfirmation.action === "discard" || pendingConfirmation.action === "leave"
                   ? "Discard unsaved changes?"
                   : pendingConfirmation.action === "delete-task"
                     ? "Delete task and its checklist?"
@@ -1707,7 +1965,7 @@ export function Planner({
             <p id="planner-confirmation-description">
               {pendingConfirmation.action === "save"
                 ? "Your local draft will replace the saved plan."
-                : pendingConfirmation.action === "discard"
+                : pendingConfirmation.action === "discard" || pendingConfirmation.action === "leave"
                   ? "Your saved plan will stay unchanged."
                   : pendingConfirmation.action === "delete-task"
                     ? "This removes the task and its checklist from the local draft. It will be deleted when you save the plan."
@@ -1718,7 +1976,7 @@ export function Planner({
                 ref={confirmationStayButtonRef}
                 type="button"
                 variant="secondary"
-                onClick={() => setPendingConfirmation(null)}
+                onClick={dismissPendingConfirmation}
               >
                 {pendingConfirmation.action === "delete-task"
                   ? "Keep task"
@@ -1726,7 +1984,7 @@ export function Planner({
                     ? "Keep item"
                     : "Stay"}
               </Button>
-              {pendingConfirmation.action === "discard" ? (
+              {pendingConfirmation.action === "discard" || pendingConfirmation.action === "leave" ? (
                 <Button
                   type="button"
                   variant="secondary"
@@ -1741,14 +1999,14 @@ export function Planner({
                 onClick={
                   pendingConfirmation.action === "save"
                     ? confirmSaveFromDialog
-                    : pendingConfirmation.action === "discard"
+                    : pendingConfirmation.action === "discard" || pendingConfirmation.action === "leave"
                       ? confirmDiscardEditPlan
                       : confirmDeleteFromDialog
                 }
               >
                 {pendingConfirmation.action === "save"
                   ? "Save changes"
-                  : pendingConfirmation.action === "discard"
+                  : pendingConfirmation.action === "discard" || pendingConfirmation.action === "leave"
                     ? "Discard changes"
                     : pendingConfirmation.action === "delete-task"
                       ? "Delete task"
@@ -1814,6 +2072,41 @@ function persistPlannerViewState(projectId: string | undefined, state: PlannerVi
   } catch {
     // Local storage is a best-effort UI preference.
   }
+}
+
+function buildPlanEditorStageListItems(
+  stages: PlanEditorStageDraft[],
+  dragPreview: StageDragPreview | null
+): PlanEditorStageListItem[] {
+  if (!dragPreview) {
+    return stages.map((stage) => ({ kind: "stage", stage }));
+  }
+
+  const draggedStage = stages.find((stage) => stage.id === dragPreview.stageId);
+  if (!draggedStage) {
+    return stages.map((stage) => ({ kind: "stage", stage }));
+  }
+
+  const remainingStages = stages.filter((stage) => stage.id !== dragPreview.stageId);
+  const insertionIndex = Math.max(
+    0,
+    Math.min(dragPreview.insertionIndex, remainingStages.length)
+  );
+
+  return [
+    ...remainingStages
+      .slice(0, insertionIndex)
+      .map((stage) => ({ kind: "stage" as const, stage })),
+    {
+      kind: "placeholder",
+      stageId: dragPreview.stageId,
+      height: dragPreview.height
+    },
+    { kind: "stage", stage: draggedStage },
+    ...remainingStages
+      .slice(insertionIndex)
+      .map((stage) => ({ kind: "stage" as const, stage }))
+  ];
 }
 
 function makePlanEditorDraft(planFrame: PlanFrame): PlanEditorDraft {

@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
 
 use crate::app_state::{CloseBehavior, DesktopRuntimeState};
@@ -58,6 +58,30 @@ pub fn set_capture_shortcut(
         .lock()
         .map_err(|error| error.to_string())?;
     *active_shortcut = Some(next_shortcut);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn close_main_window(
+    app: AppHandle,
+    state: State<'_, DesktopRuntimeState>,
+) -> Result<(), String> {
+    let close_behavior = state
+        .close_behavior
+        .lock()
+        .map(|behavior| *behavior)
+        .map_err(|error| error.to_string())?;
+
+    match close_behavior {
+        CloseBehavior::Tray => {
+            let window = app
+                .get_webview_window("main")
+                .ok_or_else(|| "Main window is unavailable.".to_string())?;
+            window.hide().map_err(|error| error.to_string())?;
+        }
+        CloseBehavior::Quit => app.exit(0),
+    }
+
     Ok(())
 }
 

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
@@ -256,7 +256,7 @@ describe("Planner", () => {
       })
     ];
 
-    const view = renderWithRouter(
+    const view = render(
       <Planner
         planFrames={planFrames}
         onArchivePlan={onArchivePlan}
@@ -326,6 +326,119 @@ describe("Planner", () => {
 
     expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit plan Current work" })).toHaveFocus();
+  });
+
+  it("keeps existing task and checklist editors compact until they are needed", async () => {
+    const user = userEvent.setup();
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving",
+        checklist: [{ id: "check-1", title: "Check source" }]
+      })
+    ];
+
+    renderWithRouter(<Planner planFrames={planFrames} onOpenTask={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    const task = screen
+      .getByRole("button", { name: "Expand task Keep moving" })
+      .closest<HTMLElement>(".planner-edit-task");
+    expect(task).not.toBeNull();
+    expect(within(task!).queryByRole("textbox", { name: "Task title" })).not.toBeInTheDocument();
+    expect(
+      within(task!).getByRole("button", { name: "Delete task Keep moving" })
+    ).toBeInTheDocument();
+
+    await user.click(within(task!).getByRole("button", { name: "Expand task Keep moving" }));
+    expect(within(task!).getByRole("textbox", { name: "Task title" })).toBeInTheDocument();
+    await user.click(
+      within(task!).getByRole("button", { name: "Expand checklist for Keep moving" })
+    );
+
+    expect(
+      within(task!).getByRole("textbox", { name: "Checklist item title" })
+    ).toBeInTheDocument();
+    await user.click(
+      within(task!).getByRole("button", { name: "Collapse checklist for Keep moving" })
+    );
+
+    expect(
+      within(task!).queryByRole("textbox", { name: "Checklist item title" })
+    ).not.toBeInTheDocument();
+    expect(
+      within(task!).getByRole("button", { name: "Expand checklist for Keep moving" })
+    ).toBeInTheDocument();
+  });
+
+  it("resolves an external leave only after the user saves or discards a changed draft", async () => {
+    const user = userEvent.setup();
+    const onSavePlan = vi.fn().mockResolvedValue(undefined);
+    const onResolveLeaveRequest = vi.fn();
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving"
+      })
+    ];
+    const view = render(
+      <Planner
+        planFrames={planFrames}
+        onSavePlan={onSavePlan}
+        onResolveLeaveRequest={onResolveLeaveRequest}
+        onOpenTask={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    await user.clear(screen.getByRole("textbox", { name: "Plan title" }));
+    await user.type(screen.getByRole("textbox", { name: "Plan title" }), "Release plan");
+
+    view.rerender(
+      <Planner
+        planFrames={planFrames}
+        leaveRequest={{ id: 1 }}
+        onSavePlan={onSavePlan}
+        onResolveLeaveRequest={onResolveLeaveRequest}
+        onOpenTask={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Stay" }));
+    expect(onResolveLeaveRequest).toHaveBeenCalledWith(1, "stay");
+    expect(screen.getByRole("textbox", { name: "Plan title" })).toHaveValue("Release plan");
+
+    view.rerender(
+      <Planner
+        planFrames={planFrames}
+        leaveRequest={null}
+        onSavePlan={onSavePlan}
+        onResolveLeaveRequest={onResolveLeaveRequest}
+        onOpenTask={vi.fn()}
+      />
+    );
+    view.rerender(
+      <Planner
+        planFrames={planFrames}
+        leaveRequest={{ id: 2 }}
+        onSavePlan={onSavePlan}
+        onResolveLeaveRequest={onResolveLeaveRequest}
+        onOpenTask={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSavePlan).toHaveBeenCalledTimes(1));
+    expect(onResolveLeaveRequest).toHaveBeenCalledWith(2, "save");
+    expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
   });
 
   it("keeps plan and stage edits local until the confirmed save", async () => {
@@ -405,15 +518,22 @@ describe("Planner", () => {
       clientY: 80
     });
 
-    expect(
-      Array.from(
-        document.querySelectorAll<HTMLInputElement>(
-          ".planner-edit-stage-list .planner-edit-stage__fields input"
-        )
-      ).map((input) => input.value)
-    ).toEqual(["New stage", "Build release"]);
+    await waitFor(() => {
+      expect(
+        Array.from(
+          document.querySelectorAll<HTMLInputElement>(
+            ".planner-edit-stage-list .planner-edit-stage__fields input"
+          )
+        ).map((input) => input.value)
+      ).toEqual(["New stage", "Build release"]);
+    });
 
-    fireEvent.pointerUp(window, { pointerId: 1, isPrimary: true });
+    fireEvent.pointerUp(window, {
+      pointerId: 1,
+      isPrimary: true,
+      clientX: 24,
+      clientY: 80
+    });
     expect(document.querySelector(".planner-edit-stage--dragging")).not.toBeInTheDocument();
     expect(document.querySelector(".planner-edit-stage__placeholder")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -458,6 +578,130 @@ describe("Planner", () => {
       confirmedChecklistItemIds: []
     });
     expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
+  });
+
+  it("batches stage pointer updates and commits the draft reorder only on drop", async () => {
+    const user = userEvent.setup();
+    const firstPlanFrame = planFrameFixture({
+      planId: "current-plan",
+      title: "Current work",
+      isCurrent: true,
+      taskId: "task-1",
+      taskTitle: "Keep moving"
+    });
+    const secondStage: PlannerFrame = {
+      stage: {
+        id: "second-stage",
+        projectId: "project-1",
+        planId: "current-plan",
+        title: "Second stage",
+        description: "",
+        position: 1,
+        status: "future"
+      },
+      collapsed: false,
+      recommendedTaskId: null,
+      tasks: [],
+      progress: {
+        completedTasks: 0,
+        totalTasks: 0,
+        completedChecklist: 0,
+        totalChecklist: 0,
+        percent: 0,
+        tasksLabel: "0/0 tasks",
+        checklistLabel: null
+      }
+    };
+    const planFrames: PlanFrame[] = [
+      {
+        ...firstPlanFrame,
+        stageFrames: [...firstPlanFrame.stageFrames, secondStage]
+      }
+    ];
+
+    renderWithRouter(<Planner planFrames={planFrames} onOpenTask={vi.fn()} />);
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    const firstStage = screen
+      .getByRole("button", { name: "Drag stage Current work stage" })
+      .closest<HTMLElement>(".planner-edit-stage");
+    const secondStageCard = screen
+      .getByRole("button", { name: "Drag stage Second stage" })
+      .closest<HTMLElement>(".planner-edit-stage");
+    expect(firstStage).not.toBeNull();
+    expect(secondStageCard).not.toBeNull();
+
+    vi.spyOn(firstStage!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 40,
+      top: 40,
+      right: 640,
+      bottom: 160,
+      left: 0,
+      width: 640,
+      height: 120,
+      toJSON: () => ({})
+    });
+    vi.spyOn(secondStageCard!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 200,
+      top: 200,
+      right: 640,
+      bottom: 320,
+      left: 0,
+      width: 640,
+      height: 120,
+      toJSON: () => ({})
+    });
+
+    const requestAnimationFrame = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockImplementation(() => 1);
+
+    try {
+      fireEvent.pointerDown(secondStageCard!, {
+        pointerId: 1,
+        button: 0,
+        isPrimary: true,
+        clientX: 24,
+        clientY: 220
+      });
+      fireEvent.pointerMove(window, {
+        pointerId: 1,
+        isPrimary: true,
+        clientX: 24,
+        clientY: 80
+      });
+      fireEvent.pointerMove(window, {
+        pointerId: 1,
+        isPrimary: true,
+        clientX: 24,
+        clientY: 64
+      });
+
+      expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+      fireEvent.pointerUp(window, {
+        pointerId: 1,
+        isPrimary: true,
+        clientX: 24,
+        clientY: 64
+      });
+
+      await waitFor(() => {
+        expect(screen.getByRole("button", { name: "Save" })).toBeEnabled();
+        expect(
+          Array.from(
+            document.querySelectorAll<HTMLInputElement>(
+              ".planner-edit-stage-list .planner-edit-stage__fields input"
+            )
+          ).map((input) => input.value)
+        ).toEqual(["Second stage", "Current work stage"]);
+      });
+    } finally {
+      requestAnimationFrame.mockRestore();
+    }
   });
 
   it("edits, moves, and reorders tasks and checklist items in the local draft", async () => {
@@ -594,6 +838,8 @@ describe("Planner", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    await user.click(screen.getByRole("button", { name: "Expand task Keep moving" }));
+    await user.click(screen.getByRole("button", { name: "Expand checklist for Keep moving" }));
     await user.click(screen.getByRole("button", { name: "Delete checklist item Check source" }));
     expect(screen.getByRole("dialog", { name: "Delete checklist item?" })).toBeInTheDocument();
 
@@ -668,6 +914,7 @@ describe("Planner", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    await user.click(screen.getByRole("button", { name: "Expand task Keep moving" }));
     const taskTitle = screen.getByRole("textbox", { name: "Task title" });
     await user.clear(taskTitle);
     await user.type(taskTitle, "Move this safely");

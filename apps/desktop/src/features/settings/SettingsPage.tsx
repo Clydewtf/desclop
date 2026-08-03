@@ -188,7 +188,7 @@ export function Settings({ settings, error, status, onChange, onQuit }: Settings
           <div className="settings-danger-zone">
             <div>
               <strong>Explicit quit</strong>
-              <p className="ui-help-text">Quit is always available from the tray menu and exits immediately.</p>
+              <p className="ui-help-text">Quit is always available from the tray menu.</p>
             </div>
             <Button type="button" variant="secondary" onClick={onQuit}>
               Quit Desclop

@@ -5,16 +5,17 @@ mod domain;
 mod repositories;
 mod services;
 
-use app_state::{AppState, CloseBehavior, DesktopRuntimeState};
+use app_state::{AppState, DesktopRuntimeState};
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Emitter, Manager, WindowEvent,
+    Emitter, Manager,
 };
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 use tauri_plugin_window_state::StateFlags;
 
 const QUICK_CAPTURE_OPEN_EVENT: &str = "quick-capture:open";
+const APP_QUIT_REQUESTED_EVENT: &str = "app-quit-requested";
 const TRAY_SHOW_ID: &str = "show_desclop";
 const TRAY_QUIT_ID: &str = "quit_desclop";
 const DEFAULT_CAPTURE_SHORTCUT: &str = "CommandOrControl+Shift+C";
@@ -70,7 +71,10 @@ fn setup_tray(app: &mut tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             TRAY_SHOW_ID => show_main_window(app),
-            TRAY_QUIT_ID => app.exit(0),
+            TRAY_QUIT_ID => {
+                show_main_window(app);
+                let _ = app.emit(APP_QUIT_REQUESTED_EVENT, ());
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -113,27 +117,6 @@ pub fn run() {
             register_default_capture_shortcut(app.handle());
             setup_tray(app)?;
             Ok(())
-        })
-        .on_window_event(|window, event| {
-            if window.label() == "main" {
-                if let WindowEvent::CloseRequested { api, .. } = event {
-                    api.prevent_close();
-                    let close_behavior = window
-                        .app_handle()
-                        .state::<DesktopRuntimeState>()
-                        .close_behavior
-                        .lock()
-                        .map(|behavior| *behavior)
-                        .unwrap_or(CloseBehavior::Tray);
-
-                    match close_behavior {
-                        CloseBehavior::Tray => {
-                            let _ = window.hide();
-                        }
-                        CloseBehavior::Quit => window.app_handle().exit(0),
-                    }
-                }
-            }
         })
         .plugin(
             tauri_plugin_window_state::Builder::default()
@@ -191,6 +174,7 @@ pub fn run() {
             commands::entitlements::set_entitlement,
             commands::settings::set_close_behavior,
             commands::settings::set_capture_shortcut,
+            commands::settings::close_main_window,
             commands::settings::quit_app,
             commands::git::read_git_commits,
             commands::git::read_current_git_branch,
@@ -202,6 +186,16 @@ pub fn run() {
             commands::export_import::inspect_project_bundle,
             commands::export_import::import_project_bundle
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } = event
+            {
+                api.prevent_exit();
+                show_main_window(app);
+                let _ = app.emit(APP_QUIT_REQUESTED_EVENT, ());
+            }
+        });
 }
