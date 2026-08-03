@@ -12,8 +12,9 @@ use zip::{CompressionMethod, ZipArchive, ZipWriter};
 use crate::domain::{CommitTaskLink, GitCommit, InboxItem, Note, ResumeBrief, WorkEntry};
 use crate::repositories::projects::ProjectRepository;
 
-pub const PORTABLE_BUNDLE_FORMAT_VERSION: u32 = 2;
+pub const PORTABLE_BUNDLE_FORMAT_VERSION: u32 = 3;
 const LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION: u32 = 1;
+const PREVIOUS_PORTABLE_BUNDLE_FORMAT_VERSION: u32 = 2;
 const MAX_MANIFEST_BYTES: u64 = 16 * 1024 * 1024;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -42,6 +43,8 @@ pub struct BundlePlanRow {
     pub project_id: String,
     pub title: String,
     pub position: i64,
+    #[serde(default)]
+    pub archived_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -405,7 +408,9 @@ fn parse_project_bundle_manifest(
 
     if !matches!(
         bundle.format_version,
-        LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION | PORTABLE_BUNDLE_FORMAT_VERSION
+        LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION
+            | PREVIOUS_PORTABLE_BUNDLE_FORMAT_VERSION
+            | PORTABLE_BUNDLE_FORMAT_VERSION
     ) {
         return Err(format!(
             "Unsupported bundle format version {}",
@@ -431,10 +436,10 @@ pub fn inspect_project_bundle_from_path(
     let bundle = read_project_bundle_from_path(bundle_path)?;
     Ok(PortableBundlePreview {
         format_version: bundle.format_version,
-        compatibility: if bundle.format_version == LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION {
-            "legacy_v1".to_string()
-        } else {
-            "current".to_string()
+        compatibility: match bundle.format_version {
+            LEGACY_PORTABLE_BUNDLE_FORMAT_VERSION => "legacy_v1".to_string(),
+            PREVIOUS_PORTABLE_BUNDLE_FORMAT_VERSION => "legacy_v2".to_string(),
+            _ => "current".to_string(),
         },
         project_name: bundle.project.name,
         plan_count: bundle.plans.len(),
@@ -531,13 +536,14 @@ fn import_bundle(
         let new_plan_id = Uuid::new_v4().to_string();
         plan_ids.insert(plan.id.clone(), new_plan_id.clone());
         tx.execute(
-            "insert into plans (id, project_id, title, position, created_at, updated_at)
-             values (?1, ?2, ?3, ?4, ?5, ?6)",
+            "insert into plans (id, project_id, title, position, archived_at, created_at, updated_at)
+             values (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 new_plan_id,
                 new_project_id,
                 plan.title,
                 plan.position,
+                plan.archived_at,
                 plan.created_at,
                 plan.updated_at
             ],
@@ -903,6 +909,7 @@ fn normalize_legacy_bundle(bundle: &mut PortableProjectBundle) -> Result<(), Str
             project_id: bundle.project.id.clone(),
             title: "Imported plan".to_string(),
             position: 0,
+            archived_at: None,
             created_at: bundle.project.created_at.clone(),
             updated_at: bundle.project.updated_at.clone(),
         });
@@ -959,7 +966,7 @@ fn remap_optional(
 
 fn list_plan_rows(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<BundlePlanRow>> {
     let mut stmt = conn.prepare(
-        "select id, project_id, title, position, created_at, updated_at
+        "select id, project_id, title, position, archived_at, created_at, updated_at
          from plans
          where project_id = ?1
          order by position asc, id asc",
@@ -970,8 +977,9 @@ fn list_plan_rows(conn: &Connection, project_id: &str) -> rusqlite::Result<Vec<B
             project_id: row.get(1)?,
             title: row.get(2)?,
             position: row.get(3)?,
-            created_at: row.get(4)?,
-            updated_at: row.get(5)?,
+            archived_at: row.get(4)?,
+            created_at: row.get(5)?,
+            updated_at: row.get(6)?,
         })
     })?;
     rows.collect()
@@ -1493,6 +1501,100 @@ mod tests {
                 bundle_path.file_stem().unwrap().to_string_lossy()
             )
         );
+    }
+
+    #[test]
+    fn export_and_import_preserve_archived_plan_state() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, task_id) = seed_full_project(&mut source);
+        TaskRepository::new(&source)
+            .update_task_status(&task_id, "done")
+            .expect("complete plan task");
+        let source_plan_id: String = source
+            .query_row(
+                "select id from plans where project_id = ?1",
+                params![project_id],
+                |row| row.get(0),
+            )
+            .expect("source plan");
+        source
+            .execute(
+                "update plans set archived_at = '2026-08-04T00:00:00Z' where id = ?1",
+                params![source_plan_id],
+            )
+            .expect("archive source plan");
+        let destination = temp_bundle_destination("archived-plan");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+
+        let manifest = read_bundle(&bundle_path);
+        assert_eq!(manifest.format_version, PORTABLE_BUNDLE_FORMAT_VERSION);
+        assert_eq!(
+            manifest.plans[0].archived_at.as_deref(),
+            Some("2026-08-04T00:00:00Z")
+        );
+
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+        let restored_project_id =
+            import_project_bundle_from_folder(&mut target, &bundle_path, "/tmp/restored")
+                .expect("restore bundle");
+        let restored_archive_state: Option<String> = target
+            .query_row(
+                "select archived_at from plans where project_id = ?1",
+                params![restored_project_id],
+                |row| row.get(0),
+            )
+            .expect("restored archive state");
+        assert_eq!(
+            restored_archive_state.as_deref(),
+            Some("2026-08-04T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn v2_bundles_restore_with_visible_plans() {
+        let mut source = create_memory_connection().expect("source database");
+        let (project_id, _, _) = seed_full_project(&mut source);
+        let destination = temp_bundle_destination("legacy-v2-source");
+        let bundle_path =
+            export_project_bundle_to_folder(&source, &project_id, &destination).expect("export");
+        let mut legacy_bundle = read_bundle(&bundle_path);
+        legacy_bundle.format_version = PREVIOUS_PORTABLE_BUNDLE_FORMAT_VERSION;
+        legacy_bundle.plans[0].archived_at = None;
+        let legacy_path = temp_bundle_destination("legacy-v2").join("Legacy-v2.desclop");
+        write_manifest(&legacy_path, &legacy_bundle);
+        let manifest_path = legacy_path.join("manifest.json");
+        let mut manifest: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(&manifest_path).expect("read legacy manifest"),
+        )
+        .expect("legacy manifest json");
+        manifest["plans"][0]
+            .as_object_mut()
+            .expect("legacy plan manifest")
+            .remove("archivedAt");
+        fs::write(
+            &manifest_path,
+            serde_json::to_string_pretty(&manifest).expect("legacy manifest json"),
+        )
+        .expect("write legacy manifest without archive state");
+
+        let preview = inspect_project_bundle_from_path(&legacy_path).expect("legacy preview");
+        assert_eq!(preview.compatibility, "legacy_v2");
+
+        let mut target = create_memory_connection().expect("target database");
+        run_migrations(&target).expect("target migrations");
+        let restored_project_id =
+            import_project_bundle_from_folder(&mut target, &legacy_path, "/tmp/restored")
+                .expect("restore legacy v2 bundle");
+        let restored_archive_state: Option<String> = target
+            .query_row(
+                "select archived_at from plans where project_id = ?1",
+                params![restored_project_id],
+                |row| row.get(0),
+            )
+            .expect("visible restored plan");
+        assert_eq!(restored_archive_state, None);
     }
 
     #[test]

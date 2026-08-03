@@ -328,6 +328,8 @@ mod tests {
         let conn = open_connection(&database_path).expect("database");
         run_migrations(&conn).expect("migrations");
         seed_preserved_project(&conn);
+        conn.execute_batch("alter table plans drop column archived_at;")
+            .expect("simulate pre-archive schema");
         conn.pragma_update(None, "user_version", 1_i64)
             .expect("mark pending upgrade");
         drop(conn);

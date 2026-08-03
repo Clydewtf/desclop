@@ -27,8 +27,10 @@ import {
 import { PortableRestoreForm } from "../features/portable-backup/PortableRestoreForm";
 import { buildPlanFrames } from "../features/planner/plannerEngine";
 import {
-  readArchivedPlanIds,
-  writeArchivedPlanIds
+  hasLegacyPlanArchiveRecord,
+  hasMigratedLegacyPlanArchives,
+  markLegacyPlanArchivesMigrated,
+  readLegacyArchivedPlanIds
 } from "../features/planner/plannerArchive";
 import { QuickCaptureOverlay } from "../features/quick-capture/QuickCaptureOverlay";
 import { Settings } from "../features/settings/SettingsPage";
@@ -120,20 +122,27 @@ function rememberLastOpenedProject(projectId: string) {
   }
 }
 
-function readArchivedPlansForProject(projectId: string) {
+function readLegacyArchiveMigration(projectId: string) {
   try {
-    return typeof window !== "undefined" && window.localStorage
-      ? readArchivedPlanIds(window.localStorage, projectId)
-      : [];
+    if (typeof window === "undefined" || !window.localStorage) {
+      return null;
+    }
+    if (!hasLegacyPlanArchiveRecord(window.localStorage)) {
+      return null;
+    }
+    if (hasMigratedLegacyPlanArchives(window.localStorage, projectId)) {
+      return null;
+    }
+    return readLegacyArchivedPlanIds(window.localStorage, projectId);
   } catch {
-    return [];
+    return null;
   }
 }
 
-function writeArchivedPlansForProject(projectId: string, planIds: string[]) {
+function markLegacyArchiveMigration(projectId: string) {
   try {
     return typeof window !== "undefined" && window.localStorage
-      ? writeArchivedPlanIds(window.localStorage, projectId, planIds)
+      ? markLegacyPlanArchivesMigrated(window.localStorage, projectId)
       : false;
   } catch {
     return false;
@@ -386,7 +395,6 @@ export function App() {
     tasks: [],
     checklistItems: []
   });
-  const [archivedPlanIds, setArchivedPlanIds] = useState<string[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [screen, setScreen] = useState<AppScreen>("today");
@@ -747,7 +755,6 @@ export function App() {
     setGitLastSyncedAt(null);
     setResumeBrief(null);
     setProjectPlan({ plans: [], stages: [], tasks: [], checklistItems: [] });
-    setArchivedPlanIds([]);
     setCreateError(null);
     setScreen("today");
     setSelectedTaskId(null);
@@ -1134,6 +1141,17 @@ export function App() {
     return true;
   }
 
+  async function migrateLegacyPlanArchives(projectId: string, plan: ProjectPlanPayload) {
+    const legacyPlanIds = readLegacyArchiveMigration(projectId);
+    if (legacyPlanIds === null) {
+      return plan;
+    }
+
+    await api.migrateLegacyPlanArchives({ projectId, planIds: legacyPlanIds });
+    markLegacyArchiveMigration(projectId);
+    return legacyPlanIds.length > 0 ? api.loadProjectPlan(projectId) : plan;
+  }
+
   async function savePlanEditor(draft: PlanEditorDraft) {
     const activeProject = project;
     if (!activeProject) {
@@ -1210,6 +1228,10 @@ export function App() {
     if (!isCurrentProjectSnapshot(revision, snapshotRevision)) {
       return null;
     }
+    plan = await migrateLegacyPlanArchives(activeProject.id, plan);
+    if (!isCurrentProjectSnapshot(revision, snapshotRevision)) {
+      return null;
+    }
     setProjects(loadedProjects);
     setResumeBrief(resumeResult.brief);
     setResumeError(resumeResult.unavailable ? "Resume context unavailable." : null);
@@ -1219,7 +1241,6 @@ export function App() {
     setGitError(gitResult.unavailable ? "Git unavailable." : null);
     setGitErrorDismissed(false);
     setProjectPlan(plan);
-    setArchivedPlanIds(readArchivedPlansForProject(activeProject.id));
     setSelectedTaskId(null);
     setSelectedNotes([]);
     setSelectedWorkEntries([]);
@@ -1500,24 +1521,32 @@ export function App() {
     }
   }
 
-  function archivePlan(planId: string) {
-    if (!project) {
-      return;
+  async function archivePlan(planId: string) {
+    const activeProject = project;
+    if (!activeProject) {
+      throw new Error("No project is open.");
     }
 
-    const nextPlanIds = [...new Set([...archivedPlanIds, planId])];
-    setArchivedPlanIds(nextPlanIds);
-    writeArchivedPlansForProject(project.id, nextPlanIds);
+    const revision = projectContextRevision.current;
+    await api.archivePlan({ planId });
+    markProjectRecentlyChanged(activeProject.id);
+    if (isCurrentProjectContext(revision)) {
+      await refreshProjectData(activeProject.id, revision);
+    }
   }
 
-  function restorePlan(planId: string) {
-    if (!project) {
-      return;
+  async function restorePlan(planId: string) {
+    const activeProject = project;
+    if (!activeProject) {
+      throw new Error("No project is open.");
     }
 
-    const nextPlanIds = archivedPlanIds.filter((candidate) => candidate !== planId);
-    setArchivedPlanIds(nextPlanIds);
-    writeArchivedPlansForProject(project.id, nextPlanIds);
+    const revision = projectContextRevision.current;
+    await api.restorePlan({ planId });
+    markProjectRecentlyChanged(activeProject.id);
+    if (isCurrentProjectContext(revision)) {
+      await refreshProjectData(activeProject.id, revision);
+    }
   }
 
   async function openTimeline(target: WeeklyReviewTimelineTarget = {}) {
@@ -2620,7 +2649,6 @@ export function App() {
               project?.activeTaskId ?? null
             )}
             projectId={project?.id}
-            archivedPlanIds={archivedPlanIds}
             onArchivePlan={archivePlan}
             onRestorePlan={restorePlan}
             onSavePlan={savePlanEditor}

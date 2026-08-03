@@ -1,5 +1,8 @@
 export const PLANNER_ARCHIVE_STORAGE_KEY = "desclop.planner-archive";
 export const PLANNER_ARCHIVE_SCHEMA_VERSION = 1;
+export const PLANNER_ARCHIVE_MIGRATION_STORAGE_KEY =
+  "desclop.planner-archive.sqlite-migration";
+export const PLANNER_ARCHIVE_MIGRATION_SCHEMA_VERSION = 1;
 
 export interface PlannerArchiveStorage {
   getItem(key: string): string | null;
@@ -9,6 +12,11 @@ export interface PlannerArchiveStorage {
 interface PlannerArchiveRecord {
   schemaVersion: number;
   projects: Record<string, string[]>;
+}
+
+interface PlannerArchiveMigrationRecord {
+  schemaVersion: number;
+  projectIds: string[];
 }
 
 function normalizePlanIds(value: unknown) {
@@ -56,38 +64,62 @@ function readRecord(storage: PlannerArchiveStorage): PlannerArchiveRecord {
   }
 }
 
-export function readArchivedPlanIds(
+function readMigrationRecord(storage: PlannerArchiveStorage): PlannerArchiveMigrationRecord {
+  try {
+    const raw = storage.getItem(PLANNER_ARCHIVE_MIGRATION_STORAGE_KEY);
+    if (!raw) {
+      return { schemaVersion: PLANNER_ARCHIVE_MIGRATION_SCHEMA_VERSION, projectIds: [] };
+    }
+
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null || !("projectIds" in parsed)) {
+      return { schemaVersion: PLANNER_ARCHIVE_MIGRATION_SCHEMA_VERSION, projectIds: [] };
+    }
+
+    return {
+      schemaVersion: PLANNER_ARCHIVE_MIGRATION_SCHEMA_VERSION,
+      projectIds: normalizePlanIds(parsed.projectIds)
+    };
+  } catch {
+    return { schemaVersion: PLANNER_ARCHIVE_MIGRATION_SCHEMA_VERSION, projectIds: [] };
+  }
+}
+
+export function readLegacyArchivedPlanIds(
   storage: PlannerArchiveStorage,
   projectId: string
 ) {
   return readRecord(storage).projects[projectId] ?? [];
 }
 
-export function writeArchivedPlanIds(
+export function hasLegacyPlanArchiveRecord(storage: PlannerArchiveStorage) {
+  try {
+    return storage.getItem(PLANNER_ARCHIVE_STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export function hasMigratedLegacyPlanArchives(storage: PlannerArchiveStorage, projectId: string) {
+  return readMigrationRecord(storage).projectIds.includes(projectId);
+}
+
+export function markLegacyPlanArchivesMigrated(
   storage: PlannerArchiveStorage,
-  projectId: string,
-  planIds: string[]
+  projectId: string
 ) {
   if (!projectId.trim()) {
     return false;
   }
-
   try {
-    const record = readRecord(storage);
-    const projects = { ...record.projects };
-    const normalizedPlanIds = normalizePlanIds(planIds);
-
-    if (normalizedPlanIds.length > 0) {
-      projects[projectId] = normalizedPlanIds;
-    } else {
-      delete projects[projectId];
-    }
+    const record = readMigrationRecord(storage);
+    const projectIds = normalizePlanIds([...record.projectIds, projectId]);
 
     storage.setItem(
-      PLANNER_ARCHIVE_STORAGE_KEY,
+      PLANNER_ARCHIVE_MIGRATION_STORAGE_KEY,
       JSON.stringify({
-        schemaVersion: PLANNER_ARCHIVE_SCHEMA_VERSION,
-        projects
+        schemaVersion: PLANNER_ARCHIVE_MIGRATION_SCHEMA_VERSION,
+        projectIds
       })
     );
     return true;

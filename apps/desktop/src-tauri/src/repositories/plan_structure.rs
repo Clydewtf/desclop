@@ -17,6 +17,8 @@ pub enum PlanStructureError {
     NotFound,
     #[error("The requested position is outside this list.")]
     InvalidPosition,
+    #[error("Only completed plans can be archived.")]
+    PlanNotCompleted,
     #[error("This plan changed while you were editing. Reload it before saving your changes.")]
     PlanChanged,
     #[error("Tasks can only move to a stage in the same plan.")]
@@ -51,6 +53,20 @@ pub struct UpdatePlanInput {
 pub struct ReorderPlanInput {
     pub plan_id: String,
     pub position: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchivePlanInput {
+    pub plan_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MigrateLegacyPlanArchivesInput {
+    pub project_id: String,
+    #[serde(default)]
+    pub plan_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -244,6 +260,94 @@ impl<'a> PlanStructureRepository<'a> {
             touch_project(&tx, &project_id, &now)?;
         }
 
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn archive_plan(&mut self, input: &ArchivePlanInput) -> Result<(), PlanStructureError> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self.conn.transaction()?;
+        let project_id = find_plan_project_id(&tx, &input.plan_id)?;
+
+        if !plan_is_completed(&tx, &input.plan_id)? {
+            return Err(PlanStructureError::PlanNotCompleted);
+        }
+
+        let changed = tx.execute(
+            "update plans
+             set archived_at = ?1, updated_at = ?1
+             where id = ?2 and archived_at is null",
+            params![now, input.plan_id],
+        )?;
+        if changed > 0 {
+            touch_project(&tx, &project_id, &now)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn restore_plan(&mut self, input: &ArchivePlanInput) -> Result<(), PlanStructureError> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self.conn.transaction()?;
+        let project_id = find_plan_project_id(&tx, &input.plan_id)?;
+        let changed = tx.execute(
+            "update plans
+             set archived_at = null, updated_at = ?1
+             where id = ?2 and archived_at is not null",
+            params![now, input.plan_id],
+        )?;
+        if changed > 0 {
+            touch_project(&tx, &project_id, &now)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Transfers the old browser-only archive list once. Stale IDs and plans
+    /// that have reopened are deliberately ignored rather than blocking the
+    /// project from opening.
+    pub fn migrate_legacy_plan_archives(
+        &mut self,
+        input: &MigrateLegacyPlanArchivesInput,
+    ) -> Result<(), PlanStructureError> {
+        let now = Utc::now().to_rfc3339();
+        let tx = self.conn.transaction()?;
+        let mut changed = false;
+        let plan_ids: HashSet<&str> = input
+            .plan_ids
+            .iter()
+            .map(String::as_str)
+            .filter(|id| !id.trim().is_empty())
+            .collect();
+
+        for plan_id in plan_ids {
+            let updated = tx.execute(
+                "update plans
+                 set archived_at = ?1, updated_at = ?1
+                 where id = ?2
+                   and project_id = ?3
+                   and archived_at is null
+                   and exists (
+                     select 1 from stages
+                     where stages.project_id = plans.project_id
+                       and stages.plan_id = plans.id
+                   )
+                   and not exists (
+                     select 1
+                     from stages
+                     inner join tasks on tasks.stage_id = stages.id
+                     where stages.project_id = plans.project_id
+                       and stages.plan_id = plans.id
+                       and tasks.status != 'done'
+                   )",
+                params![now, plan_id, input.project_id],
+            )?;
+            changed |= updated > 0;
+        }
+
+        if changed {
+            touch_project(&tx, &input.project_id, &now)?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -938,6 +1042,25 @@ fn find_plan_project_id(tx: &Transaction<'_>, plan_id: &str) -> Result<String, P
     .ok_or(PlanStructureError::NotFound)
 }
 
+fn plan_is_completed(tx: &Transaction<'_>, plan_id: &str) -> Result<bool, PlanStructureError> {
+    Ok(tx.query_row(
+        "select exists(
+           select 1
+           from stages
+           where stages.plan_id = ?1
+         )
+         and not exists(
+           select 1
+           from stages
+           inner join tasks on tasks.stage_id = stages.id
+           where stages.plan_id = ?1
+             and tasks.status != 'done'
+         )",
+        params![plan_id],
+        |row| row.get::<_, i64>(0),
+    )? != 0)
+}
+
 fn find_stage_context(
     tx: &Transaction<'_>,
     stage_id: &str,
@@ -1282,6 +1405,29 @@ mod tests {
             description: format!("{title} description"),
             completed: false,
             position,
+        }
+    }
+
+    fn complete_plan(conn: &Connection, project_id: &str, plan_id: &str) {
+        let mut statement = conn
+            .prepare(
+                "select tasks.id
+                 from tasks
+                 inner join stages on stages.id = tasks.stage_id
+                 where tasks.project_id = ?1 and stages.plan_id = ?2
+                 order by tasks.position asc",
+            )
+            .expect("prepare plan tasks");
+        let task_ids: Vec<String> = statement
+            .query_map(params![project_id, plan_id], |row| row.get(0))
+            .expect("plan task rows")
+            .collect::<Result<_, _>>()
+            .expect("plan task ids");
+
+        for task_id in task_ids {
+            TaskRepository::new(conn)
+                .update_task_status(&task_id, "done")
+                .expect("complete plan task");
         }
     }
 
@@ -2319,5 +2465,121 @@ mod tests {
             result.expect_err("empty title should fail").to_string(),
             "Enter a name before saving."
         );
+    }
+
+    #[test]
+    fn archives_only_completed_plans_and_restores_them() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project_id = seed_project(&mut conn);
+        let alpha_plan_id = plan_id(&conn, &project_id, "Alpha");
+
+        let incomplete = PlanStructureRepository::new(&mut conn).archive_plan(&ArchivePlanInput {
+            plan_id: alpha_plan_id.clone(),
+        });
+        assert!(matches!(
+            incomplete,
+            Err(PlanStructureError::PlanNotCompleted)
+        ));
+
+        complete_plan(&conn, &project_id, &alpha_plan_id);
+        PlanStructureRepository::new(&mut conn)
+            .archive_plan(&ArchivePlanInput {
+                plan_id: alpha_plan_id.clone(),
+            })
+            .expect("archive completed plan");
+
+        let archived_at: Option<String> = conn
+            .query_row(
+                "select archived_at from plans where id = ?1",
+                params![alpha_plan_id],
+                |row| row.get(0),
+            )
+            .expect("archived plan state");
+        assert!(archived_at.is_some());
+
+        PlanStructureRepository::new(&mut conn)
+            .restore_plan(&ArchivePlanInput {
+                plan_id: alpha_plan_id.clone(),
+            })
+            .expect("restore plan");
+        let restored_at: Option<String> = conn
+            .query_row(
+                "select archived_at from plans where title = 'Alpha'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("restored plan state");
+        assert_eq!(restored_at, None);
+    }
+
+    #[test]
+    fn legacy_archive_migration_ignores_stale_or_open_plan_ids() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project_id = seed_project(&mut conn);
+        let alpha_plan_id = plan_id(&conn, &project_id, "Alpha");
+        let beta_plan_id = plan_id(&conn, &project_id, "Beta");
+        complete_plan(&conn, &project_id, &alpha_plan_id);
+
+        PlanStructureRepository::new(&mut conn)
+            .migrate_legacy_plan_archives(&MigrateLegacyPlanArchivesInput {
+                project_id: project_id.clone(),
+                plan_ids: vec![
+                    alpha_plan_id.clone(),
+                    beta_plan_id.clone(),
+                    alpha_plan_id.clone(),
+                    "missing-plan".to_string(),
+                ],
+            })
+            .expect("migrate legacy archive ids");
+
+        let archive_states: Vec<(String, Option<String>)> = {
+            let mut statement = conn
+                .prepare(
+                    "select id, archived_at from plans where project_id = ?1 order by position asc",
+                )
+                .expect("plan states");
+            statement
+                .query_map(params![project_id], |row| Ok((row.get(0)?, row.get(1)?)))
+                .expect("state rows")
+                .collect::<Result<_, _>>()
+                .expect("archive states")
+        };
+        assert_eq!(archive_states.len(), 2);
+        assert!(archive_states
+            .iter()
+            .any(|(id, archived_at)| id == &alpha_plan_id && archived_at.is_some()));
+        assert!(archive_states
+            .iter()
+            .any(|(id, archived_at)| id == &beta_plan_id && archived_at.is_none()));
+    }
+
+    #[test]
+    fn reopening_task_work_unarchives_its_plan() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project_id = seed_project(&mut conn);
+        let alpha_plan_id = plan_id(&conn, &project_id, "Alpha");
+        complete_plan(&conn, &project_id, &alpha_plan_id);
+        PlanStructureRepository::new(&mut conn)
+            .archive_plan(&ArchivePlanInput {
+                plan_id: alpha_plan_id.clone(),
+            })
+            .expect("archive completed plan");
+
+        let first_task_id = task_id(&conn, &project_id, "First task");
+        TaskRepository::new(&conn)
+            .update_task_status(&first_task_id, "todo")
+            .expect("reopen task");
+
+        let archived_at: Option<String> = conn
+            .query_row(
+                "select archived_at from plans where id = ?1",
+                params![alpha_plan_id],
+                |row| row.get(0),
+            )
+            .expect("plan archive state");
+        assert_eq!(archived_at, None);
     }
 }

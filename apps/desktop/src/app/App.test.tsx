@@ -12,6 +12,10 @@ import {
 import type { ResumeBrief } from "../shared/domain/types";
 import { SETTINGS_SCHEMA_VERSION, SETTINGS_STORAGE_KEY } from "../features/settings/settings";
 import { LAST_PROJECT_STORAGE_KEY } from "../features/project-setup/projectSelection";
+import {
+  PLANNER_ARCHIVE_MIGRATION_STORAGE_KEY,
+  PLANNER_ARCHIVE_STORAGE_KEY
+} from "../features/planner/plannerArchive";
 
 const tauriEventMock = vi.hoisted(() => {
   const listeners = new Map<string, Set<() => void>>();
@@ -45,6 +49,9 @@ vi.mock("../shared/api/client", () => ({
     loadProjectPlan: vi.fn(),
     importPlan: vi.fn(),
     savePlanEditor: vi.fn(),
+    archivePlan: vi.fn(),
+    restorePlan: vi.fn(),
+    migrateLegacyPlanArchives: vi.fn(),
     updateTaskStatus: vi.fn(),
     setActiveTask: vi.fn(),
     updateChecklistItem: vi.fn(),
@@ -99,6 +106,7 @@ const getResumeBrief = vi.mocked(api.getResumeBrief);
 const loadProjectPlan = vi.mocked(api.loadProjectPlan);
 const importPlan = vi.mocked(api.importPlan);
 const savePlanEditor = vi.mocked(api.savePlanEditor);
+const migrateLegacyPlanArchives = vi.mocked(api.migrateLegacyPlanArchives);
 const createWorkEntry = vi.mocked(api.createWorkEntry);
 const captureInboxItem = vi.mocked(api.captureInboxItem);
 const attachInboxItemToTask = vi.mocked(api.attachInboxItemToTask);
@@ -189,14 +197,14 @@ function portableExportResult(path: string) {
   return {
     path,
     exportedAt: "2026-07-25T10:00:00Z",
-    formatVersion: 2,
+    formatVersion: 3,
     backupRecorded: true
   };
 }
 
 function portableBundlePreview() {
   return {
-    formatVersion: 2,
+    formatVersion: 3,
     compatibility: "current" as const,
     projectName: "Imported Project",
     planCount: 1,
@@ -378,8 +386,8 @@ beforeEach(() => {
   listProjectSummaries.mockResolvedValue([]);
   getDatabaseStatus.mockResolvedValue({
     state: "ready",
-    schemaVersion: 3,
-    targetSchemaVersion: 3,
+    schemaVersion: 4,
+    targetSchemaVersion: 4,
     integrity: "ok",
     recoveryCode: null,
     recoveryBackupPath: null,
@@ -390,7 +398,7 @@ beforeEach(() => {
     projectPath: "/tmp/desclop",
     folderState: "available",
     git: { configured: false, repositoryDetected: false },
-    database: { state: "ready", schemaVersion: 3, targetSchemaVersion: 3, integrity: "ok" },
+    database: { state: "ready", schemaVersion: 4, targetSchemaVersion: 4, integrity: "ok" },
     lastBackup: { state: "none", kind: null, createdAt: null, formatVersion: null, schemaVersion: null },
     relinkAvailable: true,
     supportReport: {
@@ -398,7 +406,7 @@ beforeEach(() => {
       appVersion: "0.2.0-beta.2",
       folderState: "available",
       git: { configured: false, repositoryDetected: false },
-      database: { state: "ready", schemaVersion: 3, targetSchemaVersion: 3, integrity: "ok" },
+      database: { state: "ready", schemaVersion: 4, targetSchemaVersion: 4, integrity: "ok" },
       lastBackup: { state: "none", kind: null, createdAt: null, formatVersion: null, schemaVersion: null },
       relinkAvailable: true
     }
@@ -479,7 +487,7 @@ describe("App", () => {
     getDatabaseStatus.mockResolvedValue({
       state: "recovery_required",
       schemaVersion: 1,
-      targetSchemaVersion: 3,
+      targetSchemaVersion: 4,
       integrity: "recovery_required",
       recoveryCode: "migration_failed",
       recoveryBackupPath: "/tmp/desclop-backups/migration-v1.sqlite3",
@@ -517,6 +525,47 @@ describe("App", () => {
       await screen.findByRole("heading", { name: "Open despite summary failure" })
     ).toBeInTheDocument();
     expect(listProjectSummaries).toHaveBeenCalledTimes(1);
+  });
+
+  it("moves legacy browser archive state into the project once", async () => {
+    enableTauriApi();
+    const plan = importedPlanFixture("p1");
+    const completedPlan = {
+      ...plan,
+      stages: [{ ...plan.stages[0], status: "completed" as const }],
+      tasks: [{ ...plan.tasks[0], status: "done" as const }]
+    };
+    const archivedPlan = {
+      ...completedPlan,
+      plans: [
+        {
+          ...completedPlan.plans[0],
+          archivedAt: "2026-08-04T00:00:00Z"
+        }
+      ]
+    };
+    onboardingStorage.set(
+      PLANNER_ARCHIVE_STORAGE_KEY,
+      JSON.stringify({ schemaVersion: 1, projects: { p1: ["plan-1"] } })
+    );
+    listProjects.mockResolvedValue([projectFixture()]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValueOnce(completedPlan).mockResolvedValueOnce(archivedPlan);
+    migrateLegacyPlanArchives.mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await waitFor(() => {
+      expect(migrateLegacyPlanArchives).toHaveBeenCalledWith({
+        projectId: "p1",
+        planIds: ["plan-1"]
+      });
+    });
+    expect(loadProjectPlan).toHaveBeenCalledTimes(2);
+    expect(JSON.parse(onboardingStorage.get(PLANNER_ARCHIVE_MIGRATION_STORAGE_KEY) ?? "")).toEqual({
+      schemaVersion: 1,
+      projectIds: ["p1"]
+    });
   });
 
   it("passes loaded project summaries to the saved-project picker", async () => {

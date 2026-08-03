@@ -162,7 +162,7 @@ describe("Utilities", () => {
     renderUtilities({
       relinkPath: "/tmp/relinked",
       restorePreview: {
-        formatVersion: 2,
+        formatVersion: 3,
         compatibility: "current",
         projectName: "Imported project",
         planCount: 1,
@@ -228,8 +228,8 @@ describe("Utilities", () => {
         git: { configured: true, repositoryDetected: true },
         database: {
           state: "ready",
-          schemaVersion: 3,
-          targetSchemaVersion: 3,
+          schemaVersion: 4,
+          targetSchemaVersion: 4,
           integrity: "ok"
         },
         lastBackup: {
@@ -247,8 +247,8 @@ describe("Utilities", () => {
           git: { configured: true, repositoryDetected: true },
           database: {
             state: "ready",
-            schemaVersion: 3,
-            targetSchemaVersion: 3,
+            schemaVersion: 4,
+            targetSchemaVersion: 4,
             integrity: "ok"
           },
           lastBackup: {

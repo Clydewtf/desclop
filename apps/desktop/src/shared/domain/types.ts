@@ -31,6 +31,8 @@ export interface Plan {
   projectId: Id;
   title: string;
   position: number;
+  /** Set only when a completed plan is explicitly archived. */
+  archivedAt?: string | null;
 }
 
 export interface Stage {

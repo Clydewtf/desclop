@@ -1,6 +1,6 @@
 use rusqlite::{Connection, Transaction};
 
-pub const CURRENT_SCHEMA_VERSION: i64 = 3;
+pub const CURRENT_SCHEMA_VERSION: i64 = 4;
 
 #[cfg(test)]
 pub fn create_memory_connection() -> rusqlite::Result<Connection> {
@@ -65,6 +65,15 @@ where
             conn,
             3,
             include_str!("../migrations/003_project_activity.sql"),
+            &mut hook,
+        )?;
+    }
+
+    if schema_version(conn)? < 4 {
+        run_sql_migration(
+            conn,
+            4,
+            include_str!("../migrations/004_plan_archiving.sql"),
             &mut hook,
         )?;
     }
@@ -394,6 +403,7 @@ mod tests {
              drop trigger touch_project_after_commit_link_insert;
              drop trigger touch_project_after_commit_link_update;
              drop trigger touch_project_after_commit_link_delete;
+             alter table plans drop column archived_at;
              pragma user_version = 2;",
         )
         .expect("simulate v2 database");
@@ -421,7 +431,36 @@ mod tests {
             )
             .expect("project timestamp");
         assert_ne!(updated_at, "2000-01-01T00:00:00Z");
-        assert_eq!(schema_version(&conn).expect("schema version"), 3);
+        assert_eq!(
+            schema_version(&conn).expect("schema version"),
+            CURRENT_SCHEMA_VERSION
+        );
+    }
+
+    #[test]
+    fn migration_adds_nullable_plan_archive_state() {
+        let conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        conn.execute_batch(
+            "insert into projects (id, name, local_path, git_enabled, created_at, updated_at)
+             values ('archive-project', 'Archive', '/tmp/archive', 0, 'now', 'now');
+             insert into plans (id, project_id, title, position, created_at, updated_at)
+             values ('archive-plan', 'archive-project', 'Completed plan', 0, 'now', 'now');",
+        )
+        .expect("seed plan without explicit archive value");
+
+        let archived_at: Option<String> = conn
+            .query_row(
+                "select archived_at from plans where id = 'archive-plan'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("archive column");
+        assert_eq!(archived_at, None);
+        assert_eq!(
+            schema_version(&conn).expect("schema version"),
+            CURRENT_SCHEMA_VERSION
+        );
     }
 
     #[test]

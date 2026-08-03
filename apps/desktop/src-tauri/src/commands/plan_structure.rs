@@ -3,10 +3,11 @@ use tauri::State;
 use crate::app_state::AppState;
 use crate::domain::{ChecklistItem, Task};
 use crate::repositories::plan_structure::{
-    CreateChecklistItemInput, CreateTaskInput, DeleteChecklistItemInput, DeleteStageInput,
-    DeleteTaskInput, MoveTaskInput, PlanStructureRepository, ReorderChecklistItemInput,
-    ReorderPlanInput, ReorderStageInput, ReorderTaskInput, SavePlanEditorInput,
-    UpdateChecklistItemDetailsInput, UpdatePlanInput, UpdateStageInput, UpdateTaskInput,
+    ArchivePlanInput, CreateChecklistItemInput, CreateTaskInput, DeleteChecklistItemInput,
+    DeleteStageInput, DeleteTaskInput, MigrateLegacyPlanArchivesInput, MoveTaskInput,
+    PlanStructureRepository, ReorderChecklistItemInput, ReorderPlanInput, ReorderStageInput,
+    ReorderTaskInput, SavePlanEditorInput, UpdateChecklistItemDetailsInput, UpdatePlanInput,
+    UpdateStageInput, UpdateTaskInput,
 };
 
 #[tauri::command]
@@ -22,6 +23,33 @@ pub fn reorder_plan(input: ReorderPlanInput, state: State<'_, AppState>) -> Resu
     let mut conn = state.connection()?;
     PlanStructureRepository::new(&mut conn)
         .reorder_plan(&input)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn archive_plan(input: ArchivePlanInput, state: State<'_, AppState>) -> Result<(), String> {
+    let mut conn = state.connection()?;
+    PlanStructureRepository::new(&mut conn)
+        .archive_plan(&input)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn restore_plan(input: ArchivePlanInput, state: State<'_, AppState>) -> Result<(), String> {
+    let mut conn = state.connection()?;
+    PlanStructureRepository::new(&mut conn)
+        .restore_plan(&input)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn migrate_legacy_plan_archives(
+    input: MigrateLegacyPlanArchivesInput,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut conn = state.connection()?;
+    PlanStructureRepository::new(&mut conn)
+        .migrate_legacy_plan_archives(&input)
         .map_err(|err| err.to_string())
 }
 

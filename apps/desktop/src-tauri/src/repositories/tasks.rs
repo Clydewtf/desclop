@@ -58,6 +58,29 @@ pub(crate) fn recalculate_stage_statuses(
          end",
         params![project_id, chrono::Utc::now().to_rfc3339()],
     )?;
+    clear_archived_incomplete_plans(conn, project_id)?;
+    Ok(())
+}
+
+/// An archived plan is always completed. If normal task work reopens one,
+/// make it visible again in the same local transaction that recalculates its
+/// stage status.
+fn clear_archived_incomplete_plans(conn: &Connection, project_id: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "update plans
+         set archived_at = null, updated_at = ?2
+         where project_id = ?1
+           and archived_at is not null
+           and exists (
+             select 1
+             from stages
+             inner join tasks on tasks.stage_id = stages.id
+             where stages.project_id = plans.project_id
+               and stages.plan_id = plans.id
+               and tasks.status != 'done'
+           )",
+        params![project_id, chrono::Utc::now().to_rfc3339()],
+    )?;
     Ok(())
 }
 
@@ -72,7 +95,7 @@ impl<'a> TaskRepository<'a> {
 
     pub fn list_plans(&self, project_id: &str) -> rusqlite::Result<Vec<Plan>> {
         let mut stmt = self.conn.prepare(
-            "select id, project_id, title, position
+            "select id, project_id, title, position, archived_at
              from plans
              where project_id = ?1
              order by position asc, id asc",
@@ -84,6 +107,7 @@ impl<'a> TaskRepository<'a> {
                 project_id: row.get(1)?,
                 title: row.get(2)?,
                 position: row.get(3)?,
+                archived_at: row.get(4)?,
             })
         })?;
 

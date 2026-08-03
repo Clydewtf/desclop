@@ -266,21 +266,27 @@ describe("Planner", () => {
     );
 
     await user.click(
-      screen.getByRole("button", { name: "Hide completed plan Finished release" })
+      screen.getByRole("button", { name: "Archive completed plan Finished release" })
     );
     expect(onArchivePlan).toHaveBeenCalledWith("completed-plan");
 
     view.rerender(
       <Planner
-        planFrames={planFrames}
-        archivedPlanIds={["completed-plan"]}
+        planFrames={planFrames.map((planFrame) =>
+          planFrame.plan.id === "completed-plan"
+            ? {
+                ...planFrame,
+                plan: { ...planFrame.plan, archivedAt: "2026-08-04T00:00:00Z" }
+              }
+            : planFrame
+        )}
         onArchivePlan={onArchivePlan}
         onRestorePlan={onRestorePlan}
         onOpenTask={onOpenTask}
       />
     );
 
-    expect(screen.getByRole("heading", { name: "Hidden completed plans" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Archived completed plans" })).toBeInTheDocument();
     expect(screen.getByText("1/1 tasks")).toBeInTheDocument();
     await user.click(
       screen.getByRole("button", { name: "Restore plan Finished release" })

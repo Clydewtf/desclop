@@ -69,9 +69,8 @@ interface PlannerProps {
   frames?: PlannerFrame[];
   planFrames?: PlanFrame[];
   projectId?: string;
-  archivedPlanIds?: string[];
-  onArchivePlan?: (planId: string) => void;
-  onRestorePlan?: (planId: string) => void;
+  onArchivePlan?: (planId: string) => void | Promise<void>;
+  onRestorePlan?: (planId: string) => void | Promise<void>;
   onSavePlan?: (draft: PlanEditorDraft) => Promise<void>;
   onEditPlanDirtyChange?: (hasUnsavedChanges: boolean) => void;
   leaveRequest?: PlanEditorLeaveRequest | null;
@@ -136,7 +135,6 @@ export function Planner({
   frames = [],
   planFrames,
   projectId,
-  archivedPlanIds = [],
   onArchivePlan,
   onRestorePlan,
   onSavePlan,
@@ -162,6 +160,8 @@ export function Planner({
     message: string;
   } | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [updatingArchivePlanId, setUpdatingArchivePlanId] = useState<string | null>(null);
   const [savingPlan, setSavingPlan] = useState(false);
   const [draggedStageId, setDraggedStageId] = useState<string | null>(null);
   const [dropTargetStageId, setDropTargetStageId] = useState<string | null>(null);
@@ -269,6 +269,8 @@ export function Planner({
     setStageDeleteWarningId(null);
     setTaskDeleteWarning(null);
     setEditorError(null);
+    setArchiveError(null);
+    setUpdatingArchivePlanId(null);
     setSavingPlan(false);
     setDraggedStageId(null);
     setDropTargetStageId(null);
@@ -356,16 +358,15 @@ export function Planner({
   ]);
 
   const renderedPlanFrames = planFrames ?? legacyPlanFrames(frames);
-  const archivedIdSet = new Set(archivedPlanIds);
   const expandedPlanIds = new Set(viewState.expandedPlanIds);
   const collapsedPlanIds = new Set(viewState.collapsedPlanIds);
   const expandedStageIds = new Set(viewState.expandedStageIds);
   const collapsedStageIds = new Set(viewState.collapsedStageIds);
   const archivedPlanFrames = renderedPlanFrames.filter(
-    (planFrame) => planFrame.collapsed && archivedIdSet.has(planFrame.plan.id)
+    (planFrame) => planFrame.collapsed && Boolean(planFrame.plan.archivedAt)
   );
   const visiblePlanFrames = renderedPlanFrames
-    .filter((planFrame) => !archivedIdSet.has(planFrame.plan.id) || !planFrame.collapsed)
+    .filter((planFrame) => !planFrame.plan.archivedAt || !planFrame.collapsed)
     .sort(comparePlanFrames);
   const openPlanCount = renderedPlanFrames.filter((planFrame) => !planFrame.collapsed).length;
   const completedPlanCount = renderedPlanFrames.filter((planFrame) => planFrame.collapsed).length;
@@ -376,6 +377,27 @@ export function Planner({
       const key = planFrame.collapsed ? "expandedPlanIds" : "collapsedPlanIds";
       return { ...current, [key]: toggleId(current[key], planFrame.plan.id) };
     });
+  }
+
+  async function updatePlanArchive(planId: string, action: "archive" | "restore") {
+    const handler = action === "archive" ? onArchivePlan : onRestorePlan;
+    if (!handler || updatingArchivePlanId) {
+      return;
+    }
+
+    setArchiveError(null);
+    setUpdatingArchivePlanId(planId);
+    try {
+      await handler(planId);
+    } catch {
+      setArchiveError(
+        action === "archive"
+          ? "Couldn't archive this plan. Nothing was changed. Try again."
+          : "Couldn't restore this plan. Nothing was changed. Try again."
+      );
+    } finally {
+      setUpdatingArchivePlanId(null);
+    }
   }
 
   function toggleStage(frame: PlannerFrame) {
@@ -1230,6 +1252,8 @@ export function Planner({
         }
       />
 
+      {archiveError ? <InlineAlert tone="error">{archiveError}</InlineAlert> : null}
+
       <div className="plan-list">
         {visiblePlanFrames.map((planFrame) => {
           const planCollapsed = isPlanCollapsed(planFrame);
@@ -1315,10 +1339,11 @@ export function Planner({
                       <Button
                         type="button"
                         variant="ghost"
-                        aria-label={`Hide completed plan ${planFrame.plan.title}`}
-                        onClick={() => onArchivePlan(planFrame.plan.id)}
+                        aria-label={`Archive completed plan ${planFrame.plan.title}`}
+                        disabled={updatingArchivePlanId === planFrame.plan.id}
+                        onClick={() => void updatePlanArchive(planFrame.plan.id, "archive")}
                       >
-                        Hide
+                        Archive
                       </Button>
                     ) : null}
                   </div>
@@ -1908,11 +1933,11 @@ export function Planner({
       {archivedPlanFrames.length > 0 ? (
         <>
           <div className="planner-map__archive-divider" aria-hidden="true" />
-          <section className="planner-map__archived" aria-label="Hidden completed plans">
+          <section className="planner-map__archived" aria-label="Archived completed plans">
             <header className="planner-map__archived-header">
               <div>
                 <p className="stage-frame__status">Out of the main flow</p>
-                <h2>Hidden completed plans</h2>
+                <h2>Archived completed plans</h2>
               </div>
               <span>{archivedPlanFrames.length}</span>
             </header>
@@ -1933,7 +1958,8 @@ export function Planner({
                       type="button"
                       variant="secondary"
                       aria-label={`Restore plan ${planFrame.plan.title}`}
-                      onClick={() => onRestorePlan(planFrame.plan.id)}
+                      disabled={updatingArchivePlanId === planFrame.plan.id}
+                      onClick={() => void updatePlanArchive(planFrame.plan.id, "restore")}
                     >
                       Restore
                     </Button>

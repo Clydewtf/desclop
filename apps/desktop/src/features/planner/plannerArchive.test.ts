@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  hasLegacyPlanArchiveRecord,
+  hasMigratedLegacyPlanArchives,
+  markLegacyPlanArchivesMigrated,
   PLANNER_ARCHIVE_STORAGE_KEY,
-  readArchivedPlanIds,
-  writeArchivedPlanIds,
+  PLANNER_ARCHIVE_MIGRATION_STORAGE_KEY,
+  readLegacyArchivedPlanIds,
   type PlannerArchiveStorage
 } from "./plannerArchive";
 
@@ -16,29 +19,39 @@ function storageFixture(initial: Record<string, string> = {}) {
   return { storage, values };
 }
 
-describe("planner archive persistence", () => {
-  it("stores archive ids per project and restores them without affecting another project", () => {
+describe("legacy planner archive migration", () => {
+  it("reads old archive ids per project without making them the new source of truth", () => {
     const { storage } = storageFixture();
 
-    expect(writeArchivedPlanIds(storage, "project-1", ["plan-1", "plan-1"])).toBe(true);
-    expect(writeArchivedPlanIds(storage, "project-2", ["plan-2"])).toBe(true);
-    expect(readArchivedPlanIds(storage, "project-1")).toEqual(["plan-1"]);
-    expect(readArchivedPlanIds(storage, "project-2")).toEqual(["plan-2"]);
+    expect(hasLegacyPlanArchiveRecord(storage)).toBe(false);
+
+    storage.setItem(
+      PLANNER_ARCHIVE_STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: 1,
+        projects: { "project-1": ["plan-1", "plan-1"], "project-2": ["plan-2"] }
+      })
+    );
+
+    expect(hasLegacyPlanArchiveRecord(storage)).toBe(true);
+    expect(readLegacyArchivedPlanIds(storage, "project-1")).toEqual(["plan-1"]);
+    expect(readLegacyArchivedPlanIds(storage, "project-2")).toEqual(["plan-2"]);
   });
 
-  it("removes a restored plan id while preserving the stored record", () => {
+  it("records each successful local migration once", () => {
     const { storage, values } = storageFixture();
 
-    writeArchivedPlanIds(storage, "project-1", ["plan-1", "plan-2"]);
-    expect(writeArchivedPlanIds(storage, "project-1", ["plan-2"])).toBe(true);
-
-    expect(readArchivedPlanIds(storage, "project-1")).toEqual(["plan-2"]);
-    expect(values.has(PLANNER_ARCHIVE_STORAGE_KEY)).toBe(true);
+    expect(hasMigratedLegacyPlanArchives(storage, "project-1")).toBe(false);
+    expect(markLegacyPlanArchivesMigrated(storage, "project-1")).toBe(true);
+    expect(markLegacyPlanArchivesMigrated(storage, "project-1")).toBe(true);
+    expect(hasMigratedLegacyPlanArchives(storage, "project-1")).toBe(true);
+    expect(hasMigratedLegacyPlanArchives(storage, "project-2")).toBe(false);
+    expect(values.has(PLANNER_ARCHIVE_MIGRATION_STORAGE_KEY)).toBe(true);
   });
 
   it("treats malformed local state as empty instead of blocking the plan", () => {
     const { storage } = storageFixture({ [PLANNER_ARCHIVE_STORAGE_KEY]: "not-json" });
 
-    expect(readArchivedPlanIds(storage, "project-1")).toEqual([]);
+    expect(readLegacyArchivedPlanIds(storage, "project-1")).toEqual([]);
   });
 });

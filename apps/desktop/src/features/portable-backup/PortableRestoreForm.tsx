@@ -121,6 +121,11 @@ export function PortableRestoreForm({
               This is a legacy v1 backup. It did not store plan grouping, so its stages will be restored into one Imported plan.
             </InlineAlert>
           ) : null}
+          {preview.compatibility === "legacy_v2" ? (
+            <InlineAlert tone="warning">
+              This backup predates portable plan archiving. Its completed plans will be visible after restore.
+            </InlineAlert>
+          ) : null}
           <div className="utilities-confirmation__actions">
             <Button type="button" variant="secondary" onClick={onCancel}>
               Cancel

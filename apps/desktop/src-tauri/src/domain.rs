@@ -39,6 +39,7 @@ pub struct Plan {
     pub project_id: Id,
     pub title: String,
     pub position: i64,
+    pub archived_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

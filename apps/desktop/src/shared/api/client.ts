@@ -51,6 +51,15 @@ export interface ReorderPlanInput {
   position: number;
 }
 
+export interface ArchivePlanInput {
+  planId: string;
+}
+
+export interface MigrateLegacyPlanArchivesInput {
+  projectId: string;
+  planIds: string[];
+}
+
 export interface UpdateStageInput {
   stageId: string;
   title: string;
@@ -261,7 +270,7 @@ export interface PortableBackupExportResult {
 
 export interface PortableBundlePreview {
   formatVersion: number;
-  compatibility: "current" | "legacy_v1";
+  compatibility: "current" | "legacy_v1" | "legacy_v2";
   projectName: string;
   planCount: number;
   stageCount: number;
@@ -296,6 +305,12 @@ export const api = {
     invoke<void>("update_plan", { input }),
   reorderPlan: (input: ReorderPlanInput) =>
     invoke<void>("reorder_plan", { input }),
+  archivePlan: (input: ArchivePlanInput) =>
+    invoke<void>("archive_plan", { input }),
+  restorePlan: (input: ArchivePlanInput) =>
+    invoke<void>("restore_plan", { input }),
+  migrateLegacyPlanArchives: (input: MigrateLegacyPlanArchivesInput) =>
+    invoke<void>("migrate_legacy_plan_archives", { input }),
   updateStage: (input: UpdateStageInput) =>
     invoke<void>("update_stage", { input }),
   reorderStage: (input: ReorderStageInput) =>
