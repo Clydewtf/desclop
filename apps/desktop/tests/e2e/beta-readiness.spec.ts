@@ -66,7 +66,7 @@ test("beta readiness smoke covers diagnostics, backup restore, and close behavio
     };
 
     const diagnostics = {
-      appVersion: "0.2.0-beta.1",
+      appVersion: "0.2.0-beta.2",
       projectPath: project.localPath,
       folderState: "available",
       git: { configured: false, repositoryDetected: false },
@@ -86,7 +86,7 @@ test("beta readiness smoke covers diagnostics, backup restore, and close behavio
       relinkAvailable: true,
       supportReport: {
         diagnosticFormatVersion: 1,
-        appVersion: "0.2.0-beta.1",
+        appVersion: "0.2.0-beta.2",
         folderState: "available",
         git: { configured: false, repositoryDetected: false },
         database: {
@@ -186,7 +186,7 @@ test("beta readiness smoke covers diagnostics, backup restore, and close behavio
 
   const supportReport = page.getByLabel("Technical support report");
   await page.getByText("For support").click();
-  await expect(supportReport).toHaveValue(/0\.2\.0-beta\.1/);
+  await expect(supportReport).toHaveValue(/0\.2\.0-beta\.2/);
   await expect(supportReport).not.toHaveValue(/beta-private|Beta smoke project/);
 
   await page.getByRole("button", { name: "Choose destination folder" }).click();

@@ -2,6 +2,23 @@
 
 All notable changes to Desclop are documented in this file.
 
+## v0.2.0-beta.2 - 2026-08-03
+
+Safe local plan editing.
+
+### Added
+
+- Native Markdown file import from a picker or drag-and-drop for `.md`, `.markdown`, and `.txt` files, with clear local validation and replace/discard controls.
+- An explicit **Edit plan** mode for changing a plan title, stages, tasks, and checklist items without hidden autosaves.
+- Drag-and-drop reordering for stages and tasks, plus safe task moves between stages in the same plan.
+- Unsaved-change confirmations for navigation, cancellation, save, and application close.
+
+### Changed
+
+- Saving a plan edit now refreshes Planner, Today, Resume Brief, and related work context from the same local source of truth.
+- Destructive edits protect notes, work reviews, Inbox references, Git links, and Resume Brief history instead of removing them silently.
+- Added layered Rust and frontend coverage for editor transactions, project isolation, validation, draft handling, ordering, and history safeguards.
+
 ## v0.2.0-beta.1 - 2026-07-26
 
 Controlled manual AI context export.

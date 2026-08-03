@@ -386,7 +386,7 @@ beforeEach(() => {
     nextStep: null
   });
   getProjectDiagnostics.mockResolvedValue({
-    appVersion: "0.2.0-beta.1",
+    appVersion: "0.2.0-beta.2",
     projectPath: "/tmp/desclop",
     folderState: "available",
     git: { configured: false, repositoryDetected: false },
@@ -395,7 +395,7 @@ beforeEach(() => {
     relinkAvailable: true,
     supportReport: {
       diagnosticFormatVersion: 1,
-      appVersion: "0.2.0-beta.1",
+      appVersion: "0.2.0-beta.2",
       folderState: "available",
       git: { configured: false, repositoryDetected: false },
       database: { state: "ready", schemaVersion: 3, targetSchemaVersion: 3, integrity: "ok" },

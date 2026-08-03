@@ -1800,8 +1800,8 @@ mod tests {
         let ship_task_id = task_id(&conn, &project_id, "Ship it");
         let other_task_id = task_id(&conn, &other_project.id, "Other task");
 
-        let result = PlanStructureRepository::new(&mut conn).save_plan_editor(
-            &SavePlanEditorInput {
+        let result =
+            PlanStructureRepository::new(&mut conn).save_plan_editor(&SavePlanEditorInput {
                 plan_id: alpha_plan_id.clone(),
                 title: "Should not save".to_string(),
                 stages: vec![
@@ -1852,8 +1852,7 @@ mod tests {
                 checklist_items: vec![],
                 deleted_checklist_item_ids: vec![],
                 confirmed_checklist_item_ids: vec![],
-            },
-        );
+            });
 
         assert!(matches!(result, Err(PlanStructureError::PlanChanged)));
         let first_plan_title: String = conn
@@ -1872,10 +1871,7 @@ mod tests {
             .expect("other task");
 
         assert_eq!(first_plan_title, "Alpha");
-        assert_eq!(
-            other_task,
-            (other_project.id, "Other task".to_string(), 0)
-        );
+        assert_eq!(other_task, (other_project.id, "Other task".to_string(), 0));
     }
 
     #[test]

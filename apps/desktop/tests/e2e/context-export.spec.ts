@@ -104,7 +104,7 @@ test("manual AI context export previews, edits, excludes, and copies local field
         }
         if (command === "get_project_diagnostics") {
           return {
-            appVersion: "0.2.0-beta.1",
+            appVersion: "0.2.0-beta.2",
             projectPath: project.localPath,
             folderState: "available",
             git: { configured: false, repositoryDetected: false },
@@ -124,7 +124,7 @@ test("manual AI context export previews, edits, excludes, and copies local field
             relinkAvailable: true,
             supportReport: {
               diagnosticFormatVersion: 1,
-              appVersion: "0.2.0-beta.1",
+              appVersion: "0.2.0-beta.2",
               folderState: "available",
               git: { configured: false, repositoryDetected: false },
               database: {

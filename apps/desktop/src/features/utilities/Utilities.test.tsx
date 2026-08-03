@@ -222,7 +222,7 @@ describe("Utilities", () => {
 
     renderUtilities({
       diagnostics: {
-        appVersion: "0.2.0-beta.1",
+        appVersion: "0.2.0-beta.2",
         projectPath: "/tmp/desclop",
         folderState: "available",
         git: { configured: true, repositoryDetected: true },
@@ -242,7 +242,7 @@ describe("Utilities", () => {
         relinkAvailable: true,
         supportReport: {
           diagnosticFormatVersion: 1,
-          appVersion: "0.2.0-beta.1",
+          appVersion: "0.2.0-beta.2",
           folderState: "available",
           git: { configured: true, repositoryDetected: true },
           database: {

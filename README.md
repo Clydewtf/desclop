@@ -20,7 +20,9 @@ It is not meant to be a team project management system, a full Git client, a tim
 - Resume-first workspace centered on "continue where you left off".
 - Local project workflow data stored on your machine.
 - Markdown plan import with stages, tasks, and checklists.
+- Native local-file plan import for `.md`, `.markdown`, and `.txt` files.
 - Planner view with stage frames and task progress.
+- Explicit Edit plan mode for safely changing plans, stages, tasks, checklists, and their order.
 - Task details with notes, checklist, work entries, linked commits, inbox items, and next step.
 - Manual inbox capture for bugs, ideas, questions, notes, and task candidates.
 - Work review for capturing what was done, what remains, and what should happen next.
@@ -33,7 +35,7 @@ It is not meant to be a team project management system, a full Git client, a tim
 
 Desclop is currently in beta.
 
-The current release line is `v0.2.0-beta.1`, focused on a stable local workflow plus manual, editable AI context export. Expect rough edges and platform-specific limitations while the beta is being validated.
+The current release line is `v0.2.0-beta.2`, focused on safe local plan import and editing while keeping Today and Resume Brief in sync. Expect rough edges and platform-specific limitations while the beta is being validated.
 
 ## Installation
 
