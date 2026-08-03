@@ -1773,6 +1773,112 @@ mod tests {
     }
 
     #[test]
+    fn rejects_editor_changes_that_reference_another_projects_task_without_touching_either_plan() {
+        let mut conn = create_memory_connection().expect("memory database");
+        run_migrations(&conn).expect("migrations");
+        let project_id = seed_project(&mut conn);
+        let other_project = ProjectRepository::new(&conn)
+            .create_project("Other".to_string(), "/tmp/other".to_string(), false)
+            .expect("create other project");
+        PlanRepository::new(&mut conn)
+            .import_plan(
+                &other_project.id,
+                "Other plan",
+                vec![import_stage(
+                    "Other stage",
+                    0,
+                    vec![import_task("Other task", 0, vec![])],
+                )],
+            )
+            .expect("import other plan");
+
+        let alpha_plan_id = plan_id(&conn, &project_id, "Alpha");
+        let discovery_stage_id = stage_id(&conn, &project_id, "Discovery");
+        let delivery_stage_id = stage_id(&conn, &project_id, "Delivery");
+        let first_task_id = task_id(&conn, &project_id, "First task");
+        let second_task_id = task_id(&conn, &project_id, "Second task");
+        let ship_task_id = task_id(&conn, &project_id, "Ship it");
+        let other_task_id = task_id(&conn, &other_project.id, "Other task");
+
+        let result = PlanStructureRepository::new(&mut conn).save_plan_editor(
+            &SavePlanEditorInput {
+                plan_id: alpha_plan_id.clone(),
+                title: "Should not save".to_string(),
+                stages: vec![
+                    SavePlanEditorStageInput {
+                        client_id: "discovery".to_string(),
+                        stage_id: Some(discovery_stage_id.clone()),
+                        title: "Discovery".to_string(),
+                        description: "Discovery description".to_string(),
+                        position: 0,
+                    },
+                    SavePlanEditorStageInput {
+                        client_id: "delivery".to_string(),
+                        stage_id: Some(delivery_stage_id.clone()),
+                        title: "Delivery".to_string(),
+                        description: "Delivery description".to_string(),
+                        position: 1,
+                    },
+                ],
+                deleted_stage_ids: vec![],
+                tasks: vec![
+                    SavePlanEditorTaskInput {
+                        client_id: "first".to_string(),
+                        task_id: Some(first_task_id),
+                        stage_client_id: "discovery".to_string(),
+                        title: "First task".to_string(),
+                        description: "First task description".to_string(),
+                        position: 0,
+                    },
+                    SavePlanEditorTaskInput {
+                        client_id: "second".to_string(),
+                        task_id: Some(second_task_id),
+                        stage_client_id: "discovery".to_string(),
+                        title: "Second task".to_string(),
+                        description: "Second task description".to_string(),
+                        position: 1,
+                    },
+                    SavePlanEditorTaskInput {
+                        client_id: "ship".to_string(),
+                        task_id: Some(ship_task_id),
+                        stage_client_id: "delivery".to_string(),
+                        title: "Ship it".to_string(),
+                        description: "Ship it description".to_string(),
+                        position: 0,
+                    },
+                ],
+                deleted_task_ids: vec![other_task_id.clone()],
+                confirmed_task_deletion_ids: vec![other_task_id.clone()],
+                checklist_items: vec![],
+                deleted_checklist_item_ids: vec![],
+                confirmed_checklist_item_ids: vec![],
+            },
+        );
+
+        assert!(matches!(result, Err(PlanStructureError::PlanChanged)));
+        let first_plan_title: String = conn
+            .query_row(
+                "select title from plans where id = ?1",
+                params![alpha_plan_id],
+                |row| row.get(0),
+            )
+            .expect("first plan title");
+        let other_task: (String, String, i64) = conn
+            .query_row(
+                "select project_id, title, position from tasks where id = ?1",
+                params![other_task_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .expect("other task");
+
+        assert_eq!(first_plan_title, "Alpha");
+        assert_eq!(
+            other_task,
+            (other_project.id, "Other task".to_string(), 0)
+        );
+    }
+
+    #[test]
     fn creates_task_and_checklist_item_at_the_requested_position() {
         let mut conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");

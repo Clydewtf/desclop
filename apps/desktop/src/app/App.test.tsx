@@ -451,13 +451,15 @@ describe("App", () => {
     expect(contentStyles.overflowY).toBe("auto");
   });
 
-  it("renders a calm loading state inside the shell", () => {
+  it("renders a calm loading state inside the shell", async () => {
     enableTauriApi();
     getDatabaseStatus.mockReturnValue(new Promise(() => {}));
 
     renderWithRouter(<App />);
 
-    expect(screen.getByRole("heading", { name: "Opening Desclop" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Opening Desclop" })
+    ).toBeInTheDocument();
     expect(screen.getByText("Loading local project context.")).toBeInTheDocument();
   });
 

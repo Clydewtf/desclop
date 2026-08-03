@@ -580,6 +580,77 @@ describe("Planner", () => {
     expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
   });
 
+  it("validates every required editor title without losing the local draft", async () => {
+    const user = userEvent.setup();
+    const onSavePlan = vi.fn().mockResolvedValue(undefined);
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving",
+        checklist: [{ id: "check-1", title: "Check source" }]
+      })
+    ];
+
+    renderWithRouter(
+      <Planner planFrames={planFrames} onSavePlan={onSavePlan} onOpenTask={vi.fn()} />
+    );
+
+    async function attemptSave() {
+      await user.click(screen.getByRole("button", { name: "Save" }));
+      await user.click(screen.getByRole("button", { name: "Save changes" }));
+    }
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+
+    const planTitle = screen.getByRole("textbox", { name: "Plan title" });
+    await user.clear(planTitle);
+    await user.type(planTitle, "   ");
+    await attemptSave();
+    expect(screen.getByText("Enter a name before saving.")).toBeInTheDocument();
+    expect(planTitle).toHaveFocus();
+    expect(planTitle).toHaveAttribute("aria-invalid", "true");
+    expect(onSavePlan).not.toHaveBeenCalled();
+
+    await user.clear(planTitle);
+    await user.type(planTitle, "Current work");
+    const stageTitle = screen.getByRole("textbox", { name: "Stage title" });
+    await user.clear(stageTitle);
+    await user.type(stageTitle, "  ");
+    await attemptSave();
+    expect(stageTitle).toHaveFocus();
+    expect(stageTitle).toHaveAttribute("aria-invalid", "true");
+
+    await user.clear(stageTitle);
+    await user.type(stageTitle, "Current work stage");
+    const taskTitle = screen.getByRole("textbox", { name: "Task title" });
+    await user.clear(taskTitle);
+    await user.type(taskTitle, "  ");
+    await attemptSave();
+    expect(taskTitle).toHaveFocus();
+    expect(taskTitle).toHaveAttribute("aria-invalid", "true");
+
+    await user.clear(taskTitle);
+    await user.type(taskTitle, "Keep moving");
+    const checklistTitle = screen.getByRole("textbox", { name: "Checklist item title" });
+    await user.clear(checklistTitle);
+    await user.type(checklistTitle, "  ");
+    await attemptSave();
+    expect(checklistTitle).toHaveFocus();
+    expect(checklistTitle).toHaveAttribute("aria-invalid", "true");
+    expect(onSavePlan).not.toHaveBeenCalled();
+
+    const restoredChecklistTitle = screen.getByRole("textbox", { name: "Checklist item title" });
+    await user.clear(restoredChecklistTitle);
+    await user.type(restoredChecklistTitle, "Check source reviewed");
+    await attemptSave();
+
+    await waitFor(() => expect(onSavePlan).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
+  });
+
   it("batches stage pointer updates and commits the draft reorder only on drop", async () => {
     const user = userEvent.setup();
     const firstPlanFrame = planFrameFixture({
