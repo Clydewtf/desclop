@@ -352,6 +352,7 @@ function defaultQuickCaptureTaskId({
 
 export function App() {
   const projectContextRevision = useRef(0);
+  const projectSnapshotRevision = useRef(0);
   const captureOperationRevision = useRef(0);
   const contextExportOperationRevision = useRef(0);
   const deleteProjectInFlight = useRef(false);
@@ -447,11 +448,24 @@ export function App() {
 
   function invalidateProjectContext() {
     projectContextRevision.current += 1;
+    projectSnapshotRevision.current += 1;
     return projectContextRevision.current;
   }
 
   function isCurrentProjectContext(revision: number) {
     return projectContextRevision.current === revision;
+  }
+
+  function beginProjectSnapshotRefresh() {
+    projectSnapshotRevision.current += 1;
+    return projectSnapshotRevision.current;
+  }
+
+  function isCurrentProjectSnapshot(contextRevision: number, snapshotRevision: number) {
+    return (
+      isCurrentProjectContext(contextRevision) &&
+      projectSnapshotRevision.current === snapshotRevision
+    );
   }
 
   function markProjectRecentlyChanged(projectId: string) {
@@ -1097,6 +1111,7 @@ export function App() {
   }, [project?.gitEnabled, project?.id]);
 
   async function refreshProjectData(projectId: string, revision: number) {
+    const snapshotRevision = beginProjectSnapshotRefresh();
     let plan: ProjectPlanPayload;
     let resumeResult: ResumeLoadResult;
     try {
@@ -1105,12 +1120,12 @@ export function App() {
         loadResumeBrief(projectId)
       ]);
     } catch (error) {
-      if (!isCurrentProjectContext(revision)) {
+      if (!isCurrentProjectSnapshot(revision, snapshotRevision)) {
         return false;
       }
       throw error;
     }
-    if (!isCurrentProjectContext(revision)) {
+    if (!isCurrentProjectSnapshot(revision, snapshotRevision)) {
       return false;
     }
     setProjectPlan(plan);
@@ -1176,6 +1191,7 @@ export function App() {
     loadedProjects: Project[],
     revision = beginProjectLoad()
   ) {
+    const snapshotRevision = beginProjectSnapshotRefresh();
     let resumeResult: ResumeLoadResult;
     let gitResult: GitLoadResult;
     let plan: ProjectPlanPayload;
@@ -1186,12 +1202,12 @@ export function App() {
         api.loadProjectPlan(activeProject.id)
       ]);
     } catch (error) {
-      if (!isCurrentProjectContext(revision)) {
+      if (!isCurrentProjectSnapshot(revision, snapshotRevision)) {
         return null;
       }
       throw error;
     }
-    if (!isCurrentProjectContext(revision)) {
+    if (!isCurrentProjectSnapshot(revision, snapshotRevision)) {
       return null;
     }
     setProjects(loadedProjects);

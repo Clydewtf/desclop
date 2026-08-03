@@ -98,6 +98,7 @@ const getProjectDiagnostics = vi.mocked(api.getProjectDiagnostics);
 const getResumeBrief = vi.mocked(api.getResumeBrief);
 const loadProjectPlan = vi.mocked(api.loadProjectPlan);
 const importPlan = vi.mocked(api.importPlan);
+const savePlanEditor = vi.mocked(api.savePlanEditor);
 const createWorkEntry = vi.mocked(api.createWorkEntry);
 const captureInboxItem = vi.mocked(api.captureInboxItem);
 const attachInboxItemToTask = vi.mocked(api.attachInboxItemToTask);
@@ -2034,6 +2035,265 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Discard changes" }));
 
     await waitFor(() => expect(quitApp).toHaveBeenCalledTimes(1));
+  });
+
+  it("refreshes Today and Resume Brief from the saved plan editor snapshot", async () => {
+    const user = userEvent.setup();
+    const initialPlan = {
+      plans: [
+        {
+          id: "plan-1",
+          projectId: "p1",
+          title: "Build MVP",
+          position: 0
+        }
+      ],
+      stages: [
+        {
+          id: "s1",
+          projectId: "p1",
+          planId: "plan-1",
+          title: "Foundation",
+          description: "Initial stage",
+          position: 0,
+          status: "current" as const
+        },
+        {
+          id: "s2",
+          projectId: "p1",
+          planId: "plan-1",
+          title: "Delivery",
+          description: "Saved stage",
+          position: 1,
+          status: "future" as const
+        }
+      ],
+      tasks: [
+        {
+          id: "t1",
+          projectId: "p1",
+          stageId: "s1",
+          title: "Current task",
+          description: "Move this task",
+          status: "active" as const,
+          priority: null,
+          dueDate: null,
+          nextStep: "",
+          position: 0
+        },
+        {
+          id: "t2",
+          projectId: "p1",
+          stageId: "s1",
+          title: "Second task",
+          description: "Remove this empty task",
+          status: "todo" as const,
+          priority: null,
+          dueDate: null,
+          nextStep: "",
+          position: 1
+        },
+        {
+          id: "t3",
+          projectId: "p1",
+          stageId: "s2",
+          title: "Delivery task",
+          description: "Keep this next",
+          status: "todo" as const,
+          priority: null,
+          dueDate: null,
+          nextStep: "Ship delivery",
+          position: 0
+        }
+      ],
+      checklistItems: []
+    };
+    const savedPlan = {
+      ...initialPlan,
+      tasks: [
+        {
+          ...initialPlan.tasks[0],
+          stageId: "s2",
+          position: 0
+        },
+        {
+          ...initialPlan.tasks[2],
+          position: 1
+        }
+      ]
+    };
+
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief
+      .mockResolvedValueOnce(
+        resumeBriefFixture({
+          taskId: "t1",
+          stageId: "s1",
+          nextStep: "Stale resume next step"
+        })
+      )
+      .mockResolvedValueOnce(
+        resumeBriefFixture({
+          taskId: "t1",
+          stageId: "s2",
+          nextStep: "Refreshed resume next step"
+        })
+      );
+    loadProjectPlan.mockResolvedValueOnce(initialPlan).mockResolvedValueOnce(savedPlan);
+    savePlanEditor.mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Edit plan Build MVP" }));
+    await user.click(screen.getByRole("button", { name: "Expand task Current task" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Task stage" }), "s2");
+    await user.click(screen.getByRole("button", { name: "Move task Current task up" }));
+    await user.click(screen.getByRole("button", { name: "Delete task Second task" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(savePlanEditor).toHaveBeenCalledTimes(1));
+    expect(savePlanEditor).toHaveBeenCalledWith(
+      expect.objectContaining({
+        planId: "plan-1",
+        deletedTaskIds: ["t2"],
+        tasks: [
+          expect.objectContaining({ taskId: "t1", stageClientId: "s2", position: 0 }),
+          expect.objectContaining({ taskId: "t3", stageClientId: "s2", position: 1 })
+        ]
+      })
+    );
+    await waitFor(() => {
+      expect(loadProjectPlan).toHaveBeenCalledTimes(2);
+      expect(getResumeBrief).toHaveBeenCalledTimes(2);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Today" }));
+
+    expect(await screen.findByRole("heading", { name: "Current task", level: 2 })).toBeInTheDocument();
+    expect(screen.getByText("Delivery")).toBeInTheDocument();
+    expect(screen.getByText("Refreshed resume next step")).toBeInTheDocument();
+    expect(screen.queryByText("Stale resume next step")).not.toBeInTheDocument();
+    const nextUp = screen.getByRole("article", { name: "Up next" });
+    expect(within(nextUp).getByText("Delivery task")).toBeInTheDocument();
+    expect(within(nextUp).queryByText("Second task")).not.toBeInTheDocument();
+  });
+
+  it("ignores a stale editor refresh after switching projects", async () => {
+    const user = userEvent.setup();
+    const firstProject = projectFixture({
+      id: "p1",
+      name: "First Project",
+      activeTaskId: "p1-task"
+    });
+    const secondProject = projectFixture({
+      id: "p2",
+      name: "Second Project",
+      localPath: "/tmp/second-project",
+      activeTaskId: "p2-task"
+    });
+    const firstPlan = activeProjectPlanFixture({
+      projectId: "p1",
+      stageTitle: "First stage",
+      taskTitle: "First project task",
+      nextStep: "Continue first project"
+    });
+    const secondPlan = activeProjectPlanFixture({
+      projectId: "p2",
+      stageTitle: "Second stage",
+      taskTitle: "Second project task",
+      nextStep: "Continue second project"
+    });
+    const stalePlanRefresh = deferred<typeof firstPlan>();
+    const staleResumeRefresh = deferred<ResumeBrief>();
+    let firstPlanReads = 0;
+    let firstResumeReads = 0;
+
+    enableTauriApi();
+    listProjects.mockResolvedValue([firstProject, secondProject]);
+    loadProjectPlan.mockImplementation(async (projectId) => {
+      if (projectId === "p1") {
+        firstPlanReads += 1;
+        return firstPlanReads === 1 ? firstPlan : stalePlanRefresh.promise;
+      }
+
+      return secondPlan;
+    });
+    getResumeBrief.mockImplementation(async (projectId) => {
+      if (projectId === "p1") {
+        firstResumeReads += 1;
+        return firstResumeReads === 1
+          ? resumeBriefFixture({
+              projectId,
+              taskId: "p1-task",
+              stageId: "p1-stage",
+              latestNote: "First project resume",
+              nextStep: "Continue first project"
+            })
+          : staleResumeRefresh.promise;
+      }
+
+      return resumeBriefFixture({
+        projectId,
+        taskId: "p2-task",
+        stageId: "p2-stage",
+        latestNote: "Second project resume",
+        nextStep: "Continue second project"
+      });
+    });
+    savePlanEditor.mockResolvedValue(undefined);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Plan" }));
+    await user.click(screen.getByRole("button", { name: "Edit plan Build MVP" }));
+    const title = screen.getByRole("textbox", { name: "Plan title" });
+    await user.clear(title);
+    await user.type(title, "Saved first project");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(savePlanEditor).toHaveBeenCalledTimes(1);
+      expect(loadProjectPlan).toHaveBeenCalledTimes(2);
+      expect(getResumeBrief).toHaveBeenCalledTimes(2);
+    });
+
+    await user.click(screen.getByRole("button", { name: "Switch project" }));
+    expect(screen.getByRole("dialog", { name: "Discard unsaved changes?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Discard changes" }));
+    await user.click(
+      await screen.findByRole("button", { name: /Second Project.*Open project/s })
+    );
+
+    expect(await screen.findByRole("heading", { name: "Second project task" })).toBeInTheDocument();
+    expect(screen.getByText("Second project resume")).toBeInTheDocument();
+
+    await act(async () => {
+      stalePlanRefresh.resolve({
+        ...firstPlan,
+        stages: [{ ...firstPlan.stages[0], title: "Stale first stage" }],
+        tasks: [{ ...firstPlan.tasks[0], title: "Stale first project task" }]
+      });
+      staleResumeRefresh.resolve(
+        resumeBriefFixture({
+          projectId: "p1",
+          taskId: "p1-task",
+          stageId: "p1-stage",
+          latestNote: "Stale first project resume",
+          nextStep: "Stale first project next step"
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "Second project task" })).toBeInTheDocument();
+    });
+    expect(screen.getByText("Second project resume")).toBeInTheDocument();
+    expect(screen.queryByText("Stale first project task")).not.toBeInTheDocument();
+    expect(screen.queryByText("Stale first project resume")).not.toBeInTheDocument();
   });
 
   it("opens Quick capture from Plan without navigating and defaults to the active task", async () => {
