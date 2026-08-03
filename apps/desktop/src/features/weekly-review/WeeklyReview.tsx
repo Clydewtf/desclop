@@ -1,8 +1,11 @@
 import { useState, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import type { InboxItem, WorkEntry } from "../../shared/domain/types";
 import {
   Button,
   EmptyState,
+  HoverTooltip,
+  IconButton,
   ScreenHeader,
   SectionHeader,
   Surface
@@ -159,12 +162,10 @@ export function WeeklyReview({
               {review.completedTasks.map((task) => (
                 <li key={task.id}>
                   <div>
-                    <strong>{task.title}</strong>
+                    <RecordTitle value={task.title} />
                     <span>{formatRecordTime(task.completedAt)}</span>
                   </div>
-                  <Button variant="secondary" onClick={() => onOpenTask(task.id)}>
-                    Open task
-                  </Button>
+                  <RecordAction label="Open task" onClick={() => onOpenTask(task.id)} />
                 </li>
               ))}
             </ul>
@@ -210,12 +211,10 @@ export function WeeklyReview({
               {review.tasksWithoutNextAction.map((task) => (
                 <li key={task.id}>
                   <div>
-                    <strong>{task.title}</strong>
+                    <RecordTitle value={task.title} />
                     <span>{task.status === "blocked" ? "Blocked" : "Needs a next action"}</span>
                   </div>
-                  <Button variant="secondary" onClick={() => onOpenTask(task.id)}>
-                    Open task
-                  </Button>
+                  <RecordAction label="Open task" onClick={() => onOpenTask(task.id)} />
                 </li>
               ))}
             </ul>
@@ -278,20 +277,26 @@ function ActivityHeatmap({
       <div className="weekly-review__heatmap-grid" role="list" aria-label="Activity over the last 7 local days">
         {review.activityGrid.map((day) => {
           const activityLabel = formatActivityAriaLabel(day);
+          const tooltipLabel = formatActivityTooltip(day);
           const isSelected = selectedDateKey === day.dateKey;
           return (
             <div className="weekly-review__heatmap-day" key={day.dateKey} role="listitem">
               <span className="weekly-review__heatmap-day-label">{formatHeatmapDay(day.date)}</span>
-              <button
-                type="button"
-                className={`weekly-review__heatmap-cell weekly-review__heatmap-cell--level-${activityHeatmapLevel(day.count)}`}
-                aria-label={activityLabel}
-                aria-pressed={isSelected}
-                title={activityLabel}
-                onClick={() => setSelectedDateKey(day.dateKey)}
-                onFocus={() => setSelectedDateKey(day.dateKey)}
-                onMouseEnter={() => setSelectedDateKey(day.dateKey)}
-              />
+              <HoverTooltip
+                className="weekly-review__heatmap-tooltip"
+                content={tooltipLabel}
+                panelClassName="weekly-review__heatmap-tooltip-panel"
+              >
+                <button
+                  type="button"
+                  className={`weekly-review__heatmap-cell weekly-review__heatmap-cell--level-${activityHeatmapLevel(day.count)}`}
+                  aria-label={activityLabel}
+                  aria-pressed={isSelected}
+                  onClick={() => setSelectedDateKey(day.dateKey)}
+                  onFocus={() => setSelectedDateKey(day.dateKey)}
+                  onMouseEnter={() => setSelectedDateKey(day.dateKey)}
+                />
+              </HoverTooltip>
             </div>
           );
         })}
@@ -374,29 +379,24 @@ function ActivityEventRow({
   onOpenTask: (taskId: string) => void;
   onOpenTimeline: (target?: WeeklyReviewTimelineTarget) => void;
 }) {
+  const eventMeta = `${activitySourceLabel(event.source)} · ${formatRecordTime(event.timestamp)}`;
+
   return (
     <li>
       <div>
-        <strong>{event.label}</strong>
-        <span>{activitySourceLabel(event.source)}</span>
+        <RecordTitle value={event.label} />
+        <RecordMeta value={eventMeta} />
       </div>
-      <div>
-        <span>{formatRecordTime(event.timestamp)}</span>
-        {event.taskId ? (
-          <Button variant="secondary" onClick={() => onOpenTask(event.taskId!)}>
-            Open task
-          </Button>
-        ) : (
-          <Button
-            variant="secondary"
-            onClick={() =>
-              onOpenTimeline({ dateKey: dayKey, itemKey: `${event.source}:${event.id}` })
-            }
-          >
-            Open record
-          </Button>
-        )}
-      </div>
+      {event.taskId ? (
+        <RecordAction label="Open task" onClick={() => onOpenTask(event.taskId!)} />
+      ) : (
+        <RecordAction
+          label="Open record"
+          onClick={() =>
+            onOpenTimeline({ dateKey: dayKey, itemKey: `${event.source}:${event.id}` })
+          }
+        />
+      )}
     </li>
   );
 }
@@ -515,23 +515,21 @@ function CaptureRecord({
   onOpenTask: (taskId: string) => void;
   onOpenTimeline: (target?: WeeklyReviewTimelineTarget) => void;
 }) {
+  const title = firstLine(item.body);
+
   return (
     <li>
       <div>
-        <strong>{firstLine(item.body)}</strong>
+        <RecordTitle value={title} />
         <span>{formatRecordTime(item.createdAt)}</span>
       </div>
       {item.taskId ? (
-        <Button variant="secondary" onClick={() => onOpenTask(item.taskId!)}>
-          Open task
-        </Button>
+        <RecordAction label="Open task" onClick={() => onOpenTask(item.taskId!)} />
       ) : (
-        <Button
-          variant="secondary"
+        <RecordAction
+          label="Open Timeline"
           onClick={() => onOpenTimeline({ itemKey: `capture:${item.id}` })}
-        >
-          Open Timeline
-        </Button>
+        />
       )}
     </li>
   );
@@ -546,25 +544,60 @@ function WorkReviewRecord({
   onOpenTask: (taskId: string) => void;
   onOpenTimeline: (target?: WeeklyReviewTimelineTarget) => void;
 }) {
+  const title = entry.done || entry.nextStep || "Work reviewed";
+
   return (
     <li>
       <div>
-        <strong>{entry.done || entry.nextStep || "Work reviewed"}</strong>
+        <RecordTitle value={title} />
         <span>{formatRecordTime(entry.createdAt)}</span>
       </div>
       {entry.taskId ? (
-        <Button variant="secondary" onClick={() => onOpenTask(entry.taskId!)}>
-          Open task
-        </Button>
+        <RecordAction label="Open task" onClick={() => onOpenTask(entry.taskId!)} />
       ) : (
-        <Button
-          variant="secondary"
+        <RecordAction
+          label="Open Timeline"
           onClick={() => onOpenTimeline({ itemKey: `work:${entry.id}` })}
-        >
-          Open Timeline
-        </Button>
+        />
       )}
     </li>
+  );
+}
+
+function RecordTitle({ value }: { value: string }) {
+  return (
+    <HoverTooltip
+      className="weekly-review__record-tooltip-anchor"
+      content={value}
+      onlyWhenTruncated
+      panelClassName="weekly-review__record-tooltip"
+    >
+      <strong className="weekly-review__record-title">{value}</strong>
+    </HoverTooltip>
+  );
+}
+
+function RecordMeta({ value }: { value: string }) {
+  return <span className="weekly-review__record-meta">{value}</span>;
+}
+
+function RecordAction({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <HoverTooltip
+      className="weekly-review__record-action-tooltip"
+      content={label}
+      panelClassName="weekly-review__record-action-tooltip-panel"
+    >
+      <IconButton
+        variant="ghost"
+        size="compact"
+        className="weekly-review__record-action"
+        label={label}
+        title=""
+        icon={<ChevronRight aria-hidden="true" />}
+        onClick={onClick}
+      />
+    </HoverTooltip>
   );
 }
 
@@ -602,10 +635,11 @@ function formatHeatmapDay(date: Date) {
 }
 
 function formatActivityAriaLabel(day: ReviewActivityDay) {
-  const details = day.events
-    .map((event) => `${activitySourceLabel(event.source)}: ${event.label}`)
-    .join("; ");
-  return `${formatActivityDay(day.date)}: ${formatActivityCount(day.count)}${details ? `. ${details}` : ". No local activity."}`;
+  return `${formatActivityTooltip(day)}. Focus or activate to inspect this day's activity.`;
+}
+
+function formatActivityTooltip(day: ReviewActivityDay) {
+  return `${formatActivityDay(day.date)} · ${formatActivityCount(day.count)}`;
 }
 
 function formatActivityCount(count: number) {

@@ -1,7 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { GitCommit, InboxItem, Note, WorkEntry } from "../../shared/domain/types";
-import { Button, EmptyState, ScreenHeader, Surface } from "../../shared/ui";
+import { Button, EmptyState, FloatingPanel, ScreenHeader, Surface } from "../../shared/ui";
 import { buildTimeline, type TimelineCompletedTask } from "./timelineEngine";
 
 interface TimelineProps {
@@ -224,53 +223,10 @@ function ChangedFilesDisclosure({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
-  const [panelStyle, setPanelStyle] = useState<CSSProperties>();
   const pointerFocusRef = useRef(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const panelRef = useRef<HTMLSpanElement>(null);
   const isExpanded = isOpen || isHovered;
   const listId = `timeline-changed-files-${commitId.replace(/[^a-z0-9_-]+/gi, "-")}`;
-
-  useLayoutEffect(() => {
-    if (!isExpanded) {
-      setPanelStyle(undefined);
-      return;
-    }
-
-    const updatePanelStyle = () => {
-      const trigger = triggerRef.current;
-      const panel = panelRef.current;
-
-      if (!trigger || !panel) {
-        return;
-      }
-
-      const viewportMargin = 8;
-      const verticalGap = 4;
-      const triggerRect = trigger.getBoundingClientRect();
-      const panelRect = panel.getBoundingClientRect();
-      const maxLeft = Math.max(viewportMargin, window.innerWidth - panelRect.width - viewportMargin);
-      const maxTop = Math.max(
-        viewportMargin,
-        window.innerHeight - panelRect.height - viewportMargin
-      );
-
-      setPanelStyle({
-        position: "fixed",
-        left: Math.min(Math.max(viewportMargin, triggerRect.left), maxLeft),
-        top: Math.min(Math.max(viewportMargin, triggerRect.bottom + verticalGap), maxTop)
-      });
-    };
-
-    updatePanelStyle();
-    window.addEventListener("resize", updatePanelStyle);
-    window.addEventListener("scroll", updatePanelStyle, true);
-
-    return () => {
-      window.removeEventListener("resize", updatePanelStyle);
-      window.removeEventListener("scroll", updatePanelStyle, true);
-    };
-  }, [isExpanded, files]);
 
   return (
     <span
@@ -303,14 +259,13 @@ function ChangedFilesDisclosure({
       >
         {label}
       </button>
-      <span
-        ref={panelRef}
+      <FloatingPanel
+        anchorRef={triggerRef}
         id={listId}
         className="timeline-changed-files__panel"
-        style={panelStyle}
         role="list"
         aria-label={`Files changed in ${commitTitle}`}
-        hidden={!isExpanded}
+        open={isExpanded}
       >
         {files.length > 0 ? (
           files.map((file) => (
@@ -321,7 +276,7 @@ function ChangedFilesDisclosure({
         ) : (
           <span role="listitem">No file paths recorded</span>
         )}
-      </span>
+      </FloatingPanel>
     </span>
   );
 }

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -6,6 +6,7 @@ import {
   Button,
   ConfirmationPanel,
   EmptyState,
+  HoverTooltip,
   IconButton,
   InlineAlert,
   ScreenHeader,
@@ -76,6 +77,58 @@ describe("shared UI primitives", () => {
 
     await user.click(iconButton);
     expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows themed hover tooltips for pointer and keyboard users", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <HoverTooltip content="Full record title">
+        <button type="button">Preview record</button>
+      </HoverTooltip>
+    );
+
+    const trigger = screen.getByRole("button", { name: "Preview record" });
+    const tooltip = screen.getByRole("tooltip", { hidden: true });
+    expect(tooltip).not.toBeVisible();
+
+    await user.hover(trigger);
+    expect(tooltip).toBeVisible();
+    expect(tooltip).toHaveTextContent("Full record title");
+    expect(trigger).toHaveAttribute("aria-describedby", tooltip.id);
+
+    await user.unhover(trigger);
+    expect(tooltip).not.toBeVisible();
+
+    await user.tab();
+    expect(trigger).toHaveFocus();
+    expect(tooltip).toBeVisible();
+  });
+
+  it("shows overflow-aware tooltips only when the trigger is truncated", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <HoverTooltip content="Full record title" onlyWhenTruncated>
+        <span>Preview record</span>
+      </HoverTooltip>
+    );
+
+    const trigger = screen.getByText("Preview record");
+    const tooltip = screen.getByRole("tooltip", { hidden: true });
+    Object.defineProperties(trigger, {
+      clientWidth: { configurable: true, value: 120 },
+      scrollWidth: { configurable: true, value: 120 }
+    });
+    fireEvent(window, new Event("resize"));
+
+    await user.hover(trigger);
+    expect(tooltip).not.toBeVisible();
+
+    Object.defineProperty(trigger, "scrollWidth", { configurable: true, value: 220 });
+    fireEvent(window, new Event("resize"));
+
+    expect(tooltip).toBeVisible();
   });
 
   it("renders labeled fields and alerts", () => {

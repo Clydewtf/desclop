@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
 import type { InboxItem, Note, Task, WorkEntry } from "../../shared/domain/types";
+import "../../styles/base.css";
 import { WeeklyReview } from "./WeeklyReview";
 import { buildWeeklyReview } from "./weeklyReviewEngine";
 
@@ -93,7 +94,26 @@ describe("WeeklyReview", () => {
 
     const capturesCard = screen.getByRole("article", { name: "Open captures" });
     await user.click(within(capturesCard).getByText("Show source records"));
-    await user.click(within(capturesCard).getByRole("button", { name: "Open Timeline" }));
+    const captureTitle = within(capturesCard).getByText("Investigate this", {
+      selector: ".weekly-review__record-title"
+    });
+    const openTimeline = within(capturesCard).getByRole("button", { name: "Open Timeline" });
+    expect(captureTitle).toHaveClass("weekly-review__record-title");
+    expect(captureTitle).not.toHaveAttribute("title");
+    expect(openTimeline).toHaveClass(
+      "ui-icon-button",
+      "ui-icon-button--ghost",
+      "ui-icon-button--compact",
+      "weekly-review__record-action"
+    );
+    expect(openTimeline).toHaveAttribute("title", "");
+    expect(getComputedStyle(openTimeline).width).toBe("var(--control-size-compact)");
+    await user.hover(captureTitle);
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+    await user.hover(openTimeline);
+    const actionTooltip = screen.getByRole("tooltip");
+    expect(actionTooltip).toHaveTextContent("Open Timeline");
+    await user.click(openTimeline);
     expect(onOpenTimeline).toHaveBeenCalledTimes(1);
 
     const workCard = screen.getByRole("article", { name: "Work reviews" });
@@ -102,8 +122,23 @@ describe("WeeklyReview", () => {
     expect(onOpenTask).toHaveBeenCalledWith("active-task");
 
     const activityCard = screen.getByRole("article", { name: "Activity heatmap" });
-    await user.click(within(activityCard).getByRole("button", { name: /2 activities/ }));
-    expect(within(activityCard).getByText("Investigate this")).toBeInTheDocument();
+    const activeDay = within(activityCard).getByRole("button", { name: /2 activities/ });
+    expect(activeDay).toHaveClass("weekly-review__heatmap-cell--level-2");
+    expect(getComputedStyle(activeDay).padding).toBe("0px");
+    expect(activeDay).not.toHaveAttribute("title");
+    await user.hover(activeDay);
+    expect(
+      within(activityCard).getByText("Tue, Jun 16 · 2 activities", {
+        selector: ".weekly-review__heatmap-tooltip-panel"
+      })
+    ).toBeVisible();
+    await user.click(activeDay);
+    expect(
+      within(activityCard).getByText("Investigate this", {
+        selector: ".weekly-review__record-title"
+      })
+    ).toBeInTheDocument();
+    expect(within(activityCard).getByText(/^capture · /).closest(".ui-hover-tooltip")).toBeNull();
     expect(screen.queryByText(/^Source:/)).not.toBeInTheDocument();
     await user.click(within(activityCard).getByRole("button", { name: "Open record" }));
     expect(onOpenTimeline).toHaveBeenLastCalledWith({

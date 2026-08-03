@@ -1,6 +1,8 @@
 export { Button } from "./Button";
 export { IconButton, type IconButtonSize } from "./IconButton";
 export { ConfirmationPanel } from "./ConfirmationPanel";
+export { FloatingPanel } from "./FloatingPanel";
+export { HoverTooltip } from "./HoverTooltip";
 export { TextArea, TextField, SelectField } from "./Field";
 export { Surface } from "./Surface";
 export { StatusBadge, TaskStatusBadge } from "./Badge";

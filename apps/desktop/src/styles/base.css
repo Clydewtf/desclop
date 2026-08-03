@@ -716,13 +716,29 @@ select {
   white-space: nowrap;
 }
 
+.weekly-review__heatmap-tooltip {
+  display: block;
+  width: 100%;
+}
+
+.weekly-review__heatmap-tooltip-panel {
+  width: max-content;
+  max-width: min(20rem, calc(100vw - var(--space-4) * 2));
+  padding: var(--space-3) var(--space-4);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 .weekly-review__heatmap-cell {
+  box-sizing: border-box;
   width: 100%;
   min-height: 34px;
   aspect-ratio: 1;
   border: 1px solid transparent;
   border-radius: 7px;
   background: var(--color-activity-0);
+  padding: 0;
   cursor: pointer;
   transition:
     border-color 120ms ease,
@@ -792,8 +808,8 @@ select {
 }
 
 .weekly-review__heatmap-details-header span,
-.weekly-review__heatmap-events li > span,
-.weekly-review__heatmap-events li div span {
+.weekly-review__heatmap-events li > div > span:not(.ui-hover-tooltip),
+.weekly-review__record-meta {
   color: var(--color-muted);
   font-size: 0.82rem;
 }
@@ -811,39 +827,19 @@ select {
 }
 
 .weekly-review__heatmap-events li {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--weekly-review-record-action-width);
   gap: var(--space-3);
-  align-items: start;
-  justify-content: space-between;
+  align-items: center;
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-2);
 }
 
-.weekly-review__heatmap-events li > div {
+.weekly-review__heatmap-events li > div,
+.weekly-review__records li > div {
   display: grid;
   min-width: 0;
   gap: 2px;
-}
-
-.weekly-review__heatmap-events li > div:last-child {
-  display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.weekly-review__heatmap-events li strong {
-  overflow-wrap: anywhere;
-}
-
-.weekly-review__heatmap-events li > span {
-  flex: 0 0 auto;
-  text-align: right;
-}
-
-.weekly-review__heatmap-events .ui-button {
-  padding: 5px 8px;
-  font-size: 0.78rem;
 }
 
 .weekly-review__heatmap-hint {
@@ -896,26 +892,68 @@ select {
 }
 
 .weekly-review__records li {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--weekly-review-record-action-width);
   gap: var(--space-3);
-  align-items: start;
-  justify-content: space-between;
+  align-items: center;
   border-top: 1px solid var(--color-border);
   padding-top: var(--space-2);
 }
 
-.weekly-review__records li > div {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
+.weekly-review__records,
+.weekly-review__heatmap-events {
+  --weekly-review-record-action-width: var(--control-size-compact);
 }
 
-.weekly-review__records strong,
-.weekly-review__records span {
+.weekly-review__record-title,
+.weekly-review__record-meta,
+.weekly-review__records li > div > span:not(.ui-hover-tooltip),
+.weekly-review__heatmap-events li > div > span:not(.ui-hover-tooltip) {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weekly-review__record-tooltip-anchor {
+  display: block;
+  min-width: 0;
+}
+
+.weekly-review__record-tooltip,
+.weekly-review__record-action-tooltip-panel {
+  width: max-content;
+  max-width: min(34rem, calc(100vw - var(--space-4) * 2));
+  padding: var(--space-3) var(--space-4);
+  font-size: 0.9rem;
+  line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
-.weekly-review__records span,
+.weekly-review__record-action-tooltip {
+  display: inline-flex;
+  width: var(--control-size-compact);
+}
+
+.weekly-review__record-action-tooltip-panel {
+  width: max-content;
+  max-width: min(15rem, calc(100vw - var(--space-4) * 2));
+  white-space: nowrap;
+}
+
+.ui-icon-button.weekly-review__record-action {
+  width: var(--control-size-compact);
+  min-width: var(--control-size-compact);
+  color: var(--color-muted);
+}
+
+.ui-icon-button.weekly-review__record-action:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.weekly-review__records li > div > span:not(.ui-hover-tooltip),
+.weekly-review__record-meta,
 .weekly-review__empty-records,
 .weekly-review__data-note {
   color: var(--color-muted);
@@ -1245,28 +1283,32 @@ button.timeline-changed-files__trigger:focus-visible {
   background: var(--color-surface);
 }
 
-.timeline-changed-files__panel {
+.ui-floating-panel {
   position: fixed;
-  z-index: 2;
+  z-index: 30;
   top: 0;
   left: 0;
+  box-sizing: border-box;
+  max-width: min(34rem, calc(100vw - var(--space-4) * 2));
+  max-height: min(360px, calc(100vh - var(--space-4) * 2));
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-large);
+  color: var(--color-text);
+  background: var(--color-surface);
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.2);
+}
+
+.ui-floating-panel[hidden] {
+  display: none;
+}
+
+.timeline-changed-files__panel {
   display: grid;
   gap: 2px;
   width: max-content;
   max-width: min(480px, calc(100vw - var(--space-4) * 2));
-  box-sizing: border-box;
-  max-height: min(360px, calc(100vh - var(--space-4) * 2));
-  overflow-y: auto;
   padding: var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  color: var(--color-text);
-  background: var(--color-surface);
-  box-shadow: 0 10px 24px rgba(23, 33, 43, 0.14);
-}
-
-.timeline-changed-files__panel[hidden] {
-  display: none;
 }
 
 .timeline-changed-files__panel span {
@@ -1615,7 +1657,7 @@ select:not(.ui-select) {
   color: var(--color-text);
 }
 
-button:not(.ui-button):not(.ui-icon-button) {
+button:not(.ui-button):not(.ui-icon-button):not(.weekly-review__heatmap-cell) {
   border: 0;
   border-radius: 6px;
   padding: 10px 14px;
@@ -1623,37 +1665,6 @@ button:not(.ui-button):not(.ui-icon-button) {
   color: var(--color-surface);
   font-weight: 700;
   cursor: pointer;
-}
-
-button.weekly-review__heatmap-cell {
-  width: 100%;
-  min-height: 34px;
-  aspect-ratio: 1;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 0;
-  background: var(--color-activity-0);
-  color: transparent;
-}
-
-button.weekly-review__heatmap-cell--level-0 {
-  background: var(--color-activity-0);
-}
-
-button.weekly-review__heatmap-cell--level-1 {
-  background: var(--color-activity-1);
-}
-
-button.weekly-review__heatmap-cell--level-2 {
-  background: var(--color-activity-2);
-}
-
-button.weekly-review__heatmap-cell--level-3 {
-  background: var(--color-activity-3);
-}
-
-button.weekly-review__heatmap-cell--level-4 {
-  background: var(--color-activity-4);
 }
 
 label.inline-field {
@@ -3794,6 +3805,11 @@ label.inline-field input {
 
   .weekly-review__metrics {
     grid-template-columns: 1fr;
+  }
+
+  .weekly-review__records li,
+  .weekly-review__heatmap-events li {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .weekly-review__handoff-grid {
