@@ -63,7 +63,26 @@ export interface ReorderStageInput {
 }
 
 export interface SavePlanEditorStageInput {
+  clientId: string;
   stageId: string | null;
+  title: string;
+  description: string;
+  position: number;
+}
+
+export interface SavePlanEditorTaskInput {
+  clientId: string;
+  taskId: string | null;
+  stageClientId: string;
+  title: string;
+  description: string;
+  position: number;
+}
+
+export interface SavePlanEditorChecklistItemInput {
+  clientId: string;
+  itemId: string | null;
+  taskClientId: string;
   title: string;
   description: string;
   position: number;
@@ -74,6 +93,12 @@ export interface SavePlanEditorInput {
   title: string;
   stages: SavePlanEditorStageInput[];
   deletedStageIds: string[];
+  tasks: SavePlanEditorTaskInput[];
+  deletedTaskIds: string[];
+  confirmedTaskDeletionIds: string[];
+  checklistItems: SavePlanEditorChecklistItemInput[];
+  deletedChecklistItemIds: string[];
+  confirmedChecklistItemIds: string[];
 }
 
 export interface UpdateTaskInput {

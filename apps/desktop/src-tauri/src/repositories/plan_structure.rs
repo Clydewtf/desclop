@@ -1,7 +1,7 @@
 use chrono::Utc;
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -72,7 +72,32 @@ pub struct ReorderStageInput {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavePlanEditorStageInput {
+    pub client_id: String,
     pub stage_id: Option<String>,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavePlanEditorTaskInput {
+    pub client_id: String,
+    pub task_id: Option<String>,
+    pub stage_client_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    pub position: i64,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavePlanEditorChecklistItemInput {
+    pub client_id: String,
+    pub item_id: Option<String>,
+    pub task_client_id: String,
     pub title: String,
     #[serde(default)]
     pub description: String,
@@ -87,6 +112,18 @@ pub struct SavePlanEditorInput {
     pub stages: Vec<SavePlanEditorStageInput>,
     #[serde(default)]
     pub deleted_stage_ids: Vec<String>,
+    #[serde(default)]
+    pub tasks: Vec<SavePlanEditorTaskInput>,
+    #[serde(default)]
+    pub deleted_task_ids: Vec<String>,
+    #[serde(default)]
+    pub confirmed_task_deletion_ids: Vec<String>,
+    #[serde(default)]
+    pub checklist_items: Vec<SavePlanEditorChecklistItemInput>,
+    #[serde(default)]
+    pub deleted_checklist_item_ids: Vec<String>,
+    #[serde(default)]
+    pub confirmed_checklist_item_ids: Vec<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -253,18 +290,24 @@ impl<'a> PlanStructureRepository<'a> {
         let now = Utc::now().to_rfc3339();
         let tx = self.conn.transaction()?;
         let project_id = find_plan_project_id(&tx, &input.plan_id)?;
-        let existing_ids = stage_ids(&tx, &project_id, Some(&input.plan_id))?;
-        let existing_id_set: HashSet<String> = existing_ids.iter().cloned().collect();
-        let mut retained_ids = HashSet::new();
-        let mut deleted_ids = HashSet::new();
+        let existing_stage_ids = stage_ids(&tx, &project_id, Some(&input.plan_id))?;
+        let existing_stage_id_set: HashSet<String> = existing_stage_ids.iter().cloned().collect();
+        let mut stage_client_ids = HashSet::new();
+        let mut retained_stage_ids = HashSet::new();
+        let mut deleted_stage_ids = HashSet::new();
 
         for (position, stage) in input.stages.iter().enumerate() {
-            if stage.position != position as i64 {
+            if stage.client_id.trim().is_empty()
+                || !stage_client_ids.insert(stage.client_id.clone())
+                || stage.position != position as i64
+            {
                 return Err(PlanStructureError::InvalidPosition);
             }
 
             if let Some(stage_id) = &stage.stage_id {
-                if !existing_id_set.contains(stage_id) || !retained_ids.insert(stage_id.clone()) {
+                if !existing_stage_id_set.contains(stage_id)
+                    || !retained_stage_ids.insert(stage_id.clone())
+                {
                     return Err(PlanStructureError::PlanChanged);
                 }
             }
@@ -272,24 +315,163 @@ impl<'a> PlanStructureRepository<'a> {
         }
 
         for stage_id in &input.deleted_stage_ids {
-            if !existing_id_set.contains(stage_id)
-                || retained_ids.contains(stage_id)
-                || !deleted_ids.insert(stage_id.clone())
+            if !existing_stage_id_set.contains(stage_id)
+                || retained_stage_ids.contains(stage_id)
+                || !deleted_stage_ids.insert(stage_id.clone())
             {
                 return Err(PlanStructureError::PlanChanged);
             }
         }
 
-        if retained_ids.len() + deleted_ids.len() != existing_id_set.len() {
+        if retained_stage_ids.len() + deleted_stage_ids.len() != existing_stage_id_set.len() {
             return Err(PlanStructureError::PlanChanged);
         }
 
-        for stage_id in &deleted_ids {
-            if stage_has_tasks(&tx, stage_id)? {
-                return Err(PlanStructureError::StageHasTasks);
-            }
+        for stage_id in &deleted_stage_ids {
             if stage_has_resume_brief(&tx, stage_id)? {
                 return Err(PlanStructureError::StageHasResumeBrief);
+            }
+        }
+
+        let existing_task_ids = plan_task_ids(&tx, &project_id, &input.plan_id)?;
+        let existing_task_id_set: HashSet<String> = existing_task_ids.iter().cloned().collect();
+        let mut task_client_ids = HashSet::new();
+        let mut retained_task_ids = HashSet::new();
+        let mut deleted_task_ids = HashSet::new();
+        let mut existing_task_ids_by_client = HashMap::new();
+        let mut next_task_position_by_stage = HashMap::new();
+
+        for task in &input.tasks {
+            if task.client_id.trim().is_empty()
+                || !task_client_ids.insert(task.client_id.clone())
+                || !stage_client_ids.contains(&task.stage_client_id)
+            {
+                return Err(PlanStructureError::PlanChanged);
+            }
+
+            let next_position = next_task_position_by_stage
+                .entry(task.stage_client_id.clone())
+                .or_insert(0_i64);
+            if task.position != *next_position {
+                return Err(PlanStructureError::InvalidPosition);
+            }
+            *next_position += 1;
+
+            if let Some(task_id) = &task.task_id {
+                if !existing_task_id_set.contains(task_id)
+                    || !retained_task_ids.insert(task_id.clone())
+                {
+                    return Err(PlanStructureError::PlanChanged);
+                }
+                existing_task_ids_by_client.insert(task.client_id.clone(), task_id.clone());
+            }
+            required_title(&task.title)?;
+        }
+
+        for task_id in &input.deleted_task_ids {
+            if !existing_task_id_set.contains(task_id)
+                || retained_task_ids.contains(task_id)
+                || !deleted_task_ids.insert(task_id.clone())
+            {
+                return Err(PlanStructureError::PlanChanged);
+            }
+        }
+
+        if retained_task_ids.len() + deleted_task_ids.len() != existing_task_id_set.len() {
+            return Err(PlanStructureError::PlanChanged);
+        }
+
+        let existing_checklist_parents =
+            plan_checklist_item_parents(&tx, &project_id, &input.plan_id)?;
+        let existing_checklist_item_ids: HashSet<String> =
+            existing_checklist_parents.keys().cloned().collect();
+        let mut checklist_client_ids = HashSet::new();
+        let mut retained_checklist_item_ids = HashSet::new();
+        let mut deleted_checklist_item_ids = HashSet::new();
+        let mut next_checklist_position_by_task = HashMap::new();
+
+        for item in &input.checklist_items {
+            if item.client_id.trim().is_empty()
+                || !checklist_client_ids.insert(item.client_id.clone())
+                || !task_client_ids.contains(&item.task_client_id)
+            {
+                return Err(PlanStructureError::PlanChanged);
+            }
+
+            let next_position = next_checklist_position_by_task
+                .entry(item.task_client_id.clone())
+                .or_insert(0_i64);
+            if item.position != *next_position {
+                return Err(PlanStructureError::InvalidPosition);
+            }
+            *next_position += 1;
+
+            if let Some(item_id) = &item.item_id {
+                let existing_task_id = existing_checklist_parents
+                    .get(item_id)
+                    .ok_or(PlanStructureError::PlanChanged)?;
+                if !retained_checklist_item_ids.insert(item_id.clone())
+                    || existing_task_ids_by_client.get(&item.task_client_id)
+                        != Some(existing_task_id)
+                {
+                    return Err(PlanStructureError::PlanChanged);
+                }
+            }
+            required_title(&item.title)?;
+        }
+
+        for item_id in &input.deleted_checklist_item_ids {
+            if !existing_checklist_item_ids.contains(item_id)
+                || retained_checklist_item_ids.contains(item_id)
+                || !deleted_checklist_item_ids.insert(item_id.clone())
+            {
+                return Err(PlanStructureError::PlanChanged);
+            }
+        }
+
+        for (item_id, task_id) in &existing_checklist_parents {
+            if deleted_task_ids.contains(task_id) {
+                if retained_checklist_item_ids.contains(item_id) {
+                    return Err(PlanStructureError::PlanChanged);
+                }
+            } else if !retained_checklist_item_ids.contains(item_id)
+                && !deleted_checklist_item_ids.contains(item_id)
+            {
+                return Err(PlanStructureError::PlanChanged);
+            }
+        }
+
+        let confirmed_task_deletion_ids: HashSet<String> =
+            input.confirmed_task_deletion_ids.iter().cloned().collect();
+        if confirmed_task_deletion_ids.len() != input.confirmed_task_deletion_ids.len()
+            || !confirmed_task_deletion_ids.is_subset(&deleted_task_ids)
+        {
+            return Err(PlanStructureError::PlanChanged);
+        }
+
+        let confirmed_checklist_item_ids: HashSet<String> =
+            input.confirmed_checklist_item_ids.iter().cloned().collect();
+        if confirmed_checklist_item_ids.len() != input.confirmed_checklist_item_ids.len()
+            || !confirmed_checklist_item_ids.is_subset(&deleted_checklist_item_ids)
+            || !confirmed_checklist_item_ids.is_superset(&deleted_checklist_item_ids)
+        {
+            return Err(PlanStructureError::PlanChanged);
+        }
+
+        for task_id in &deleted_task_ids {
+            if is_active_task(&tx, &project_id, task_id)? {
+                return Err(PlanStructureError::ActiveTaskDelete);
+            }
+            if task_has_history(&tx, task_id)? {
+                return Err(PlanStructureError::TaskHasHistory);
+            }
+            if task_has_resume_brief(&tx, task_id)? {
+                return Err(PlanStructureError::TaskHasResumeBrief);
+            }
+            if task_has_checklist_items(&tx, task_id)?
+                && !confirmed_task_deletion_ids.contains(task_id)
+            {
+                return Err(PlanStructureError::TaskChecklistConfirmationRequired);
             }
         }
 
@@ -298,11 +480,7 @@ impl<'a> PlanStructureRepository<'a> {
             params![plan_title, now, input.plan_id],
         )?;
 
-        for stage_id in &deleted_ids {
-            tx.execute("delete from stages where id = ?1", params![stage_id])?;
-        }
-
-        let mut final_stage_ids = Vec::with_capacity(input.stages.len());
+        let mut final_stage_ids_by_client = HashMap::new();
         for stage in &input.stages {
             let title = required_title(&stage.title)?;
             let stage_id = if let Some(stage_id) = &stage.stage_id {
@@ -331,14 +509,100 @@ impl<'a> PlanStructureRepository<'a> {
                 )?;
                 stage_id
             };
-            final_stage_ids.push(stage_id);
+            final_stage_ids_by_client.insert(stage.client_id.clone(), stage_id);
         }
 
-        for (position, stage_id) in final_stage_ids.iter().enumerate() {
+        for item_id in &deleted_checklist_item_ids {
             tx.execute(
-                "update stages set position = ?1, updated_at = ?2 where id = ?3",
-                params![position as i64, now, stage_id],
+                "delete from checklist_items where id = ?1",
+                params![item_id],
             )?;
+        }
+
+        for task_id in &deleted_task_ids {
+            tx.execute("delete from tasks where id = ?1", params![task_id])?;
+        }
+
+        let mut final_task_ids_by_client = HashMap::new();
+        for task in &input.tasks {
+            let title = required_title(&task.title)?;
+            let stage_id = final_stage_ids_by_client
+                .get(&task.stage_client_id)
+                .ok_or(PlanStructureError::PlanChanged)?;
+            let task_id = if let Some(task_id) = &task.task_id {
+                tx.execute(
+                    "update tasks
+                     set stage_id = ?1, title = ?2, description = ?3, position = ?4, updated_at = ?5
+                     where id = ?6",
+                    params![
+                        stage_id,
+                        title,
+                        task.description,
+                        task.position,
+                        now,
+                        task_id
+                    ],
+                )?;
+                task_id.clone()
+            } else {
+                let task_id = Uuid::new_v4().to_string();
+                tx.execute(
+                    "insert into tasks (
+                        id, project_id, stage_id, title, description, status, priority, due_date,
+                        next_step, position, created_at, updated_at
+                     ) values (?1, ?2, ?3, ?4, ?5, 'todo', null, null, '', ?6, ?7, ?8)",
+                    params![
+                        task_id,
+                        project_id,
+                        stage_id,
+                        title,
+                        task.description,
+                        task.position,
+                        now,
+                        now
+                    ],
+                )?;
+                task_id
+            };
+            final_task_ids_by_client.insert(task.client_id.clone(), task_id);
+        }
+
+        for stage_id in &deleted_stage_ids {
+            if stage_has_tasks(&tx, stage_id)? {
+                return Err(PlanStructureError::StageHasTasks);
+            }
+            tx.execute("delete from stages where id = ?1", params![stage_id])?;
+        }
+
+        for item in &input.checklist_items {
+            let title = required_title(&item.title)?;
+            let task_id = final_task_ids_by_client
+                .get(&item.task_client_id)
+                .ok_or(PlanStructureError::PlanChanged)?;
+            if let Some(item_id) = &item.item_id {
+                tx.execute(
+                    "update checklist_items
+                     set title = ?1, description = ?2, position = ?3, updated_at = ?4
+                     where id = ?5",
+                    params![title, item.description, item.position, now, item_id],
+                )?;
+            } else {
+                let item_id = Uuid::new_v4().to_string();
+                tx.execute(
+                    "insert into checklist_items (
+                        id, task_id, title, description, completed, position, created_at, updated_at
+                     ) values (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7)",
+                    params![
+                        item_id,
+                        task_id,
+                        title,
+                        item.description,
+                        item.position,
+                        now,
+                        now
+                    ],
+                )?;
+            }
         }
 
         touch_project(&tx, &project_id, &now)?;
@@ -833,6 +1097,41 @@ fn task_ids(
     Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
+fn plan_task_ids(
+    tx: &Transaction<'_>,
+    project_id: &str,
+    plan_id: &str,
+) -> Result<Vec<String>, PlanStructureError> {
+    let mut stmt = tx.prepare(
+        "select tasks.id
+         from tasks
+         inner join stages on stages.id = tasks.stage_id and stages.project_id = tasks.project_id
+         where tasks.project_id = ?1 and stages.plan_id = ?2
+         order by tasks.id asc",
+    )?;
+    let rows = stmt.query_map(params![project_id, plan_id], |row| row.get(0))?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
+}
+
+fn plan_checklist_item_parents(
+    tx: &Transaction<'_>,
+    project_id: &str,
+    plan_id: &str,
+) -> Result<HashMap<String, String>, PlanStructureError> {
+    let mut stmt = tx.prepare(
+        "select checklist_items.id, checklist_items.task_id
+         from checklist_items
+         inner join tasks on tasks.id = checklist_items.task_id
+         inner join stages on stages.id = tasks.stage_id and stages.project_id = tasks.project_id
+         where tasks.project_id = ?1 and stages.plan_id = ?2
+         order by checklist_items.id asc",
+    )?;
+    let rows = stmt.query_map(params![project_id, plan_id], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    Ok(rows.collect::<Result<HashMap<_, _>, _>>()?)
+}
+
 fn checklist_item_ids(
     tx: &Transaction<'_>,
     task_id: &str,
@@ -1218,27 +1517,72 @@ mod tests {
     }
 
     #[test]
-    fn saves_plan_and_stage_draft_atomically_with_stable_existing_ids() {
+    fn saves_plan_structure_draft_atomically_with_stable_existing_ids() {
         let mut conn = create_memory_connection().expect("memory database");
         run_migrations(&conn).expect("migrations");
         let project_id = seed_project(&mut conn);
         let alpha_plan_id = plan_id(&conn, &project_id, "Alpha");
         let discovery_stage_id = stage_id(&conn, &project_id, "Discovery");
         let delivery_stage_id = stage_id(&conn, &project_id, "Delivery");
+        let first_task_id = task_id(&conn, &project_id, "First task");
+        let second_task_id = task_id(&conn, &project_id, "Second task");
+        let ship_task_id = task_id(&conn, &project_id, "Ship it");
+        let first_check_id = checklist_id(&conn, &first_task_id, "First check");
+        let second_check_id = checklist_id(&conn, &first_task_id, "Second check");
+
+        conn.execute(
+            "insert into notes (id, project_id, task_id, body, created_at)
+             values ('keep-first-task', ?1, ?2, 'Keep this history', '2026-07-27T00:00:00Z')",
+            params![project_id, first_task_id],
+        )
+        .expect("insert task history");
 
         let result =
             PlanStructureRepository::new(&mut conn).save_plan_editor(&SavePlanEditorInput {
                 plan_id: alpha_plan_id.clone(),
                 title: "Should stay unchanged".to_string(),
-                stages: vec![SavePlanEditorStageInput {
-                    stage_id: Some(delivery_stage_id.clone()),
-                    title: "Delivery".to_string(),
-                    description: String::new(),
-                    position: 0,
-                }],
-                deleted_stage_ids: vec![discovery_stage_id.clone()],
+                stages: vec![
+                    SavePlanEditorStageInput {
+                        client_id: "discovery".to_string(),
+                        stage_id: Some(discovery_stage_id.clone()),
+                        title: "Discovery".to_string(),
+                        description: "Discovery description".to_string(),
+                        position: 0,
+                    },
+                    SavePlanEditorStageInput {
+                        client_id: "delivery".to_string(),
+                        stage_id: Some(delivery_stage_id.clone()),
+                        title: "Delivery".to_string(),
+                        description: "Delivery description".to_string(),
+                        position: 1,
+                    },
+                ],
+                deleted_stage_ids: vec![],
+                tasks: vec![
+                    SavePlanEditorTaskInput {
+                        client_id: "second".to_string(),
+                        task_id: Some(second_task_id.clone()),
+                        stage_client_id: "discovery".to_string(),
+                        title: "Second task".to_string(),
+                        description: "Second task description".to_string(),
+                        position: 0,
+                    },
+                    SavePlanEditorTaskInput {
+                        client_id: "ship".to_string(),
+                        task_id: Some(ship_task_id.clone()),
+                        stage_client_id: "delivery".to_string(),
+                        title: "Ship it".to_string(),
+                        description: "Ship it description".to_string(),
+                        position: 0,
+                    },
+                ],
+                deleted_task_ids: vec![first_task_id.clone()],
+                confirmed_task_deletion_ids: vec![first_task_id.clone()],
+                checklist_items: vec![],
+                deleted_checklist_item_ids: vec![],
+                confirmed_checklist_item_ids: vec![],
             });
-        assert!(matches!(result, Err(PlanStructureError::StageHasTasks)));
+        assert!(matches!(result, Err(PlanStructureError::TaskHasHistory)));
         let unchanged_title: String = conn
             .query_row(
                 "select title from plans where id = ?1",
@@ -1255,18 +1599,21 @@ mod tests {
                 title: "Alpha revised".to_string(),
                 stages: vec![
                     SavePlanEditorStageInput {
+                        client_id: "delivery".to_string(),
                         stage_id: Some(delivery_stage_id.clone()),
                         title: "Delivery revised".to_string(),
                         description: "Ship the change".to_string(),
                         position: 0,
                     },
                     SavePlanEditorStageInput {
+                        client_id: "discovery".to_string(),
                         stage_id: Some(discovery_stage_id.clone()),
                         title: "Discovery revised".to_string(),
                         description: "Clarify the work".to_string(),
                         position: 1,
                     },
                     SavePlanEditorStageInput {
+                        client_id: "draft-stage".to_string(),
                         stage_id: None,
                         title: "New stage".to_string(),
                         description: String::new(),
@@ -1274,6 +1621,78 @@ mod tests {
                     },
                 ],
                 deleted_stage_ids: vec![empty_stage_id],
+                tasks: vec![
+                    SavePlanEditorTaskInput {
+                        client_id: "ship".to_string(),
+                        task_id: Some(ship_task_id.clone()),
+                        stage_client_id: "delivery".to_string(),
+                        title: "Ship it".to_string(),
+                        description: "Ship it description".to_string(),
+                        position: 0,
+                    },
+                    SavePlanEditorTaskInput {
+                        client_id: "first".to_string(),
+                        task_id: Some(first_task_id.clone()),
+                        stage_client_id: "delivery".to_string(),
+                        title: "Investigate release".to_string(),
+                        description: "Keep the imported task and its history".to_string(),
+                        position: 1,
+                    },
+                    SavePlanEditorTaskInput {
+                        client_id: "second".to_string(),
+                        task_id: Some(second_task_id.clone()),
+                        stage_client_id: "discovery".to_string(),
+                        title: "Second task".to_string(),
+                        description: "Second task description".to_string(),
+                        position: 0,
+                    },
+                    SavePlanEditorTaskInput {
+                        client_id: "draft-task".to_string(),
+                        task_id: None,
+                        stage_client_id: "draft-stage".to_string(),
+                        title: "New task".to_string(),
+                        description: "Created in Edit plan".to_string(),
+                        position: 0,
+                    },
+                ],
+                deleted_task_ids: vec![],
+                confirmed_task_deletion_ids: vec![],
+                checklist_items: vec![
+                    SavePlanEditorChecklistItemInput {
+                        client_id: "second-check".to_string(),
+                        item_id: Some(second_check_id.clone()),
+                        task_client_id: "first".to_string(),
+                        title: "Second check revised".to_string(),
+                        description: "Moved to the top".to_string(),
+                        position: 0,
+                    },
+                    SavePlanEditorChecklistItemInput {
+                        client_id: "first-check".to_string(),
+                        item_id: Some(first_check_id.clone()),
+                        task_client_id: "first".to_string(),
+                        title: "First check".to_string(),
+                        description: "First check description".to_string(),
+                        position: 1,
+                    },
+                    SavePlanEditorChecklistItemInput {
+                        client_id: "draft-check".to_string(),
+                        item_id: None,
+                        task_client_id: "first".to_string(),
+                        title: "New check".to_string(),
+                        description: "Added locally".to_string(),
+                        position: 2,
+                    },
+                    SavePlanEditorChecklistItemInput {
+                        client_id: "draft-task-check".to_string(),
+                        item_id: None,
+                        task_client_id: "draft-task".to_string(),
+                        title: "Prepare work".to_string(),
+                        description: "First step for the new task".to_string(),
+                        position: 0,
+                    },
+                ],
+                deleted_checklist_item_ids: vec![],
+                confirmed_checklist_item_ids: vec![],
             })
             .expect("save plan editor");
 
@@ -1302,7 +1721,7 @@ mod tests {
         assert_eq!(saved_stages.len(), 3);
         assert_eq!(
             saved_stages[0],
-            (delivery_stage_id, "Delivery revised".to_string(), 0)
+            (delivery_stage_id.clone(), "Delivery revised".to_string(), 0)
         );
         assert_eq!(
             saved_stages[1],
@@ -1310,6 +1729,47 @@ mod tests {
         );
         assert_eq!(saved_stages[2].1, "New stage");
         assert_eq!(saved_stages[2].2, 2);
+
+        let saved_tasks = TaskRepository::new(&conn)
+            .list_tasks(&project_id)
+            .expect("saved tasks");
+        let revised_task = saved_tasks
+            .iter()
+            .find(|task| task.id == first_task_id)
+            .expect("revised task");
+        assert_eq!(revised_task.title, "Investigate release");
+        assert_eq!(revised_task.stage_id, delivery_stage_id);
+        assert_eq!(revised_task.position, 1);
+        assert_eq!(revised_task.status, "todo");
+        assert!(saved_tasks.iter().any(|task| task.title == "New task"));
+
+        let saved_checklist = TaskRepository::new(&conn)
+            .list_checklist_items(&project_id)
+            .expect("saved checklist");
+        assert_eq!(
+            saved_checklist
+                .iter()
+                .filter(|item| item.task_id == first_task_id)
+                .map(|item| item.title.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Second check revised", "First check", "New check"]
+        );
+        assert_eq!(
+            saved_checklist
+                .iter()
+                .find(|item| item.id == second_check_id)
+                .expect("stable checklist item")
+                .description,
+            "Moved to the top"
+        );
+        let note_count: i64 = conn
+            .query_row(
+                "select count(*) from notes where task_id = ?1 and body = 'Keep this history'",
+                params![first_task_id],
+                |row| row.get(0),
+            )
+            .expect("retained note count");
+        assert_eq!(note_count, 1);
     }
 
     #[test]

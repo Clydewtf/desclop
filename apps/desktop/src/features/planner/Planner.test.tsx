@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
@@ -361,8 +361,9 @@ describe("Planner", () => {
     const newStageHandle = screen.getByRole("button", { name: "Drag stage New stage" });
     const newStage = newStageHandle.closest<HTMLElement>(".planner-edit-stage");
     const currentStage = screen
-      .getByDisplayValue("Build release")
-      .closest<HTMLElement>(".planner-edit-stage");
+      .getAllByRole<HTMLInputElement>("textbox", { name: "Stage title" })
+      .find((input) => input.value === "Build release")
+      ?.closest<HTMLElement>(".planner-edit-stage");
     expect(newStageHandle).toBeInTheDocument();
     expect(newStage).not.toBeNull();
     expect(currentStage).not.toBeNull();
@@ -407,7 +408,7 @@ describe("Planner", () => {
     expect(
       Array.from(
         document.querySelectorAll<HTMLInputElement>(
-          ".planner-edit-stage-list .planner-edit-stage input"
+          ".planner-edit-stage-list .planner-edit-stage__fields input"
         )
       ).map((input) => input.value)
     ).toEqual(["New stage", "Build release"]);
@@ -431,18 +432,257 @@ describe("Planner", () => {
           id: "draft-stage-1",
           title: "New stage",
           description: "",
-          isNew: true
+          isNew: true,
+          tasks: []
         },
         {
           id: "current-plan-stage",
           title: "Build release",
           description: "",
-          isNew: false
+          isNew: false,
+          tasks: [
+            {
+              id: "task-1",
+              title: "Keep moving",
+              description: "",
+              isNew: false,
+              checklist: []
+            }
+          ]
         }
       ],
-      deletedStageIds: []
+      deletedStageIds: [],
+      deletedTaskIds: [],
+      confirmedTaskDeletionIds: [],
+      deletedChecklistItemIds: [],
+      confirmedChecklistItemIds: []
     });
     expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
+  });
+
+  it("edits, moves, and reorders tasks and checklist items in the local draft", async () => {
+    const user = userEvent.setup();
+    const onSavePlan = vi.fn().mockResolvedValue(undefined);
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving"
+      })
+    ];
+
+    renderWithRouter(
+      <Planner planFrames={planFrames} onSavePlan={onSavePlan} onOpenTask={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    await user.click(screen.getByRole("button", { name: "Add stage" }));
+
+    const stageTitleInputs = screen.getAllByRole<HTMLInputElement>("textbox", {
+      name: "Stage title"
+    });
+    const originalStage = stageTitleInputs
+      .find((input) => input.value === "Current work stage")
+      ?.closest<HTMLElement>(".planner-edit-stage");
+    const newStage = stageTitleInputs
+      .find((input) => input.value === "New stage")
+      ?.closest<HTMLElement>(".planner-edit-stage");
+    expect(originalStage).not.toBeNull();
+    expect(newStage).not.toBeNull();
+
+    await user.click(within(originalStage!).getByRole("button", { name: "Add task" }));
+    const reviewTaskTitle = screen.getByDisplayValue("New task");
+    await user.clear(reviewTaskTitle);
+    await user.type(reviewTaskTitle, "Review release");
+    const reviewTask = screen
+      .getByDisplayValue("Review release")
+      .closest<HTMLElement>(".planner-edit-task");
+    expect(reviewTask).not.toBeNull();
+    await user.type(
+      within(reviewTask!).getByRole("textbox", { name: "Task description" }),
+      "Review the release path"
+    );
+    await user.selectOptions(
+      within(reviewTask!).getByRole("combobox", { name: "Task stage" }),
+      "draft-stage-1"
+    );
+
+    const refreshedNewStage = screen
+      .getAllByRole<HTMLInputElement>("textbox", { name: "Stage title" })
+      .find((input) => input.value === "New stage")
+      ?.closest<HTMLElement>(".planner-edit-stage");
+    expect(refreshedNewStage).not.toBeNull();
+    await user.click(within(refreshedNewStage!).getByRole("button", { name: "Add task" }));
+    const shipTaskTitle = screen.getByDisplayValue("New task");
+    await user.clear(shipTaskTitle);
+    await user.type(shipTaskTitle, "Ship docs");
+    await user.click(screen.getByRole("button", { name: "Move task Ship docs up" }));
+
+    const shipTask = screen
+      .getByDisplayValue("Ship docs")
+      .closest<HTMLElement>(".planner-edit-task");
+    expect(shipTask).not.toBeNull();
+    await user.click(within(shipTask!).getByRole("button", { name: "Add checklist item" }));
+    const firstChecklistTitle = within(shipTask!).getByDisplayValue("New checklist item");
+    await user.clear(firstChecklistTitle);
+    await user.type(firstChecklistTitle, "Write release notes");
+    await user.type(
+      within(shipTask!).getByRole("textbox", { name: "Checklist item description" }),
+      "Describe the changes"
+    );
+    await user.click(within(shipTask!).getByRole("button", { name: "Add checklist item" }));
+    const checklistTitleInputs = within(shipTask!).getAllByRole<HTMLInputElement>("textbox", {
+      name: "Checklist item title"
+    });
+    await user.clear(checklistTitleInputs[1]);
+    await user.type(checklistTitleInputs[1], "Run final review");
+    await user.click(
+      within(shipTask!).getByRole("button", { name: "Move checklist item Run final review up" })
+    );
+
+    expect(
+      within(shipTask!)
+        .getAllByRole<HTMLInputElement>("textbox", { name: "Checklist item title" })
+        .map((input) => input.value)
+    ).toEqual(["Run final review", "Write release notes"]);
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSavePlan).toHaveBeenCalledTimes(1));
+    const savedDraft = onSavePlan.mock.calls[0]?.[0] as {
+      stages: Array<{ id: string; tasks: Array<{ id: string; title: string; checklist: unknown[] }> }>;
+    };
+    expect(savedDraft.stages.find((stage) => stage.id === "current-plan-stage")?.tasks).toEqual([
+      expect.objectContaining({ id: "task-1", title: "Keep moving" })
+    ]);
+    expect(savedDraft.stages.find((stage) => stage.id === "draft-stage-1")?.tasks).toEqual([
+      expect.objectContaining({
+        id: "draft-task-2",
+        title: "Ship docs",
+        checklist: [
+          expect.objectContaining({ title: "Run final review" }),
+          expect.objectContaining({ title: "Write release notes", description: "Describe the changes" })
+        ]
+      }),
+      expect.objectContaining({
+        id: "draft-task-1",
+        title: "Review release",
+        description: "Review the release path"
+      })
+    ]);
+  });
+
+  it("requires explicit confirmations before removing saved tasks and checklist items", async () => {
+    const user = userEvent.setup();
+    const onSavePlan = vi.fn().mockResolvedValue(undefined);
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving",
+        checklist: [{ id: "check-1", title: "Check source" }]
+      })
+    ];
+
+    renderWithRouter(
+      <Planner planFrames={planFrames} onSavePlan={onSavePlan} onOpenTask={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    await user.click(screen.getByRole("button", { name: "Delete checklist item Check source" }));
+    expect(screen.getByRole("dialog", { name: "Delete checklist item?" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Keep item" }));
+    expect(screen.getByRole("textbox", { name: "Checklist item title" })).toHaveValue(
+      "Check source"
+    );
+
+    await user.click(screen.getByRole("button", { name: "Delete checklist item Check source" }));
+    await user.click(screen.getByRole("button", { name: "Delete item" }));
+    expect(screen.queryByRole("textbox", { name: "Checklist item title" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Delete task Keep moving" }));
+    expect(screen.getByRole("dialog", { name: "Delete task and its checklist?" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Delete task" }));
+
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(onSavePlan).toHaveBeenCalledTimes(1));
+    expect(onSavePlan.mock.calls[0]?.[0]).toMatchObject({
+      deletedTaskIds: ["task-1"],
+      confirmedTaskDeletionIds: ["task-1"],
+      deletedChecklistItemIds: ["check-1"],
+      confirmedChecklistItemIds: ["check-1"]
+    });
+  });
+
+  it("keeps the active task in place and explains why it cannot be deleted", async () => {
+    const user = userEvent.setup();
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving"
+      })
+    ];
+
+    renderWithRouter(
+      <Planner planFrames={planFrames} activeTaskId="task-1" onOpenTask={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    await user.click(screen.getByRole("button", { name: "Delete task Keep moving" }));
+
+    expect(
+      screen.getByText("Choose a new active task or clear it before deleting this task.")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps the task draft available when saving is rejected", async () => {
+    const user = userEvent.setup();
+    const onSavePlan = vi.fn().mockRejectedValue(
+      new Error(
+        "This task has work history, notes, Inbox items, or linked commits and can't be deleted. Complete, move, or hide it instead."
+      )
+    );
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving"
+      })
+    ];
+
+    renderWithRouter(
+      <Planner planFrames={planFrames} onSavePlan={onSavePlan} onOpenTask={vi.fn()} />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    const taskTitle = screen.getByRole("textbox", { name: "Task title" });
+    await user.clear(taskTitle);
+    await user.type(taskTitle, "Move this safely");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          "This task has work history, notes, Inbox items, or linked commits and can't be deleted. Complete, move, or hide it instead."
+        )
+      ).toBeInTheDocument()
+    );
+    expect(screen.getByRole("textbox", { name: "Task title" })).toHaveValue("Move this safely");
+    expect(screen.getByRole("region", { name: "Editing Current work" })).toBeInTheDocument();
   });
 
   it("supports keyboard reordering from the stage drag handle", async () => {
@@ -523,7 +763,8 @@ function planFrameFixture({
   taskId,
   taskTitle,
   taskStatus = "todo",
-  collapsed = false
+  collapsed = false,
+  checklist = []
 }: {
   planId: string;
   title: string;
@@ -532,6 +773,12 @@ function planFrameFixture({
   taskTitle: string;
   taskStatus?: "todo" | "done";
   collapsed?: boolean;
+  checklist?: Array<{
+    id: string;
+    title: string;
+    description?: string;
+    completed?: boolean;
+  }>;
 }): PlanFrame {
   const stageId = `${planId}-stage`;
   const stageStatus = collapsed ? "completed" : "current";
@@ -546,7 +793,12 @@ function planFrameFixture({
     dueDate: null,
     nextStep: taskStatus === "done" ? "" : "Keep moving",
     position: 0,
-    checklist: []
+    checklist: checklist.map((item, position) => ({
+      ...item,
+      taskId,
+      completed: item.completed ?? false,
+      position
+    }))
   };
   const stageFrame: PlannerFrame = {
     stage: {

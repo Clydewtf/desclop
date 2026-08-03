@@ -3027,10 +3027,141 @@ label.inline-field input {
   cursor: text;
 }
 
+.planner-edit-stage select {
+  cursor: pointer;
+}
+
 .planner-edit-stage__fields {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
   gap: var(--space-3);
+}
+
+.planner-edit-task-list {
+  display: grid;
+  gap: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-3);
+}
+
+.planner-edit-task-list__header,
+.planner-edit-checklist__header,
+.planner-edit-task__header,
+.planner-edit-checklist__item-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.planner-edit-task-list__header > div,
+.planner-edit-checklist__header > div {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.planner-edit-task-list h3,
+.planner-edit-checklist h4,
+.planner-edit-task__header p,
+.planner-edit-checklist__item-header p {
+  margin: 0;
+}
+
+.planner-edit-task-list__header span,
+.planner-edit-checklist__header span {
+  color: var(--color-muted);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.planner-edit-task-list__items,
+.planner-edit-checklist__items {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.planner-edit-task {
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-border) 85%, var(--color-accent));
+  border-radius: calc(var(--radius) - 2px);
+  background: color-mix(in srgb, var(--color-surface) 94%, var(--color-accent-soft));
+  padding: var(--space-3);
+}
+
+.planner-edit-task__identity {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.planner-edit-structure__actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+}
+
+.planner-edit-structure__icon-button {
+  position: relative;
+  width: 34px;
+  min-height: 34px;
+  padding: 7px;
+  border-radius: 9px;
+}
+
+.planner-edit-structure__icon-button .ui-button__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.planner-edit-structure__icon-button .ui-button__icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.planner-edit-task__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(160px, 0.7fr);
+  gap: var(--space-3);
+}
+
+.planner-edit-checklist {
+  display: grid;
+  gap: var(--space-3);
+  border-radius: calc(var(--radius) - 4px);
+  background: var(--color-surface-muted);
+  padding: var(--space-3);
+}
+
+.planner-edit-checklist__item {
+  display: grid;
+  gap: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--radius) - 6px);
+  background: var(--color-surface);
+  padding: var(--space-3);
+}
+
+.planner-edit-checklist__fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+  gap: var(--space-3);
+}
+
+.planner-edit-task-list__empty,
+.planner-edit-checklist__empty {
+  margin: 0;
+  color: var(--color-muted);
 }
 
 .planner-edit-stage-list__empty {
@@ -3089,15 +3220,22 @@ label.inline-field input {
 
 @media (max-width: 760px) {
   .planner-edit-panel__header,
-  .planner-edit-stage__header {
+  .planner-edit-stage__header,
+  .planner-edit-task-list__header,
+  .planner-edit-checklist__header,
+  .planner-edit-task__header,
+  .planner-edit-checklist__item-header {
     flex-direction: column;
   }
 
-  .planner-edit-stage__fields {
+  .planner-edit-stage__fields,
+  .planner-edit-task__fields,
+  .planner-edit-checklist__fields {
     grid-template-columns: 1fr;
   }
 
-  .planner-edit-stage__actions {
+  .planner-edit-stage__actions,
+  .planner-edit-structure__actions {
     justify-content: flex-start;
   }
 

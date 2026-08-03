@@ -42,10 +42,28 @@ describe("api", () => {
       planId: "plan-1",
       title: "Plan",
       stages: [
-        { stageId: "stage-1", title: "Stage", description: "Context", position: 0 },
-        { stageId: null, title: "New stage", description: "", position: 1 }
+        {
+          clientId: "stage-1",
+          stageId: "stage-1",
+          title: "Stage",
+          description: "Context",
+          position: 0
+        },
+        {
+          clientId: "draft-stage-1",
+          stageId: null,
+          title: "New stage",
+          description: "",
+          position: 1
+        }
       ],
-      deletedStageIds: []
+      deletedStageIds: [],
+      tasks: [],
+      deletedTaskIds: [],
+      confirmedTaskDeletionIds: [],
+      checklistItems: [],
+      deletedChecklistItemIds: [],
+      confirmedChecklistItemIds: []
     });
     await api.updateTask({ taskId: "task-1", title: "Task", description: "Context" });
     await api.reorderTask({ taskId: "task-1", position: 1 });
@@ -75,10 +93,28 @@ describe("api", () => {
         planId: "plan-1",
         title: "Plan",
         stages: [
-          { stageId: "stage-1", title: "Stage", description: "Context", position: 0 },
-          { stageId: null, title: "New stage", description: "", position: 1 }
+          {
+            clientId: "stage-1",
+            stageId: "stage-1",
+            title: "Stage",
+            description: "Context",
+            position: 0
+          },
+          {
+            clientId: "draft-stage-1",
+            stageId: null,
+            title: "New stage",
+            description: "",
+            position: 1
+          }
         ],
-        deletedStageIds: []
+        deletedStageIds: [],
+        tasks: [],
+        deletedTaskIds: [],
+        confirmedTaskDeletionIds: [],
+        checklistItems: [],
+        deletedChecklistItemIds: [],
+        confirmedChecklistItemIds: []
       }
     });
     expect(invoke).toHaveBeenNthCalledWith(6, "update_task", {

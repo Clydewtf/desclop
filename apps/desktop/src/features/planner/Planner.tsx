@@ -7,7 +7,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent
 } from "react";
-import { GripVertical, Pencil, Trash2 } from "lucide-react";
+import { ArrowDown, ArrowUp, GripVertical, Pencil, Plus, Trash2 } from "lucide-react";
 import type { ChecklistItem, Task } from "../../shared/domain/types";
 import type { PlanFrame, PlannerFrame } from "./plannerEngine";
 import {
@@ -20,16 +20,33 @@ import {
   Button,
   InlineAlert,
   ScreenHeader,
+  SelectField,
   TaskStatusBadge,
   TextArea,
   TextField
 } from "../../shared/ui";
+
+export interface PlanEditorChecklistItemDraft {
+  id: string;
+  title: string;
+  description: string;
+  isNew: boolean;
+}
+
+export interface PlanEditorTaskDraft {
+  id: string;
+  title: string;
+  description: string;
+  isNew: boolean;
+  checklist: PlanEditorChecklistItemDraft[];
+}
 
 export interface PlanEditorStageDraft {
   id: string;
   title: string;
   description: string;
   isNew: boolean;
+  tasks: PlanEditorTaskDraft[];
 }
 
 export interface PlanEditorDraft {
@@ -37,6 +54,10 @@ export interface PlanEditorDraft {
   title: string;
   stages: PlanEditorStageDraft[];
   deletedStageIds: string[];
+  deletedTaskIds: string[];
+  confirmedTaskDeletionIds: string[];
+  deletedChecklistItemIds: string[];
+  confirmedChecklistItemIds: string[];
 }
 
 interface PlannerProps {
@@ -47,12 +68,15 @@ interface PlannerProps {
   onArchivePlan?: (planId: string) => void;
   onRestorePlan?: (planId: string) => void;
   onSavePlan?: (draft: PlanEditorDraft) => Promise<void>;
+  activeTaskId?: string | null;
   onOpenTask: (taskId: string, options: { activate: boolean }) => void;
 }
 
 interface EditPlanConfirmation {
   planId: string;
-  action: "save" | "discard";
+  action: "save" | "discard" | "delete-task" | "delete-checklist-item";
+  taskId?: string;
+  checklistItemId?: string;
 }
 
 interface StagePointerDrag {
@@ -89,6 +113,7 @@ export function Planner({
   onArchivePlan,
   onRestorePlan,
   onSavePlan,
+  activeTaskId = null,
   onOpenTask
 }: PlannerProps) {
   const [viewState, setViewState] = useState<PlannerViewState>(() =>
@@ -102,6 +127,10 @@ export function Planner({
     useState<EditPlanConfirmation | null>(null);
   const [validationFieldId, setValidationFieldId] = useState<string | null>(null);
   const [stageDeleteWarningId, setStageDeleteWarningId] = useState<string | null>(null);
+  const [taskDeleteWarning, setTaskDeleteWarning] = useState<{
+    taskId: string;
+    message: string;
+  } | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [savingPlan, setSavingPlan] = useState(false);
   const [draggedStageId, setDraggedStageId] = useState<string | null>(null);
@@ -117,6 +146,8 @@ export function Planner({
   const skipStageAnimationRef = useRef<string | null>(null);
   const stagePointerDragRef = useRef<StagePointerDrag | null>(null);
   const draftStageSequence = useRef(0);
+  const draftTaskSequence = useRef(0);
+  const draftChecklistSequence = useRef(0);
 
   useEffect(() => {
     editingDraftRef.current = editingDraft;
@@ -179,6 +210,7 @@ export function Planner({
     setPendingConfirmation(null);
     setValidationFieldId(null);
     setStageDeleteWarningId(null);
+    setTaskDeleteWarning(null);
     setEditorError(null);
     setSavingPlan(false);
     setDraggedStageId(null);
@@ -298,6 +330,7 @@ export function Planner({
     setPendingConfirmation(null);
     setValidationFieldId(null);
     setStageDeleteWarningId(null);
+    setTaskDeleteWarning(null);
     setEditorError(null);
     setDraggedStageId(null);
     setDropTargetStageId(null);
@@ -312,6 +345,7 @@ export function Planner({
     setEditingBaseline(null);
     setValidationFieldId(null);
     setStageDeleteWarningId(null);
+    setTaskDeleteWarning(null);
     setEditorError(null);
     setSavingPlan(false);
     setDraggedStageId(null);
@@ -345,6 +379,7 @@ export function Planner({
     });
     setValidationFieldId(null);
     setStageDeleteWarningId(null);
+    setTaskDeleteWarning(null);
     setEditorError(null);
   }
 
@@ -371,9 +406,242 @@ export function Planner({
       ...draft,
       stages: [
         ...draft.stages,
-        { id: stageId, title: "New stage", description: "", isNew: true }
+        { id: stageId, title: "New stage", description: "", isNew: true, tasks: [] }
       ]
     }));
+  }
+
+  function updateTaskDraft(
+    taskId: string,
+    update: (task: PlanEditorTaskDraft) => PlanEditorTaskDraft
+  ) {
+    updateEditingDraft((draft) => ({
+      ...draft,
+      stages: draft.stages.map((stage) => ({
+        ...stage,
+        tasks: stage.tasks.map((task) => (task.id === taskId ? update(task) : task))
+      }))
+    }));
+  }
+
+  function updateChecklistItemDraft(
+    itemId: string,
+    update: (item: PlanEditorChecklistItemDraft) => PlanEditorChecklistItemDraft
+  ) {
+    updateEditingDraft((draft) => ({
+      ...draft,
+      stages: draft.stages.map((stage) => ({
+        ...stage,
+        tasks: stage.tasks.map((task) => ({
+          ...task,
+          checklist: task.checklist.map((item) => (item.id === itemId ? update(item) : item))
+        }))
+      }))
+    }));
+  }
+
+  function addTaskToDraft(stageId: string) {
+    draftTaskSequence.current += 1;
+    const taskId = `draft-task-${draftTaskSequence.current}`;
+    updateStageDraft(stageId, (stage) => ({
+      ...stage,
+      tasks: [
+        ...stage.tasks,
+        { id: taskId, title: "New task", description: "", isNew: true, checklist: [] }
+      ]
+    }));
+  }
+
+  function addChecklistItemToDraft(taskId: string) {
+    draftChecklistSequence.current += 1;
+    const itemId = `draft-checklist-${draftChecklistSequence.current}`;
+    updateTaskDraft(taskId, (task) => ({
+      ...task,
+      checklist: [
+        ...task.checklist,
+        { id: itemId, title: "New checklist item", description: "", isNew: true }
+      ]
+    }));
+  }
+
+  function moveTaskInDraft(taskId: string, offset: -1 | 1) {
+    updateEditingDraft((draft) => {
+      const stageIndex = draft.stages.findIndex((stage) =>
+        stage.tasks.some((task) => task.id === taskId)
+      );
+      const stage = draft.stages[stageIndex];
+      if (!stage) {
+        return draft;
+      }
+
+      const currentIndex = stage.tasks.findIndex((task) => task.id === taskId);
+      const targetIndex = currentIndex + offset;
+      if (targetIndex < 0 || targetIndex >= stage.tasks.length) {
+        return draft;
+      }
+
+      const tasks = [...stage.tasks];
+      const [task] = tasks.splice(currentIndex, 1);
+      tasks.splice(targetIndex, 0, task);
+      return {
+        ...draft,
+        stages: draft.stages.map((candidate, index) =>
+          index === stageIndex ? { ...candidate, tasks } : candidate
+        )
+      };
+    });
+  }
+
+  function moveTaskToStage(taskId: string, destinationStageId: string) {
+    updateEditingDraft((draft) => {
+      const sourceStageIndex = draft.stages.findIndex((stage) =>
+        stage.tasks.some((task) => task.id === taskId)
+      );
+      const destinationStageIndex = draft.stages.findIndex(
+        (stage) => stage.id === destinationStageId
+      );
+      if (
+        sourceStageIndex < 0 ||
+        destinationStageIndex < 0 ||
+        sourceStageIndex === destinationStageIndex
+      ) {
+        return draft;
+      }
+
+      const sourceStage = draft.stages[sourceStageIndex];
+      const task = sourceStage.tasks.find((candidate) => candidate.id === taskId);
+      if (!task) {
+        return draft;
+      }
+
+      return {
+        ...draft,
+        stages: draft.stages.map((stage, index) => {
+          if (index === sourceStageIndex) {
+            return { ...stage, tasks: stage.tasks.filter((candidate) => candidate.id !== taskId) };
+          }
+          if (index === destinationStageIndex) {
+            return { ...stage, tasks: [...stage.tasks, task] };
+          }
+          return stage;
+        })
+      };
+    });
+  }
+
+  function moveChecklistItemInDraft(itemId: string, offset: -1 | 1) {
+    updateEditingDraft((draft) => {
+      let changed = false;
+      const stages = draft.stages.map((stage) => ({
+        ...stage,
+        tasks: stage.tasks.map((task) => {
+          const currentIndex = task.checklist.findIndex((item) => item.id === itemId);
+          const targetIndex = currentIndex + offset;
+          if (currentIndex < 0 || targetIndex < 0 || targetIndex >= task.checklist.length) {
+            return task;
+          }
+
+          const checklist = [...task.checklist];
+          const [item] = checklist.splice(currentIndex, 1);
+          checklist.splice(targetIndex, 0, item);
+          changed = true;
+          return { ...task, checklist };
+        })
+      }));
+
+      return changed ? { ...draft, stages } : draft;
+    });
+  }
+
+  function removeTaskFromDraft(taskId: string, confirmedChecklistRemoval: boolean) {
+    updateEditingDraft((draft) => {
+      const task = findDraftTask(draft, taskId);
+      if (!task) {
+        return draft;
+      }
+
+      return {
+        ...draft,
+        stages: draft.stages.map((stage) => ({
+          ...stage,
+          tasks: stage.tasks.filter((candidate) => candidate.id !== taskId)
+        })),
+        deletedTaskIds: task.isNew ? draft.deletedTaskIds : [...draft.deletedTaskIds, task.id],
+        confirmedTaskDeletionIds:
+          task.isNew || !confirmedChecklistRemoval
+            ? draft.confirmedTaskDeletionIds
+            : appendUnique(draft.confirmedTaskDeletionIds, task.id)
+      };
+    });
+  }
+
+  function removeChecklistItemFromDraft(itemId: string, confirmed: boolean) {
+    updateEditingDraft((draft) => {
+      const item = findDraftChecklistItem(draft, itemId);
+      if (!item) {
+        return draft;
+      }
+
+      return {
+        ...draft,
+        stages: draft.stages.map((stage) => ({
+          ...stage,
+          tasks: stage.tasks.map((task) => ({
+            ...task,
+            checklist: task.checklist.filter((candidate) => candidate.id !== itemId)
+          }))
+        })),
+        deletedChecklistItemIds: item.isNew
+          ? draft.deletedChecklistItemIds
+          : [...draft.deletedChecklistItemIds, item.id],
+        confirmedChecklistItemIds:
+          item.isNew || !confirmed
+            ? draft.confirmedChecklistItemIds
+            : appendUnique(draft.confirmedChecklistItemIds, item.id)
+      };
+    });
+  }
+
+  function requestDeleteTask(taskId: string, hasPersistedChecklist: boolean) {
+    const draft = editingDraftRef.current;
+    const task = draft ? findDraftTask(draft, taskId) : null;
+    if (!draft || !task) {
+      return;
+    }
+
+    if (!task.isNew && task.id === activeTaskId) {
+      setTaskDeleteWarning({
+        taskId,
+        message: "Choose a new active task or clear it before deleting this task."
+      });
+      return;
+    }
+
+    if (!task.isNew && hasPersistedChecklist) {
+      setPendingConfirmation({ planId: draft.planId, action: "delete-task", taskId });
+      return;
+    }
+
+    removeTaskFromDraft(taskId, false);
+  }
+
+  function requestDeleteChecklistItem(itemId: string) {
+    const draft = editingDraftRef.current;
+    const item = draft ? findDraftChecklistItem(draft, itemId) : null;
+    if (!draft || !item) {
+      return;
+    }
+
+    if (item.isNew) {
+      removeChecklistItemFromDraft(itemId, false);
+      return;
+    }
+
+    setPendingConfirmation({
+      planId: draft.planId,
+      action: "delete-checklist-item",
+      checklistItemId: itemId
+    });
   }
 
   function moveStageInDraft(stageId: string, offset: -1 | 1) {
@@ -655,8 +923,13 @@ export function Planner({
     }
   }
 
-  function requestDeleteStage(stageId: string, taskCount: number) {
-    if (taskCount > 0) {
+  function requestDeleteStage(stageId: string) {
+    const stage = editingDraftRef.current?.stages.find((candidate) => candidate.id === stageId);
+    if (!stage) {
+      return;
+    }
+
+    if (stage.tasks.length > 0) {
       setStageDeleteWarningId(stageId);
       return;
     }
@@ -695,8 +968,8 @@ export function Planner({
       await onSavePlan?.(editingDraft);
       closeEditPlan(planId);
       return true;
-    } catch {
-      setEditorError("Couldn't save plan changes. Nothing was changed. Try again.");
+    } catch (error) {
+      setEditorError(readPlanEditorSaveError(error));
       return false;
     } finally {
       setSavingPlan(false);
@@ -704,7 +977,10 @@ export function Planner({
   }
 
   async function confirmSaveFromDialog() {
-    if (!pendingConfirmation) {
+    if (
+      !pendingConfirmation ||
+      (pendingConfirmation.action !== "save" && pendingConfirmation.action !== "discard")
+    ) {
       return;
     }
 
@@ -714,13 +990,28 @@ export function Planner({
   }
 
   function confirmDiscardEditPlan() {
-    if (!pendingConfirmation) {
+    if (!pendingConfirmation || pendingConfirmation.action !== "discard") {
       return;
     }
 
     const { planId } = pendingConfirmation;
     setPendingConfirmation(null);
     closeEditPlan(planId);
+  }
+
+  function confirmDeleteFromDialog() {
+    if (!pendingConfirmation) {
+      return;
+    }
+
+    const { action, taskId, checklistItemId } = pendingConfirmation;
+    setPendingConfirmation(null);
+    if (action === "delete-task" && taskId) {
+      removeTaskFromDraft(taskId, true);
+    }
+    if (action === "delete-checklist-item" && checklistItemId) {
+      removeChecklistItemFromDraft(checklistItemId, true);
+    }
   }
 
   return (
@@ -895,7 +1186,7 @@ export function Planner({
                             const sourceFrame = planFrame.stageFrames.find(
                               (frame) => frame.stage.id === stage.id
                             );
-                            const taskCount = sourceFrame?.tasks.length ?? 0;
+                            const taskCount = stage.tasks.length;
                             const stageTitleId = `planner-edit-stage-title-${stage.id}`;
                             const stageDescriptionId = `planner-edit-stage-description-${stage.id}`;
 
@@ -968,7 +1259,7 @@ export function Planner({
                                       aria-label={`Delete stage ${stage.title}`}
                                       title={`Delete stage ${stage.title}`}
                                       disabled={savingPlan}
-                                      onClick={() => requestDeleteStage(stage.id, taskCount)}
+                                      onClick={() => requestDeleteStage(stage.id)}
                                     >
                                       Delete stage
                                     </Button>
@@ -999,6 +1290,287 @@ export function Planner({
                                     }
                                   />
                                 </div>
+                                <section
+                                  className="planner-edit-task-list"
+                                  aria-label={`Tasks in ${stage.title}`}
+                                >
+                                  <header className="planner-edit-task-list__header">
+                                    <div>
+                                      <h3>Tasks</h3>
+                                      <span>
+                                        {taskCount} {pluralize(taskCount, "task")}
+                                      </span>
+                                    </div>
+                                    <Button
+                                      type="button"
+                                      variant="secondary"
+                                      icon={<Plus aria-hidden="true" />}
+                                      disabled={savingPlan}
+                                      onClick={() => addTaskToDraft(stage.id)}
+                                    >
+                                      Add task
+                                    </Button>
+                                  </header>
+                                  {stage.tasks.length > 0 ? (
+                                    <div className="planner-edit-task-list__items">
+                                      {stage.tasks.map((task, taskIndex) => {
+                                        const sourceTask = planFrame.stageFrames
+                                          .flatMap((frame) => frame.tasks)
+                                          .find((candidate) => candidate.id === task.id);
+                                        const taskStatus = sourceTask?.status ?? "todo";
+                                        const hasPersistedChecklist =
+                                          (sourceTask?.checklist.length ?? 0) > 0;
+                                        const taskTitleId = `planner-edit-task-title-${task.id}`;
+                                        const taskDescriptionId =
+                                          `planner-edit-task-description-${task.id}`;
+                                        const taskStageId = `planner-edit-task-stage-${task.id}`;
+
+                                        return (
+                                          <article className="planner-edit-task" key={task.id}>
+                                            <header className="planner-edit-task__header">
+                                              <div className="planner-edit-task__identity">
+                                                <p className="stage-frame__status">
+                                                  {task.isNew ? "New task" : "Task"}
+                                                </p>
+                                                <TaskStatusBadge status={taskStatus} />
+                                              </div>
+                                              <div className="planner-edit-structure__actions">
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  className="planner-edit-structure__icon-button"
+                                                  icon={<ArrowUp aria-hidden="true" />}
+                                                  aria-label={`Move task ${task.title} up`}
+                                                  title="Move up"
+                                                  disabled={savingPlan || taskIndex === 0}
+                                                  onClick={() => moveTaskInDraft(task.id, -1)}
+                                                >
+                                                  Move up
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  variant="ghost"
+                                                  className="planner-edit-structure__icon-button"
+                                                  icon={<ArrowDown aria-hidden="true" />}
+                                                  aria-label={`Move task ${task.title} down`}
+                                                  title="Move down"
+                                                  disabled={
+                                                    savingPlan || taskIndex === stage.tasks.length - 1
+                                                  }
+                                                  onClick={() => moveTaskInDraft(task.id, 1)}
+                                                >
+                                                  Move down
+                                                </Button>
+                                                <Button
+                                                  type="button"
+                                                  variant="danger"
+                                                  className="planner-edit-structure__icon-button"
+                                                  icon={<Trash2 aria-hidden="true" />}
+                                                  aria-label={`Delete task ${task.title}`}
+                                                  title={`Delete task ${task.title}`}
+                                                  disabled={savingPlan}
+                                                  onClick={() =>
+                                                    requestDeleteTask(
+                                                      task.id,
+                                                      hasPersistedChecklist
+                                                    )
+                                                  }
+                                                >
+                                                  Delete task
+                                                </Button>
+                                              </div>
+                                            </header>
+                                            <div className="planner-edit-task__fields">
+                                              <TextField
+                                                id={taskTitleId}
+                                                label="Task title"
+                                                value={task.title}
+                                                disabled={savingPlan}
+                                                onChange={(event) =>
+                                                  updateTaskDraft(task.id, (current) => ({
+                                                    ...current,
+                                                    title: event.target.value
+                                                  }))
+                                                }
+                                                aria-invalid={validationFieldId === taskTitleId}
+                                              />
+                                              <TextArea
+                                                id={taskDescriptionId}
+                                                label="Task description"
+                                                value={task.description}
+                                                disabled={savingPlan}
+                                                onChange={(event) =>
+                                                  updateTaskDraft(task.id, (current) => ({
+                                                    ...current,
+                                                    description: event.target.value
+                                                  }))
+                                                }
+                                              />
+                                              <SelectField
+                                                id={taskStageId}
+                                                label="Task stage"
+                                                value={stage.id}
+                                                disabled={savingPlan}
+                                                onChange={(event) =>
+                                                  moveTaskToStage(task.id, event.target.value)
+                                                }
+                                              >
+                                                {editingDraft.stages.map((candidate) => (
+                                                  <option key={candidate.id} value={candidate.id}>
+                                                    {candidate.title || "Untitled stage"}
+                                                  </option>
+                                                ))}
+                                              </SelectField>
+                                            </div>
+                                            {taskDeleteWarning?.taskId === task.id ? (
+                                              <InlineAlert tone="warning">
+                                                {taskDeleteWarning.message}
+                                              </InlineAlert>
+                                            ) : null}
+                                            <section
+                                              className="planner-edit-checklist"
+                                              aria-label={`Checklist for ${task.title}`}
+                                            >
+                                              <header className="planner-edit-checklist__header">
+                                                <div>
+                                                  <h4>Checklist</h4>
+                                                  <span>
+                                                    {task.checklist.length}{" "}
+                                                    {pluralize(task.checklist.length, "item")}
+                                                  </span>
+                                                </div>
+                                                <Button
+                                                  type="button"
+                                                  variant="secondary"
+                                                  icon={<Plus aria-hidden="true" />}
+                                                  disabled={savingPlan}
+                                                  onClick={() => addChecklistItemToDraft(task.id)}
+                                                >
+                                                  Add checklist item
+                                                </Button>
+                                              </header>
+                                              {task.checklist.length > 0 ? (
+                                                <div className="planner-edit-checklist__items">
+                                                  {task.checklist.map((item, itemIndex) => {
+                                                    const itemTitleId =
+                                                      `planner-edit-checklist-title-${item.id}`;
+                                                    const itemDescriptionId =
+                                                      `planner-edit-checklist-description-${item.id}`;
+
+                                                    return (
+                                                      <article
+                                                        className="planner-edit-checklist__item"
+                                                        key={item.id}
+                                                      >
+                                                        <header className="planner-edit-checklist__item-header">
+                                                          <p className="stage-frame__status">
+                                                            {item.isNew
+                                                              ? "New checklist item"
+                                                              : "Checklist item"}
+                                                          </p>
+                                                          <div className="planner-edit-structure__actions">
+                                                            <Button
+                                                              type="button"
+                                                              variant="ghost"
+                                                              className="planner-edit-structure__icon-button"
+                                                              icon={<ArrowUp aria-hidden="true" />}
+                                                              aria-label={`Move checklist item ${item.title} up`}
+                                                              title="Move up"
+                                                              disabled={savingPlan || itemIndex === 0}
+                                                              onClick={() =>
+                                                                moveChecklistItemInDraft(item.id, -1)
+                                                              }
+                                                            >
+                                                              Move up
+                                                            </Button>
+                                                            <Button
+                                                              type="button"
+                                                              variant="ghost"
+                                                              className="planner-edit-structure__icon-button"
+                                                              icon={<ArrowDown aria-hidden="true" />}
+                                                              aria-label={`Move checklist item ${item.title} down`}
+                                                              title="Move down"
+                                                              disabled={
+                                                                savingPlan ||
+                                                                itemIndex === task.checklist.length - 1
+                                                              }
+                                                              onClick={() =>
+                                                                moveChecklistItemInDraft(item.id, 1)
+                                                              }
+                                                            >
+                                                              Move down
+                                                            </Button>
+                                                            <Button
+                                                              type="button"
+                                                              variant="danger"
+                                                              className="planner-edit-structure__icon-button"
+                                                              icon={<Trash2 aria-hidden="true" />}
+                                                              aria-label={`Delete checklist item ${item.title}`}
+                                                              title={`Delete checklist item ${item.title}`}
+                                                              disabled={savingPlan}
+                                                              onClick={() =>
+                                                                requestDeleteChecklistItem(item.id)
+                                                              }
+                                                            >
+                                                              Delete checklist item
+                                                            </Button>
+                                                          </div>
+                                                        </header>
+                                                        <div className="planner-edit-checklist__fields">
+                                                          <TextField
+                                                            id={itemTitleId}
+                                                            label="Checklist item title"
+                                                            value={item.title}
+                                                            disabled={savingPlan}
+                                                            onChange={(event) =>
+                                                              updateChecklistItemDraft(
+                                                                item.id,
+                                                                (current) => ({
+                                                                  ...current,
+                                                                  title: event.target.value
+                                                                })
+                                                              )
+                                                            }
+                                                            aria-invalid={
+                                                              validationFieldId === itemTitleId
+                                                            }
+                                                          />
+                                                          <TextArea
+                                                            id={itemDescriptionId}
+                                                            label="Checklist item description"
+                                                            value={item.description}
+                                                            disabled={savingPlan}
+                                                            onChange={(event) =>
+                                                              updateChecklistItemDraft(
+                                                                item.id,
+                                                                (current) => ({
+                                                                  ...current,
+                                                                  description: event.target.value
+                                                                })
+                                                              )
+                                                            }
+                                                          />
+                                                        </div>
+                                                      </article>
+                                                    );
+                                                  })}
+                                                </div>
+                                              ) : (
+                                                <p className="planner-edit-checklist__empty">
+                                                  No checklist items yet.
+                                                </p>
+                                              )}
+                                            </section>
+                                          </article>
+                                        );
+                                      })}
+                                    </div>
+                                  ) : (
+                                    <p className="planner-edit-task-list__empty">
+                                      No tasks in this stage yet.
+                                    </p>
+                                  )}
+                                </section>
                                 {stageDeleteWarningId === stage.id ? (
                                   <InlineAlert tone="warning">
                                     Move or remove this stage's tasks before deleting the stage.
@@ -1126,12 +1698,20 @@ export function Planner({
             <h2 id="planner-confirmation-title">
               {pendingConfirmation.action === "save"
                 ? "Save plan changes?"
-                : "Discard unsaved changes?"}
+                : pendingConfirmation.action === "discard"
+                  ? "Discard unsaved changes?"
+                  : pendingConfirmation.action === "delete-task"
+                    ? "Delete task and its checklist?"
+                    : "Delete checklist item?"}
             </h2>
             <p id="planner-confirmation-description">
               {pendingConfirmation.action === "save"
                 ? "Your local draft will replace the saved plan."
-                : "Your saved plan will stay unchanged."}
+                : pendingConfirmation.action === "discard"
+                  ? "Your saved plan will stay unchanged."
+                  : pendingConfirmation.action === "delete-task"
+                    ? "This removes the task and its checklist from the local draft. It will be deleted when you save the plan."
+                    : "This removes the checklist item from the local draft. It will be deleted when you save the plan."}
             </p>
             <div className="planner-confirmation__actions">
               <Button
@@ -1140,7 +1720,11 @@ export function Planner({
                 variant="secondary"
                 onClick={() => setPendingConfirmation(null)}
               >
-                Stay
+                {pendingConfirmation.action === "delete-task"
+                  ? "Keep task"
+                  : pendingConfirmation.action === "delete-checklist-item"
+                    ? "Keep item"
+                    : "Stay"}
               </Button>
               {pendingConfirmation.action === "discard" ? (
                 <Button
@@ -1157,10 +1741,18 @@ export function Planner({
                 onClick={
                   pendingConfirmation.action === "save"
                     ? confirmSaveFromDialog
-                    : confirmDiscardEditPlan
+                    : pendingConfirmation.action === "discard"
+                      ? confirmDiscardEditPlan
+                      : confirmDeleteFromDialog
                 }
               >
-                {pendingConfirmation.action === "save" ? "Save changes" : "Discard changes"}
+                {pendingConfirmation.action === "save"
+                  ? "Save changes"
+                  : pendingConfirmation.action === "discard"
+                    ? "Discard changes"
+                    : pendingConfirmation.action === "delete-task"
+                      ? "Delete task"
+                      : "Delete item"}
               </Button>
             </div>
           </section>
@@ -1232,9 +1824,25 @@ function makePlanEditorDraft(planFrame: PlanFrame): PlanEditorDraft {
       id: frame.stage.id,
       title: frame.stage.title,
       description: frame.stage.description,
-      isNew: false
+      isNew: false,
+      tasks: frame.tasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        description: task.description,
+        isNew: false,
+        checklist: task.checklist.map((item) => ({
+          id: item.id,
+          title: item.title,
+          description: item.description ?? "",
+          isNew: false
+        }))
+      }))
     })),
-    deletedStageIds: []
+    deletedStageIds: [],
+    deletedTaskIds: [],
+    confirmedTaskDeletionIds: [],
+    deletedChecklistItemIds: [],
+    confirmedChecklistItemIds: []
   };
 }
 
@@ -1242,8 +1850,11 @@ function arePlanEditorDraftsEqual(left: PlanEditorDraft, right: PlanEditorDraft)
   return (
     left.planId === right.planId &&
     left.title === right.title &&
-    left.deletedStageIds.length === right.deletedStageIds.length &&
-    left.deletedStageIds.every((stageId, index) => stageId === right.deletedStageIds[index]) &&
+    sameStringLists(left.deletedStageIds, right.deletedStageIds) &&
+    sameStringLists(left.deletedTaskIds, right.deletedTaskIds) &&
+    sameStringLists(left.confirmedTaskDeletionIds, right.confirmedTaskDeletionIds) &&
+    sameStringLists(left.deletedChecklistItemIds, right.deletedChecklistItemIds) &&
+    sameStringLists(left.confirmedChecklistItemIds, right.confirmedChecklistItemIds) &&
     left.stages.length === right.stages.length &&
     left.stages.every((stage, index) => {
       const other = right.stages[index];
@@ -1252,7 +1863,29 @@ function arePlanEditorDraftsEqual(left: PlanEditorDraft, right: PlanEditorDraft)
         stage.id === other.id &&
         stage.title === other.title &&
         stage.description === other.description &&
-        stage.isNew === other.isNew
+        stage.isNew === other.isNew &&
+        stage.tasks.length === other.tasks.length &&
+        stage.tasks.every((task, taskIndex) => {
+          const otherTask = other.tasks[taskIndex];
+          return (
+            otherTask !== undefined &&
+            task.id === otherTask.id &&
+            task.title === otherTask.title &&
+            task.description === otherTask.description &&
+            task.isNew === otherTask.isNew &&
+            task.checklist.length === otherTask.checklist.length &&
+            task.checklist.every((item, itemIndex) => {
+              const otherItem = otherTask.checklist[itemIndex];
+              return (
+                otherItem !== undefined &&
+                item.id === otherItem.id &&
+                item.title === otherItem.title &&
+                item.description === otherItem.description &&
+                item.isNew === otherItem.isNew
+              );
+            })
+          );
+        })
       );
     })
   );
@@ -1274,7 +1907,74 @@ function validatePlanEditorDraft(draft: PlanEditorDraft) {
     };
   }
 
+  const invalidTask = draft.stages
+    .flatMap((stage) => stage.tasks)
+    .find((task) => !task.title.trim());
+  if (invalidTask) {
+    return {
+      fieldId: `planner-edit-task-title-${invalidTask.id}`,
+      message: "Enter a name before saving."
+    };
+  }
+
+  const invalidChecklistItem = draft.stages
+    .flatMap((stage) => stage.tasks)
+    .flatMap((task) => task.checklist)
+    .find((item) => !item.title.trim());
+  if (invalidChecklistItem) {
+    return {
+      fieldId: `planner-edit-checklist-title-${invalidChecklistItem.id}`,
+      message: "Enter a name before saving."
+    };
+  }
+
   return null;
+}
+
+function sameStringLists(left: string[], right: string[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function appendUnique(ids: string[], id: string) {
+  return ids.includes(id) ? ids : [...ids, id];
+}
+
+function findDraftTask(draft: PlanEditorDraft, taskId: string) {
+  return draft.stages
+    .flatMap((stage) => stage.tasks)
+    .find((task) => task.id === taskId) ?? null;
+}
+
+function findDraftChecklistItem(draft: PlanEditorDraft, itemId: string) {
+  return draft.stages
+    .flatMap((stage) => stage.tasks)
+    .flatMap((task) => task.checklist)
+    .find((item) => item.id === itemId) ?? null;
+}
+
+function readPlanEditorSaveError(error: unknown) {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : (() => {
+            try {
+              return JSON.stringify(error);
+            } catch {
+              return "";
+            }
+          })();
+  const supportedMessage = [
+    "Enter a name before saving.",
+    "This plan changed while you were editing. Reload it before saving your changes.",
+    "Move or remove this stage's tasks before deleting the stage.",
+    "This task has work history, notes, Inbox items, or linked commits and can't be deleted. Complete, move, or hide it instead.",
+    "This task is still referenced by a Resume Brief and can't be deleted. Complete, move, or hide it instead.",
+    "Choose a new active task or clear it before deleting this task."
+  ].find((candidate) => message.includes(candidate));
+
+  return supportedMessage ?? "Couldn't save plan changes. Nothing was changed. Try again.";
 }
 
 function comparePlanFrames(left: PlanFrame, right: PlanFrame) {

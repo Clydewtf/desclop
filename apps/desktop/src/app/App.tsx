@@ -936,12 +936,39 @@ export function App() {
       planId: draft.planId,
       title: draft.title.trim(),
       stages: draft.stages.map((stage, position) => ({
+        clientId: stage.id,
         stageId: stage.isNew ? null : stage.id,
         title: stage.title.trim(),
         description: stage.description,
         position
       })),
-      deletedStageIds: draft.deletedStageIds
+      deletedStageIds: draft.deletedStageIds,
+      tasks: draft.stages.flatMap((stage) =>
+        stage.tasks.map((task, position) => ({
+          clientId: task.id,
+          taskId: task.isNew ? null : task.id,
+          stageClientId: stage.id,
+          title: task.title.trim(),
+          description: task.description,
+          position
+        }))
+      ),
+      deletedTaskIds: draft.deletedTaskIds,
+      confirmedTaskDeletionIds: draft.confirmedTaskDeletionIds,
+      checklistItems: draft.stages.flatMap((stage) =>
+        stage.tasks.flatMap((task) =>
+          task.checklist.map((item, position) => ({
+            clientId: item.id,
+            itemId: item.isNew ? null : item.id,
+            taskClientId: task.id,
+            title: item.title.trim(),
+            description: item.description,
+            position
+          }))
+        )
+      ),
+      deletedChecklistItemIds: draft.deletedChecklistItemIds,
+      confirmedChecklistItemIds: draft.confirmedChecklistItemIds
     });
     markProjectRecentlyChanged(activeProject.id);
     if (!isCurrentProjectContext(revision)) {
@@ -2383,6 +2410,7 @@ export function App() {
             onArchivePlan={archivePlan}
             onRestorePlan={restorePlan}
             onSavePlan={savePlanEditor}
+            activeTaskId={project?.activeTaskId ?? null}
             onOpenTask={(taskId, options) => void openTask(taskId, options)}
           />
       );
