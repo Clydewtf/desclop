@@ -1,5 +1,13 @@
-import { useEffect, useRef, useState } from "react";
-import { Pencil } from "lucide-react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent
+} from "react";
+import { GripVertical, Pencil, Trash2 } from "lucide-react";
 import type { ChecklistItem, Task } from "../../shared/domain/types";
 import type { PlanFrame, PlannerFrame } from "./plannerEngine";
 import {
@@ -47,6 +55,32 @@ interface EditPlanConfirmation {
   action: "save" | "discard";
 }
 
+interface StagePointerDrag {
+  stageId: string;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  offsetX: number;
+  offsetY: number;
+  width: number;
+  height: number;
+  active: boolean;
+  originalStages: PlanEditorStageDraft[];
+  dropTargetStageId: string | null;
+  listeners: {
+    move: (event: PointerEvent) => void;
+    up: (event: PointerEvent) => void;
+    cancel: (event: PointerEvent) => void;
+    blur: () => void;
+  };
+}
+
+interface StageDragPreview {
+  stageId: string;
+  width: number;
+  height: number;
+}
+
 export function Planner({
   frames = [],
   planFrames,
@@ -70,11 +104,73 @@ export function Planner({
   const [stageDeleteWarningId, setStageDeleteWarningId] = useState<string | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [savingPlan, setSavingPlan] = useState(false);
+  const [draggedStageId, setDraggedStageId] = useState<string | null>(null);
+  const [dropTargetStageId, setDropTargetStageId] = useState<string | null>(null);
+  const [keyboardGrabbedStageId, setKeyboardGrabbedStageId] = useState<string | null>(null);
+  const [stageDragPreview, setStageDragPreview] = useState<StageDragPreview | null>(null);
   const editPlanButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const confirmationStayButtonRef = useRef<HTMLButtonElement | null>(null);
+  const editingDraftRef = useRef<PlanEditorDraft | null>(null);
+  const stageCardRefs = useRef<Record<string, HTMLElement | null>>({});
+  const stagePositionRefs = useRef<Record<string, number>>({});
+  const stageAnimationRefs = useRef<Record<string, Animation>>({});
+  const skipStageAnimationRef = useRef<string | null>(null);
+  const stagePointerDragRef = useRef<StagePointerDrag | null>(null);
   const draftStageSequence = useRef(0);
 
   useEffect(() => {
+    editingDraftRef.current = editingDraft;
+  }, [editingDraft]);
+
+  useLayoutEffect(() => {
+    const previousPositions = stagePositionRefs.current;
+    const nextPositions: Record<string, number> = {};
+
+    for (const stage of editingDraft?.stages ?? []) {
+      const element = stageCardRefs.current[stage.id];
+      if (!element) {
+        continue;
+      }
+
+      const currentTop = element.getBoundingClientRect().top;
+      nextPositions[stage.id] = currentTop;
+      const previousTop = previousPositions[stage.id];
+      if (
+        previousTop === undefined ||
+        Math.abs(previousTop - currentTop) < 1 ||
+        stageDragPreview?.stageId === stage.id ||
+        skipStageAnimationRef.current === stage.id ||
+        typeof element.animate !== "function"
+      ) {
+        continue;
+      }
+
+      stageAnimationRefs.current[stage.id]?.cancel();
+      const animation = element.animate(
+        [
+          { transform: `translateY(${previousTop - currentTop}px)` },
+          { transform: "translateY(0)" }
+        ],
+        {
+          duration: 180,
+          easing: "cubic-bezier(0.2, 0.8, 0.2, 1)"
+        }
+      );
+      stageAnimationRefs.current[stage.id] = animation;
+      animation.onfinish = () => {
+        if (stageAnimationRefs.current[stage.id] === animation) {
+          delete stageAnimationRefs.current[stage.id];
+        }
+      };
+    }
+
+    stagePositionRefs.current = nextPositions;
+    skipStageAnimationRef.current = null;
+  }, [editingDraft?.stages, stageDragPreview?.stageId]);
+
+  useEffect(() => {
+    cancelStagePointerDrag();
+    editingDraftRef.current = null;
     setViewState(readCurrentPlannerViewState(projectId));
     setEditingPlanId(null);
     setEditingDraft(null);
@@ -85,7 +181,19 @@ export function Planner({
     setStageDeleteWarningId(null);
     setEditorError(null);
     setSavingPlan(false);
+    setDraggedStageId(null);
+    setDropTargetStageId(null);
+    setKeyboardGrabbedStageId(null);
   }, [projectId]);
+
+  useEffect(() => {
+    return () => {
+      const drag = stagePointerDragRef.current;
+      if (drag) {
+        detachStagePointerListeners(drag);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!focusPlanId) {
@@ -181,7 +289,9 @@ export function Planner({
       return;
     }
 
+    cancelStagePointerDrag();
     const draft = makePlanEditorDraft(planFrame);
+    editingDraftRef.current = draft;
     setEditingPlanId(planId);
     setEditingDraft(draft);
     setEditingBaseline(draft);
@@ -189,9 +299,14 @@ export function Planner({
     setValidationFieldId(null);
     setStageDeleteWarningId(null);
     setEditorError(null);
+    setDraggedStageId(null);
+    setDropTargetStageId(null);
+    setKeyboardGrabbedStageId(null);
   }
 
   function closeEditPlan(planId: string) {
+    cancelStagePointerDrag();
+    editingDraftRef.current = null;
     setEditingPlanId(null);
     setEditingDraft(null);
     setEditingBaseline(null);
@@ -199,6 +314,9 @@ export function Planner({
     setStageDeleteWarningId(null);
     setEditorError(null);
     setSavingPlan(false);
+    setDraggedStageId(null);
+    setDropTargetStageId(null);
+    setKeyboardGrabbedStageId(null);
     setFocusPlanId(planId);
   }
 
@@ -220,7 +338,11 @@ export function Planner({
   }
 
   function updateEditingDraft(update: (draft: PlanEditorDraft) => PlanEditorDraft) {
-    setEditingDraft((draft) => (draft ? update(draft) : draft));
+    setEditingDraft((draft) => {
+      const nextDraft = draft ? update(draft) : draft;
+      editingDraftRef.current = nextDraft;
+      return nextDraft;
+    });
     setValidationFieldId(null);
     setStageDeleteWarningId(null);
     setEditorError(null);
@@ -271,6 +393,266 @@ export function Planner({
       stages.splice(targetIndex, 0, stage);
       return { ...draft, stages };
     });
+  }
+
+  function moveStageToIndex(stageId: string, targetIndex: number) {
+    const draft = editingDraftRef.current;
+    if (!draft) {
+      return false;
+    }
+
+    const sourceIndex = draft.stages.findIndex((stage) => stage.id === stageId);
+    if (sourceIndex < 0) {
+      return false;
+    }
+
+    const stages = [...draft.stages];
+    const [stage] = stages.splice(sourceIndex, 1);
+    const insertionIndex = Math.max(0, Math.min(targetIndex, stages.length));
+    if (sourceIndex === insertionIndex) {
+      return false;
+    }
+
+    stages.splice(insertionIndex, 0, stage);
+    const nextDraft = { ...draft, stages };
+    editingDraftRef.current = nextDraft;
+    setEditingDraft(nextDraft);
+    return true;
+  }
+
+  function clearStageDragPresentation(stageId?: string) {
+    if (stageId) {
+      const element = stageCardRefs.current[stageId];
+      element?.style.removeProperty("--planner-stage-drag-x");
+      element?.style.removeProperty("--planner-stage-drag-y");
+    }
+
+    setDraggedStageId(null);
+    setDropTargetStageId(null);
+    setStageDragPreview(null);
+  }
+
+  function detachStagePointerListeners(drag: StagePointerDrag) {
+    window.removeEventListener("pointermove", drag.listeners.move);
+    window.removeEventListener("pointerup", drag.listeners.up);
+    window.removeEventListener("pointercancel", drag.listeners.cancel);
+    window.removeEventListener("blur", drag.listeners.blur);
+  }
+
+  function cancelStagePointerDrag(restoreOrder = false) {
+    const drag = stagePointerDragRef.current;
+    if (!drag) {
+      clearStageDragPresentation();
+      return;
+    }
+
+    if (restoreOrder && drag.active) {
+      const draft = editingDraftRef.current;
+      if (draft) {
+        const restoredDraft = {
+          ...draft,
+          stages: drag.originalStages.map((stage) => ({ ...stage }))
+        };
+        editingDraftRef.current = restoredDraft;
+        setEditingDraft(restoredDraft);
+      }
+    }
+
+    if (drag.active) {
+      skipStageAnimationRef.current = drag.stageId;
+    }
+
+    detachStagePointerListeners(drag);
+    stagePointerDragRef.current = null;
+    clearStageDragPresentation(drag.stageId);
+  }
+
+  function isInteractiveStageTarget(target: EventTarget | null) {
+    return (
+      target instanceof Element &&
+      Boolean(target.closest("button, input, textarea, select, a, [contenteditable='true']"))
+    );
+  }
+
+  function getStageInsertionIndex(stageId: string, clientY: number) {
+    const draft = editingDraftRef.current;
+    if (!draft) {
+      return null;
+    }
+
+    const remainingStages = draft.stages.filter((stage) => stage.id !== stageId);
+    const targetIndex = remainingStages.findIndex((stage) => {
+      const element = stageCardRefs.current[stage.id];
+      if (!element) {
+        return false;
+      }
+
+      const bounds = element.getBoundingClientRect();
+      return clientY < bounds.top + bounds.height / 2;
+    });
+
+    return targetIndex === -1 ? remainingStages.length : targetIndex;
+  }
+
+  function moveStageDragPreview(drag: StagePointerDrag, clientX: number, clientY: number) {
+    const element = stageCardRefs.current[drag.stageId];
+    if (!element) {
+      return;
+    }
+
+    element.style.setProperty("--planner-stage-drag-x", `${clientX - drag.offsetX}px`);
+    element.style.setProperty("--planner-stage-drag-y", `${clientY - drag.offsetY}px`);
+  }
+
+  function syncStageOrderToPointer(drag: StagePointerDrag, clientY: number) {
+    const draft = editingDraftRef.current;
+    const insertionIndex = getStageInsertionIndex(drag.stageId, clientY);
+    if (!draft || insertionIndex === null) {
+      return;
+    }
+
+    const remainingStages = draft.stages.filter((stage) => stage.id !== drag.stageId);
+    const targetStage =
+      remainingStages[insertionIndex] ?? remainingStages[insertionIndex - 1] ?? null;
+    if (drag.dropTargetStageId !== targetStage?.id) {
+      drag.dropTargetStageId = targetStage?.id ?? null;
+      setDropTargetStageId(drag.dropTargetStageId);
+    }
+
+    const sourceIndex = draft.stages.findIndex((stage) => stage.id === drag.stageId);
+    if (sourceIndex !== insertionIndex) {
+      moveStageToIndex(drag.stageId, insertionIndex);
+    }
+  }
+
+  function handleStagePointerDown(
+    event: ReactPointerEvent<HTMLElement>,
+    stageId: string
+  ) {
+    if (
+      savingPlan ||
+      (event.button !== undefined && event.button !== 0) ||
+      isInteractiveStageTarget(event.target)
+    ) {
+      return;
+    }
+
+    const draft = editingDraftRef.current;
+    if (!draft) {
+      return;
+    }
+
+    event.preventDefault();
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const clientX = Number.isFinite(event.clientX) ? event.clientX : 0;
+    const clientY = Number.isFinite(event.clientY) ? event.clientY : 0;
+    cancelStagePointerDrag();
+
+    const listeners = {
+      move: (pointerEvent: PointerEvent) => handleStagePointerMove(pointerEvent),
+      up: (pointerEvent: PointerEvent) => finishStagePointerDrag(pointerEvent),
+      cancel: (pointerEvent: PointerEvent) => finishStagePointerDrag(pointerEvent, true),
+      blur: () => cancelStagePointerDrag(true)
+    };
+    const drag: StagePointerDrag = {
+      stageId,
+      pointerId: event.pointerId,
+      startX: clientX,
+      startY: clientY,
+      offsetX: clientX - bounds.left,
+      offsetY: clientY - bounds.top,
+      width: bounds.width,
+      height: bounds.height,
+      active: false,
+      originalStages: draft.stages.map((stage) => ({ ...stage })),
+      dropTargetStageId: null,
+      listeners
+    };
+    stagePointerDragRef.current = drag;
+    window.addEventListener("pointermove", listeners.move, { passive: false });
+    window.addEventListener("pointerup", listeners.up);
+    window.addEventListener("pointercancel", listeners.cancel);
+    window.addEventListener("blur", listeners.blur);
+  }
+
+  function handleStagePointerMove(event: PointerEvent) {
+    const drag = stagePointerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    const clientX = Number.isFinite(event.clientX) ? event.clientX : 0;
+    const clientY = Number.isFinite(event.clientY) ? event.clientY : 0;
+    const hasCoordinates = Number.isFinite(event.clientX) && Number.isFinite(event.clientY);
+    const distance = hasCoordinates
+      ? Math.hypot(clientX - drag.startX, clientY - drag.startY)
+      : Number.POSITIVE_INFINITY;
+    if (!drag.active && distance < 6) {
+      return;
+    }
+
+    if (!drag.active) {
+      drag.active = true;
+      setDraggedStageId(drag.stageId);
+      setDropTargetStageId(null);
+      setKeyboardGrabbedStageId(null);
+      setStageDragPreview({
+        stageId: drag.stageId,
+        width: drag.width,
+        height: drag.height
+      });
+      setEditorError(null);
+    }
+
+    event.preventDefault();
+    moveStageDragPreview(drag, clientX, clientY);
+    syncStageOrderToPointer(drag, clientY);
+  }
+
+  function finishStagePointerDrag(event: PointerEvent, cancelled = false) {
+    const drag = stagePointerDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) {
+      return;
+    }
+
+    if (drag.active && !cancelled) {
+      const clientY = Number.isFinite(event.clientY) ? event.clientY : 0;
+      syncStageOrderToPointer(drag, clientY);
+    }
+
+    cancelStagePointerDrag(cancelled);
+  }
+
+  function handleStageHandleKeyDown(
+    event: ReactKeyboardEvent<HTMLSpanElement>,
+    stageId: string
+  ) {
+    if (event.key === " " || event.key === "Enter") {
+      event.preventDefault();
+      const nextGrabbedStageId = keyboardGrabbedStageId === stageId ? null : stageId;
+      setKeyboardGrabbedStageId(nextGrabbedStageId);
+      setDraggedStageId(nextGrabbedStageId);
+      setDropTargetStageId(null);
+      setStageDragPreview(null);
+      return;
+    }
+
+    if (keyboardGrabbedStageId !== stageId) {
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setKeyboardGrabbedStageId(null);
+      setDraggedStageId(null);
+      setStageDragPreview(null);
+      return;
+    }
+
+    if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+      event.preventDefault();
+      moveStageInDraft(stageId, event.key === "ArrowUp" ? -1 : 1);
+    }
   }
 
   function requestDeleteStage(stageId: string, taskCount: number) {
@@ -479,6 +861,7 @@ export function Planner({
                         <div className="planner-edit-panel__copy">
                           <strong>Edit plan</strong>
                           <p>Changes stay local until you save.</p>
+                          <p>Drag a stage card to reorder stages.</p>
                           <p className="planner-edit-panel__status" role="status">
                             {hasUnsavedChanges ? "Unsaved changes" : "No unsaved changes"}
                           </p>
@@ -508,7 +891,7 @@ export function Planner({
 
                       <div className="planner-edit-stage-list">
                         {editingDraft.stages.length > 0 ? (
-                          editingDraft.stages.map((stage, index) => {
+                          editingDraft.stages.map((stage) => {
                             const sourceFrame = planFrame.stageFrames.find(
                               (frame) => frame.stage.id === stage.id
                             );
@@ -516,44 +899,74 @@ export function Planner({
                             const stageTitleId = `planner-edit-stage-title-${stage.id}`;
                             const stageDescriptionId = `planner-edit-stage-description-${stage.id}`;
 
+                            const isKeyboardDragged =
+                              draggedStageId === stage.id || keyboardGrabbedStageId === stage.id;
+                            const isPointerDragged = stageDragPreview?.stageId === stage.id;
+                            const isDragged = isKeyboardDragged || isPointerDragged;
+                            const isDropTarget = dropTargetStageId === stage.id;
+
                             return (
-                              <article className="planner-edit-stage" key={stage.id}>
+                              <Fragment key={stage.id}>
+                                {isPointerDragged ? (
+                                  <div
+                                    className="planner-edit-stage__placeholder"
+                                    aria-hidden="true"
+                                    style={{ height: `${stageDragPreview?.height ?? 0}px` }}
+                                  />
+                                ) : null}
+                                <article
+                                  ref={(element) => {
+                                    stageCardRefs.current[stage.id] = element;
+                                  }}
+                                  className={`planner-edit-stage${isDragged ? " planner-edit-stage--dragging" : ""}${
+                                    isDropTarget ? " planner-edit-stage--drop-target" : ""
+                                  }`}
+                                  style={
+                                    isPointerDragged
+                                      ? {
+                                          width: `${stageDragPreview?.width ?? 0}px`
+                                        }
+                                      : undefined
+                                  }
+                                  onPointerDown={(event) =>
+                                    handleStagePointerDown(event, stage.id)
+                                  }
+                                >
                                 <div className="planner-edit-stage__header">
-                                  <div>
-                                    <p className="stage-frame__status">
-                                      {stage.isNew
-                                        ? "New stage"
-                                        : stageStatusLabel(sourceFrame?.stage.status ?? "future")}
-                                    </p>
-                                    <strong>{taskCount} {pluralize(taskCount, "task")}</strong>
+                                  <div className="planner-edit-stage__identity">
+                                    <span
+                                      className="planner-edit-stage__drag-handle"
+                                      role="button"
+                                      tabIndex={0}
+                                      aria-label={`Drag stage ${stage.title}`}
+                                      aria-roledescription="sortable item"
+                                      aria-pressed={keyboardGrabbedStageId === stage.id}
+                                      title="Drag to reorder"
+                                      onKeyDown={(event) =>
+                                        handleStageHandleKeyDown(event, stage.id)
+                                      }
+                                    >
+                                      <GripVertical aria-hidden="true" />
+                                    </span>
+                                    <div>
+                                      <p className="stage-frame__status">
+                                        {stage.isNew
+                                          ? "New stage"
+                                          : stageStatusLabel(sourceFrame?.stage.status ?? "future")}
+                                      </p>
+                                      <strong>
+                                        {taskCount} {pluralize(taskCount, "task")}
+                                      </strong>
+                                    </div>
                                   </div>
                                   <div className="planner-edit-stage__actions">
                                     <Button
                                       type="button"
-                                      variant="ghost"
-                                      aria-label={`Move stage ${stage.title} up`}
-                                      title="Move up"
-                                      disabled={index === 0 || savingPlan}
-                                      onClick={() => moveStageInDraft(stage.id, -1)}
-                                    >
-                                      Move up
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      aria-label={`Move stage ${stage.title} down`}
-                                      title="Move down"
-                                      disabled={
-                                        index === editingDraft.stages.length - 1 || savingPlan
-                                      }
-                                      onClick={() => moveStageInDraft(stage.id, 1)}
-                                    >
-                                      Move down
-                                    </Button>
-                                    <Button
-                                      type="button"
                                       variant="danger"
+                                      className="planner-edit-stage__delete-button"
+                                      icon={<Trash2 aria-hidden="true" />}
                                       aria-label={`Delete stage ${stage.title}`}
+                                      title={`Delete stage ${stage.title}`}
                                       disabled={savingPlan}
                                       onClick={() => requestDeleteStage(stage.id, taskCount)}
                                     >
@@ -591,7 +1004,8 @@ export function Planner({
                                     Move or remove this stage's tasks before deleting the stage.
                                   </InlineAlert>
                                 ) : null}
-                              </article>
+                                </article>
+                              </Fragment>
                             );
                           })
                         ) : (

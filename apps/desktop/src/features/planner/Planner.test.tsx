@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithRouter } from "../../app/test-utils";
@@ -358,9 +358,63 @@ describe("Planner", () => {
 
     expect(screen.getByRole("textbox", { name: "Plan title" })).toHaveValue("Release plan");
     expect(screen.getAllByRole("textbox", { name: "Stage title" })).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Move stage New stage up" })).toBeEnabled();
+    const newStageHandle = screen.getByRole("button", { name: "Drag stage New stage" });
+    const newStage = newStageHandle.closest<HTMLElement>(".planner-edit-stage");
+    const currentStage = screen
+      .getByDisplayValue("Build release")
+      .closest<HTMLElement>(".planner-edit-stage");
+    expect(newStageHandle).toBeInTheDocument();
+    expect(newStage).not.toBeNull();
+    expect(currentStage).not.toBeNull();
 
-    await user.click(screen.getByRole("button", { name: "Move stage New stage up" }));
+    vi.spyOn(newStage!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 200,
+      top: 200,
+      right: 640,
+      bottom: 320,
+      left: 0,
+      width: 640,
+      height: 120,
+      toJSON: () => ({})
+    });
+    vi.spyOn(currentStage!, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 40,
+      top: 40,
+      right: 640,
+      bottom: 160,
+      left: 0,
+      width: 640,
+      height: 120,
+      toJSON: () => ({})
+    });
+
+    fireEvent.pointerDown(newStage!, {
+      pointerId: 1,
+      button: 0,
+      isPrimary: true,
+      clientX: 24,
+      clientY: 220
+    });
+    fireEvent.pointerMove(window, {
+      pointerId: 1,
+      isPrimary: true,
+      clientX: 24,
+      clientY: 80
+    });
+
+    expect(
+      Array.from(
+        document.querySelectorAll<HTMLInputElement>(
+          ".planner-edit-stage-list .planner-edit-stage input"
+        )
+      ).map((input) => input.value)
+    ).toEqual(["New stage", "Build release"]);
+
+    fireEvent.pointerUp(window, { pointerId: 1, isPrimary: true });
+    expect(document.querySelector(".planner-edit-stage--dragging")).not.toBeInTheDocument();
+    expect(document.querySelector(".planner-edit-stage__placeholder")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(screen.getByRole("dialog", { name: "Save plan changes?" })).toBeInTheDocument();
@@ -391,6 +445,48 @@ describe("Planner", () => {
     expect(screen.queryByRole("region", { name: "Editing Current work" })).not.toBeInTheDocument();
   });
 
+  it("supports keyboard reordering from the stage drag handle", async () => {
+    const user = userEvent.setup();
+    const onSavePlan = vi.fn().mockResolvedValue(undefined);
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: "Keep moving"
+      })
+    ];
+
+    renderWithRouter(
+      <Planner
+        planFrames={planFrames}
+        onSavePlan={onSavePlan}
+        onOpenTask={vi.fn()}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
+    await user.click(screen.getByRole("button", { name: "Add stage" }));
+    const newStageHandle = screen.getByRole("button", { name: "Drag stage New stage" });
+
+    newStageHandle.focus();
+    await user.keyboard(" ");
+    await user.keyboard("{ArrowUp}");
+    await user.keyboard(" ");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => expect(onSavePlan).toHaveBeenCalledTimes(1));
+    const savedDraft = onSavePlan.mock.calls[0]?.[0] as {
+      stages: Array<{ id: string }>;
+    };
+    expect(savedDraft.stages.map((stage) => stage.id)).toEqual([
+      "draft-stage-1",
+      "current-plan-stage"
+    ]);
+  });
+
   it("warns instead of deleting a stage that still contains tasks", async () => {
     const user = userEvent.setup();
     const planFrames = [
@@ -406,7 +502,9 @@ describe("Planner", () => {
     renderWithRouter(<Planner planFrames={planFrames} onOpenTask={vi.fn()} />);
 
     await user.click(screen.getByRole("button", { name: "Edit plan Current work" }));
-    await user.click(screen.getByRole("button", { name: "Delete stage Current work stage" }));
+    await user.click(
+      screen.getByRole("button", { name: "Delete stage Current work stage" })
+    );
 
     expect(
       screen.getByText("Move or remove this stage's tasks before deleting the stage.")

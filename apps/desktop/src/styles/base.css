@@ -2885,6 +2885,13 @@ label.inline-field input {
   border-radius: var(--radius);
   background: var(--color-surface);
   padding: var(--space-4);
+  cursor: grab;
+  touch-action: none;
+  transition:
+    transform 160ms ease,
+    opacity 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
 }
 
 .planner-edit-stage__header {
@@ -2894,7 +2901,14 @@ label.inline-field input {
   gap: var(--space-4);
 }
 
-.planner-edit-stage__header > div:first-child {
+.planner-edit-stage__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.planner-edit-stage__identity > div {
   display: grid;
   gap: var(--space-1);
   min-width: 0;
@@ -2905,12 +2919,112 @@ label.inline-field input {
   font-size: 0.85rem;
 }
 
+.planner-edit-stage__drag-handle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  color: var(--color-muted);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition:
+    color 120ms ease,
+    background-color 120ms ease,
+    border-color 120ms ease,
+    transform 120ms ease;
+}
+
+.planner-edit-stage__drag-handle:hover,
+.planner-edit-stage__drag-handle:focus-visible {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
+  outline: none;
+}
+
+.planner-edit-stage__drag-handle:active,
+.planner-edit-stage--dragging .planner-edit-stage__drag-handle {
+  cursor: grabbing;
+  transform: scale(0.96);
+}
+
+.planner-edit-stage__drag-handle svg {
+  width: 20px;
+  height: 20px;
+}
+
 .planner-edit-stage__actions {
   display: flex;
   flex: 0 0 auto;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--space-2);
+}
+
+.planner-edit-stage__delete-button {
+  width: 40px;
+  min-height: 40px;
+  padding: 9px;
+  border-radius: 50%;
+}
+
+.planner-edit-stage__delete-button .ui-button__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.planner-edit-stage--dragging {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 30;
+  opacity: 0.96;
+  cursor: grabbing;
+  pointer-events: none;
+  box-shadow: 0 22px 45px rgba(15, 23, 42, 0.24);
+  transform: translate3d(
+      var(--planner-stage-drag-x, 0px),
+      var(--planner-stage-drag-y, 0px),
+      0
+    ) rotate(0.35deg) scale(1.015);
+  will-change: transform;
+  transition: none;
+}
+
+.planner-edit-stage__placeholder {
+  box-sizing: border-box;
+  border: 1px dashed color-mix(in srgb, var(--color-accent) 70%, var(--color-border));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.planner-edit-stage--drop-target {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 7%, var(--color-surface));
+  box-shadow: 0 -4px 0 -2px var(--color-accent);
+}
+
+.planner-edit-stage--dragging input,
+.planner-edit-stage--dragging textarea {
+  cursor: grabbing;
+}
+
+.planner-edit-stage input,
+.planner-edit-stage textarea {
+  cursor: text;
 }
 
 .planner-edit-stage__fields {
