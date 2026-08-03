@@ -209,8 +209,15 @@ describe("AppShell", () => {
     });
     expect(settingsButton).toHaveClass("app-sidebar__icon-button");
     expect(helpButton).toHaveClass("app-sidebar__icon-button");
-    expect(getComputedStyle(settingsButton).width).toBe("36px");
-    expect(getComputedStyle(helpButton).width).toBe("36px");
+    expect(settingsButton).toHaveClass("ui-icon-button--ghost");
+    expect(helpButton).toHaveClass("ui-icon-button--ghost");
+    expect(getComputedStyle(settingsButton).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(helpButton).backgroundColor).toBe("rgba(0, 0, 0, 0)");
+    expect(getComputedStyle(settingsButton).width).toBe("var(--control-size-compact)");
+    expect(getComputedStyle(helpButton).width).toBe("var(--control-size-compact)");
+    expect(getComputedStyle(document.documentElement).getPropertyValue("--control-size-compact")).toBe(
+      "36px"
+    );
     expect(utilityFooter.querySelectorAll(".app-sidebar__icon-button")).toHaveLength(2);
   });
 

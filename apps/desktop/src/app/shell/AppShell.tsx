@@ -12,7 +12,7 @@ import {
   type LucideIcon
 } from "lucide-react";
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { Button } from "../../shared/ui";
+import { Button, IconButton } from "../../shared/ui";
 
 export type AppDestination =
   | "setup"
@@ -96,17 +96,26 @@ export function AppShell({
     const Icon = item.icon;
     const isActive = activeDestination === item.destination;
 
+    if (item.destination === "settings") {
+      return (
+        <IconButton
+          key={item.destination}
+          variant={isActive ? "secondary" : "ghost"}
+          size="compact"
+          className="app-sidebar__icon-button"
+          label={item.label}
+          icon={<Icon aria-hidden="true" />}
+          aria-current={isActive ? "page" : undefined}
+          onClick={() => onNavigate?.(item.destination)}
+        />
+      );
+    }
+
     return (
       <Button
         key={item.destination}
         variant={isActive ? "secondary" : "ghost"}
-        className={
-          item.destination === "settings"
-            ? "app-nav__button app-sidebar__icon-button"
-            : "app-nav__button"
-        }
-        aria-label={item.destination === "settings" ? item.label : undefined}
-        title={item.destination === "settings" ? item.label : undefined}
+        className="app-nav__button"
         aria-current={isActive ? "page" : undefined}
         icon={<Icon aria-hidden="true" />}
         onClick={() => onNavigate?.(item.destination)}
@@ -176,16 +185,14 @@ export function AppShell({
               </nav>
             ) : null}
             {onOpenHelp ? (
-              <Button
+              <IconButton
                 variant="ghost"
-                className="app-nav__button app-sidebar__help app-sidebar__icon-button"
-                aria-label="Help & plan example"
-                title="Help & plan example"
+                size="compact"
+                className="app-sidebar__help app-sidebar__icon-button"
+                label="Help & plan example"
                 icon={<CircleHelp aria-hidden="true" />}
                 onClick={onOpenHelp}
-              >
-                Help &amp; plan example
-              </Button>
+              />
             ) : null}
           </div>
         </div>

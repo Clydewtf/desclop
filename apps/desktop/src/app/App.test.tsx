@@ -4748,7 +4748,7 @@ describe("App", () => {
     await user.click(screen.getByRole("button", { name: "Choose new folder" }));
 
     expect(
-      await screen.findByRole("dialog", { name: "Confirm project folder relink" })
+      await screen.findByRole("region", { name: "Confirm folder relink" })
     ).toBeInTheDocument();
     expect(relinkProjectFolder).not.toHaveBeenCalled();
 
@@ -4804,7 +4804,7 @@ describe("App", () => {
     expect(inspectProjectBundle).toHaveBeenCalledWith("/tmp/backups/desclop.desclop");
     expect(importProjectBundle).not.toHaveBeenCalled();
     expect(
-      await screen.findByRole("dialog", { name: "Confirm portable backup restore" })
+      await screen.findByRole("region", { name: "Confirm portable restore" })
     ).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: "Confirm restore" }));
 

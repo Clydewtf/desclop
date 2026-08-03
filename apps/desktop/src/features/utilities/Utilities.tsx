@@ -1,5 +1,12 @@
 import type { PortableBundlePreview, ProjectDiagnostics } from "../../shared/api/client";
-import { Button, InlineAlert, ScreenHeader, SectionHeader, Surface } from "../../shared/ui";
+import {
+  Button,
+  ConfirmationPanel,
+  InlineAlert,
+  ScreenHeader,
+  SectionHeader,
+  Surface
+} from "../../shared/ui";
 import { ContextExport, type ContextExportProps } from "../context-export/contextExportView";
 import {
   PortableRestoreForm,
@@ -172,20 +179,25 @@ export function Utilities({
           </div>
         </div>
         {relinkPath ? (
-          <div role="dialog" aria-label="Confirm project folder relink" className="utilities-confirmation">
-            <p>
-              Reconnect this project from <code>{projectPath}</code> to <code>{relinkPath}</code>?
-              Planning data stays in Desclop; only the saved local folder path changes.
-            </p>
-            <div className="utilities-confirmation__actions">
+          <ConfirmationPanel
+            title="Confirm folder relink"
+            description={
+              <p>
+                Reconnect this project from <code>{projectPath}</code> to <code>{relinkPath}</code>?
+                Planning data stays in Desclop; only the saved local folder path changes.
+              </p>
+            }
+            actions={
+              <>
               <Button type="button" variant="secondary" onClick={onCancelRelink}>
                 Cancel
               </Button>
               <Button type="button" onClick={onConfirmRelink}>
                 Confirm relink
               </Button>
-            </div>
-          </div>
+              </>
+            }
+          />
         ) : null}
       </Surface>
 

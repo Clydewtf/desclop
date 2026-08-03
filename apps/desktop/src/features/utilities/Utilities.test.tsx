@@ -176,8 +176,8 @@ describe("Utilities", () => {
       onConfirmRelink
     });
 
-    expect(screen.getByRole("dialog", { name: "Confirm portable backup restore" })).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Confirm project folder relink" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Confirm portable restore" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Confirm folder relink" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Confirm restore" }));
     await user.click(screen.getByRole("button", { name: "Confirm relink" }));
 

@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ActionBar,
   Button,
+  ConfirmationPanel,
   EmptyState,
+  IconButton,
   InlineAlert,
   ScreenHeader,
   SectionHeader,
@@ -42,6 +44,38 @@ describe("shared UI primitives", () => {
     expect(screen.getByRole("button", { name: "With icon" })).toHaveClass("ui-button--with-icon");
     expect(screen.getByTestId("button-icon").parentElement).toHaveClass("ui-button__icon");
     expect(screen.getByTestId("button-icon").parentElement).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("renders named icon buttons and non-modal confirmation panels", async () => {
+    const user = userEvent.setup();
+    const onDismiss = vi.fn();
+
+    render(
+      <div>
+        <IconButton
+          label="Dismiss notification"
+          icon={<span data-testid="icon-button-icon">Close</span>}
+          onClick={onDismiss}
+        />
+        <ConfirmationPanel
+          title="Confirm local change"
+          description={<p>The saved project stays local.</p>}
+          actions={<Button>Confirm</Button>}
+        >
+          <p>Nothing will be uploaded.</p>
+        </ConfirmationPanel>
+      </div>
+    );
+
+    const iconButton = screen.getByRole("button", { name: "Dismiss notification" });
+    expect(iconButton).toHaveClass("ui-icon-button", "ui-icon-button--ghost");
+    expect(iconButton).toHaveAttribute("title", "Dismiss notification");
+    expect(screen.getByTestId("icon-button-icon").parentElement).toHaveAttribute("aria-hidden", "true");
+    expect(screen.getByRole("region", { name: "Confirm local change" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Confirm local change" })).not.toBeInTheDocument();
+
+    await user.click(iconButton);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 
   it("renders labeled fields and alerts", () => {

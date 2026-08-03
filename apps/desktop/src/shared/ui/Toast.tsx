@@ -1,5 +1,5 @@
-import { CheckCircle2, CircleAlert, GitBranch, Info, X } from "lucide-react";
-import { Button } from "./Button";
+import { CheckCircle2, CircleAlert, Info, TriangleAlert, X } from "lucide-react";
+import { IconButton } from "./IconButton";
 
 export type ToastTone = "success" | "info" | "warning" | "error";
 
@@ -13,7 +13,7 @@ interface ToastProps {
 const toastIcons = {
   success: CheckCircle2,
   info: Info,
-  warning: GitBranch,
+  warning: TriangleAlert,
   error: CircleAlert
 };
 
@@ -29,15 +29,15 @@ export function Toast({ title, message, onClose, tone = "warning" }: ToastProps)
         <strong>{title}</strong>
         <p>{message}</p>
       </div>
-      <Button
+      <IconButton
         type="button"
         variant="ghost"
+        size="compact"
         className="ui-toast__close"
-        aria-label={`Dismiss ${title} notification`}
+        label={`Dismiss ${title} notification`}
+        icon={<X aria-hidden="true" />}
         onClick={onClose}
-      >
-        <X aria-hidden="true" />
-      </Button>
+      />
     </div>
   );
 }

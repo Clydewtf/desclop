@@ -1,5 +1,5 @@
 import type { PortableBundlePreview } from "../../shared/api/client";
-import { Button, InlineAlert } from "../../shared/ui";
+import { Button, ConfirmationPanel, InlineAlert } from "../../shared/ui";
 
 interface PortableRestoreFormProps {
   backupPath: string;
@@ -104,11 +104,24 @@ export function PortableRestoreForm({
       </Button>
 
       {preview ? (
-        <div role="dialog" aria-label="Confirm portable backup restore" className="utilities-confirmation">
-          <h2>Confirm portable restore</h2>
-          <p>
-            Restore <strong>{preview.projectName}</strong> as a separate project? Existing projects and their data will not be overwritten.
-          </p>
+        <ConfirmationPanel
+          title="Confirm portable restore"
+          description={
+            <p>
+              Restore <strong>{preview.projectName}</strong> as a separate project? Existing projects and their data will not be overwritten.
+            </p>
+          }
+          actions={
+            <>
+              <Button type="button" variant="secondary" onClick={onCancel}>
+                Cancel
+              </Button>
+              <Button type="button" onClick={onConfirm}>
+                Confirm restore
+              </Button>
+            </>
+          }
+        >
           <ul>
             <li>{preview.planCount} plans</li>
             <li>{preview.stageCount} stages</li>
@@ -126,15 +139,7 @@ export function PortableRestoreForm({
               This backup predates portable plan archiving. Its completed plans will be visible after restore.
             </InlineAlert>
           ) : null}
-          <div className="utilities-confirmation__actions">
-            <Button type="button" variant="secondary" onClick={onCancel}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={onConfirm}>
-              Confirm restore
-            </Button>
-          </div>
-        </div>
+        </ConfirmationPanel>
       ) : null}
     </div>
   );
