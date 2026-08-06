@@ -160,7 +160,9 @@ test("Weekly Review explains local counts and returns to linked context", async 
   const heatmap = page.getByRole("article", { name: "Activity heatmap" });
   await expect(heatmap.getByText("1/7 active days")).toBeVisible();
   await heatmap.getByRole("button", { name: /4 activities/ }).click();
-  await expect(heatmap.getByText("Reviewed the local workflow")).toBeVisible();
+  await expect(
+    heatmap.locator(".weekly-review__record-title", { hasText: "Reviewed the local workflow" })
+  ).toBeVisible();
 
   const completedCard = page.getByRole("article", { name: "Completed tasks" });
   const completedDetails = completedCard.locator("details");

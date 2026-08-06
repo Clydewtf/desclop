@@ -164,6 +164,12 @@ interface GitLoadResult {
   syncedAt: string | null;
 }
 
+interface ProjectActivitySnapshot {
+  notes: Note[];
+  workEntries: WorkEntry[];
+  inboxItems: InboxItem[];
+}
+
 type AppScreen =
   | "today"
   | "weekly-review"
@@ -244,6 +250,15 @@ async function loadListOrEmpty<T>(load: () => Promise<T[]>): Promise<T[]> {
   } catch {
     return [];
   }
+}
+
+async function loadProjectActivity(projectId: string): Promise<ProjectActivitySnapshot> {
+  const [notes, workEntries, inboxItems] = await Promise.all([
+    loadListOrEmpty(() => api.listNotesForProject(projectId)),
+    loadListOrEmpty(() => api.listWorkEntriesForProject(projectId)),
+    loadListOrEmpty(() => api.listInboxItemsForProject(projectId))
+  ]);
+  return { notes, workEntries, inboxItems };
 }
 
 function indexProjectSummaries(summaries: ProjectSummary[]) {
@@ -362,6 +377,7 @@ function defaultQuickCaptureTaskId({
 export function App() {
   const projectContextRevision = useRef(0);
   const projectSnapshotRevision = useRef(0);
+  const projectActivityRevision = useRef(0);
   const captureOperationRevision = useRef(0);
   const contextExportOperationRevision = useRef(0);
   const deleteProjectInFlight = useRef(false);
@@ -442,7 +458,6 @@ export function App() {
   const [relinkPath, setRelinkPath] = useState("");
   const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
   const [quickCaptureDefaultTaskId, setQuickCaptureDefaultTaskId] = useState<string | null>(null);
-  const [captureStatus, setCaptureStatus] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings>(() => getInitialSettings());
   const settingsRef = useRef(settings);
   const [settingsError, setSettingsError] = useState<string | null>(null);
@@ -457,6 +472,7 @@ export function App() {
   function invalidateProjectContext() {
     projectContextRevision.current += 1;
     projectSnapshotRevision.current += 1;
+    projectActivityRevision.current += 1;
     return projectContextRevision.current;
   }
 
@@ -474,6 +490,28 @@ export function App() {
       isCurrentProjectContext(contextRevision) &&
       projectSnapshotRevision.current === snapshotRevision
     );
+  }
+
+  function applyProjectActivitySnapshot(snapshot: ProjectActivitySnapshot) {
+    setReviewNotes(snapshot.notes);
+    setReviewWorkEntries(snapshot.workEntries);
+    setReviewInboxItems(snapshot.inboxItems);
+    setTimelineNotes(snapshot.notes);
+    setTimelineWorkEntries(snapshot.workEntries);
+    setTimelineInboxItems(snapshot.inboxItems);
+  }
+
+  async function refreshProjectActivity(projectId: string, revision: number) {
+    const snapshotRevision = ++projectActivityRevision.current;
+    const snapshot = await loadProjectActivity(projectId);
+    if (
+      !isCurrentProjectContext(revision) ||
+      projectActivityRevision.current !== snapshotRevision
+    ) {
+      return false;
+    }
+    applyProjectActivitySnapshot(snapshot);
+    return true;
   }
 
   function markProjectRecentlyChanged(projectId: string) {
@@ -800,7 +838,6 @@ export function App() {
     setRelinkPath("");
     setQuickCaptureOpen(false);
     setQuickCaptureDefaultTaskId(null);
-    setCaptureStatus(null);
   }
 
   function beginProjectLoad() {
@@ -977,7 +1014,6 @@ export function App() {
         activeTaskId: projectActiveTaskId
       })
     );
-    setCaptureStatus(null);
     setQuickCaptureOpen(true);
   }, [
     focusCaptureTaskId,
@@ -1585,17 +1621,9 @@ export function App() {
     setTimelineDateKey(target.dateKey ?? null);
     setTimelineFocusItemKey(target.itemKey ?? null);
     try {
-      const [notes, workEntries, inboxItems] = await Promise.all([
-        loadListOrEmpty(() => api.listNotesForProject(project.id)),
-        loadListOrEmpty(() => api.listWorkEntriesForProject(project.id)),
-        loadListOrEmpty(() => api.listInboxItemsForProject(project.id))
-      ]);
-      if (!isCurrentProjectContext(revision)) {
+      if (!(await refreshProjectActivity(project.id, revision))) {
         return;
       }
-      setTimelineNotes(notes);
-      setTimelineWorkEntries(workEntries);
-      setTimelineInboxItems(inboxItems);
       setScreen("timeline");
     } catch {
       if (!isCurrentProjectContext(revision)) {
@@ -1615,18 +1643,13 @@ export function App() {
     setReviewLoading(true);
     setReviewError(null);
     try {
-      const [notes, workEntries, inboxItems, gitResult] = await Promise.all([
-        loadListOrEmpty(() => api.listNotesForProject(project.id)),
-        loadListOrEmpty(() => api.listWorkEntriesForProject(project.id)),
-        loadListOrEmpty(() => api.listInboxItemsForProject(project.id)),
+      const [activityRefreshed, gitResult] = await Promise.all([
+        refreshProjectActivity(project.id, revision),
         loadGitCommits(project)
       ]);
-      if (!isCurrentProjectContext(revision)) {
+      if (!activityRefreshed || !isCurrentProjectContext(revision)) {
         return;
       }
-      setReviewNotes(notes);
-      setReviewWorkEntries(workEntries);
-      setReviewInboxItems(inboxItems);
       if (!gitResult.unavailable) {
         setGitCommits(gitResult.commits);
         setGitCurrentBranch(gitResult.currentBranch);
@@ -1780,6 +1803,7 @@ export function App() {
     setResumeBrief((brief) =>
       brief?.taskId === taskId ? { ...brief, nextStep } : brief
     );
+    showToast("success", "Next action saved", "The task is ready to resume from this action.");
   }
 
   async function unlinkCommit(commitSha: string, taskId: string) {
@@ -1921,7 +1945,9 @@ export function App() {
             isCurrentProjectContext(revision) &&
             captureOperationRevision.current === operationRevision
           ) {
-            setCaptureStatus(
+            showToast(
+              "error",
+              "Capture needs attention",
               "Capture was saved, but task attachment could not be confirmed. Check Inbox before retrying."
             );
           }
@@ -1931,6 +1957,15 @@ export function App() {
       }
     }
     markProjectRecentlyChanged(projectId);
+    if (
+      !isCurrentProjectContext(revision) ||
+      captureOperationRevision.current !== operationRevision
+    ) {
+      return;
+    }
+    if (!(await refreshProjectActivity(projectId, revision))) {
+      return;
+    }
     if (
       !isCurrentProjectContext(revision) ||
       captureOperationRevision.current !== operationRevision
@@ -1949,8 +1984,12 @@ export function App() {
     }
     const targetTask =
       projectPlan.tasks.find((candidate) => candidate.id === input.taskId) ?? null;
-    setCaptureStatus(
-      targetTask ? `Captured to Task: ${targetTask.title}` : "Captured to Inbox"
+    showToast(
+      "success",
+      targetTask ? `Captured to Task: ${targetTask.title}` : "Captured to Inbox",
+      targetTask
+        ? "Capture saved and linked to the task."
+        : "The capture is ready in Inbox."
     );
   }
 
@@ -3057,7 +3096,6 @@ export function App() {
         </div>
       ) : null}
       {timelineError ? <InlineAlert tone="error">{timelineError}</InlineAlert> : null}
-      {captureStatus ? <InlineAlert tone="info">{captureStatus}</InlineAlert> : null}
       {renderProjectScreen()}
       <QuickCaptureOverlay
         open={quickCaptureOpen}

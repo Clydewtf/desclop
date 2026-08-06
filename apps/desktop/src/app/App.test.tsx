@@ -1781,6 +1781,66 @@ describe("App", () => {
     expect(listInboxItemsForProject).toHaveBeenCalledWith("p1");
   });
 
+  it("refreshes Review and Timeline activity after a capture without re-entering Review", async () => {
+    const user = userEvent.setup();
+    const capturedItem = {
+      id: "review-capture",
+      projectId: "p1",
+      taskId: null,
+      body: "Capture created from Review",
+      kind: "bug" as const,
+      status: "open" as const,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue(emptyResumeBrief());
+    loadProjectPlan.mockResolvedValue(importedPlanFixture("p1"));
+    listNotesForProject.mockResolvedValue([]);
+    listWorkEntriesForProject.mockResolvedValue([]);
+    listInboxItemsForProject
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([capturedItem])
+      .mockResolvedValueOnce([capturedItem]);
+    captureInboxItem.mockResolvedValue(capturedItem);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Review" }));
+    expect(await screen.findByRole("heading", { name: "Weekly Review" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Open captures value")).toHaveTextContent("0");
+
+    await user.click(
+      within(screen.getByRole("complementary", { name: "Application" })).getByRole(
+        "button",
+        { name: "Capture" }
+      )
+    );
+    const dialog = screen.getByRole("dialog", { name: "Quick capture" });
+    await user.type(within(dialog).getByLabelText("Capture"), capturedItem.body);
+    await user.selectOptions(within(dialog).getByLabelText("Type"), "bug");
+    await user.click(within(dialog).getByRole("button", { name: "Save capture" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent("Captured to Inbox");
+    expect(screen.getByLabelText("Open captures value")).toHaveTextContent("1");
+    expect(screen.getByText(/1\/7 active days/)).toBeInTheDocument();
+
+    const capturesCard = screen.getByRole("article", { name: "Open captures" });
+    await user.click(within(capturesCard).getByText("Show source records"));
+    expect(
+      within(capturesCard).getByText(capturedItem.body, {
+        selector: ".weekly-review__record-title"
+      })
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Timeline" }));
+    expect(await screen.findByRole("heading", { name: "Timeline" })).toBeInTheDocument();
+    expect(
+      screen.getByText(capturedItem.body, { selector: ".timeline-row__content > strong" })
+    ).toBeInTheDocument();
+  });
+
   it("refreshes local Git history when Weekly Review opens and explains freshness", async () => {
     const user = userEvent.setup();
     enableTauriApi();
@@ -2537,7 +2597,12 @@ describe("App", () => {
     expect(captureInboxItem.mock.invocationCallOrder[0]).toBeLessThan(
       attachInboxItemToTask.mock.invocationCallOrder[0]
     );
-    expect(await screen.findByText("Captured to Task: Create local store")).toBeInTheDocument();
+    const captureToast = (await screen.findByText("Captured to Task: Create local store")).closest(
+      ".ui-toast"
+    );
+    expect(captureToast).not.toBeNull();
+    expect(captureToast).toHaveClass("ui-toast", "ui-toast--success");
+    expect(captureToast).toHaveTextContent("Captured to Task: Create local store");
   });
 
   it("ignores repeated global capture opens while a save is pending", async () => {
@@ -2637,7 +2702,10 @@ describe("App", () => {
       kind: "question"
     });
     expect(attachInboxItemToTask).not.toHaveBeenCalled();
-    expect(await screen.findByText("Captured to Inbox")).toBeInTheDocument();
+    const captureToast = (await screen.findByText("Captured to Inbox")).closest(".ui-toast");
+    expect(captureToast).not.toBeNull();
+    expect(captureToast).toHaveClass("ui-toast", "ui-toast--success");
+    expect(captureToast).toHaveTextContent("Captured to Inbox");
   });
 
   it("rolls back a captured item when attaching fails and allows a clean retry", async () => {
@@ -3211,11 +3279,48 @@ describe("App", () => {
     await user.clear(screen.getByLabelText("Next action"));
     await user.type(screen.getByLabelText("Next action"), "Review updated spec");
     await user.click(screen.getByRole("button", { name: "Save next action" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("Next action saved");
     await user.click(screen.getByRole("button", { name: "Today" }));
 
     expect(updateNextStep).toHaveBeenCalledWith("t1", "Review updated spec");
     expect(await screen.findByText("Review updated spec")).toBeInTheDocument();
     expect(screen.queryByText("Old next step")).not.toBeInTheDocument();
+  });
+
+  it("shows a next action error without a success toast when SQLite write fails", async () => {
+    const user = userEvent.setup();
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1", gitEnabled: false })]);
+    getResumeBrief.mockResolvedValue({
+      ...emptyResumeBrief(),
+      taskId: "t1",
+      stageId: "s1",
+      nextStep: "Old next step"
+    });
+    loadProjectPlan.mockResolvedValue({
+      ...importedPlanFixture("p1"),
+      tasks: [
+        {
+          ...importedPlanFixture("p1").tasks[0],
+          status: "active",
+          nextStep: "Old next step"
+        }
+      ]
+    });
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+    updateNextStep.mockRejectedValueOnce(new Error("SQLite write failed"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+    await user.clear(screen.getByLabelText("Next action"));
+    await user.type(screen.getByLabelText("Next action"), "Review updated spec");
+    await user.click(screen.getByRole("button", { name: "Save next action" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Could not save next action.");
+    expect(screen.queryByText("Next action saved")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("reloads the project plan after activating a task so demoted tasks do not stay active locally", async () => {

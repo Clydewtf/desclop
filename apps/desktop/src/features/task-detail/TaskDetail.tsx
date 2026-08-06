@@ -77,6 +77,7 @@ export function TaskDetail({
 }: TaskDetailProps) {
   const [noteBody, setNoteBody] = useState("");
   const [nextStep, setNextStep] = useState(task.nextStep);
+  const [nextStepError, setNextStepError] = useState(false);
   const [timeboxMinutes, setTimeboxMinutes] = useState("25");
   const [moveTargets, setMoveTargets] = useState<Record<string, string>>({});
   const [expandedCommits, setExpandedCommits] = useState<Record<string, boolean>>({});
@@ -125,7 +126,12 @@ export function TaskDetail({
 
   async function saveNextStep(event: FormEvent) {
     event.preventDefault();
-    await onNextStepSave(task.id, nextStep.trim());
+    setNextStepError(false);
+    try {
+      await onNextStepSave(task.id, nextStep.trim());
+    } catch {
+      setNextStepError(true);
+    }
   }
 
   function startFocus() {
@@ -248,11 +254,17 @@ export function TaskDetail({
             label="Next action"
             hint="What is the next small action needed to continue this task?"
             value={nextStep}
-            onChange={(event) => setNextStep(event.target.value)}
+            onChange={(event) => {
+              setNextStep(event.target.value);
+              setNextStepError(false);
+            }}
           />
           <Button type="submit" variant="secondary">
             Save next action
           </Button>
+          {nextStepError ? (
+            <InlineAlert tone="error">Could not save next action.</InlineAlert>
+          ) : null}
         </form>
 
         <div className="task-workbench-header__controls">
