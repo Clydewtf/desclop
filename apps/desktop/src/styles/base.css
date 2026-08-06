@@ -3519,8 +3519,49 @@ label.inline-field input {
 
 .task-row__content {
   display: grid;
+  flex: 1 1 auto;
   min-width: 0;
   gap: var(--space-2);
+}
+
+.task-row--interactive .task-row__title {
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.task-row__title-tooltip {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.task-row__title-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-row__title-tooltip-panel {
+  width: max-content;
+  max-width: min(34rem, calc(100vw - var(--space-4) * 2));
+  padding: var(--space-3) var(--space-4);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.task-row__action {
+  flex: 0 0 9rem;
+  width: 9rem;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.task-row__action .ui-button__label {
+  overflow-wrap: normal;
+  white-space: nowrap;
 }
 
 .task-row__title {

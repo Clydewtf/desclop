@@ -190,6 +190,34 @@ describe("Planner", () => {
     expect(onOpenTask).toHaveBeenCalledWith("t1", { activate: false });
   });
 
+  it("keeps the task action stable when the title is long", () => {
+    const longTitle = "Synchronize capture feedback and task data between every workspace screen";
+    const planFrames = [
+      planFrameFixture({
+        planId: "current-plan",
+        title: "Current work",
+        isCurrent: true,
+        taskId: "task-1",
+        taskTitle: longTitle
+      })
+    ];
+
+    renderWithRouter(<Planner planFrames={planFrames} onOpenTask={vi.fn()} />);
+
+    const taskRow = screen
+      .getByRole("button", { name: `Continue ${longTitle}` })
+      .closest<HTMLElement>(".task-row");
+    expect(taskRow).not.toBeNull();
+    expect(taskRow).toHaveClass("task-row--interactive");
+
+    const action = within(taskRow!).getByRole("button", { name: `Continue ${longTitle}` });
+    expect(action).toHaveClass("task-row__action");
+    expect(action).toHaveTextContent(/^Continue$/);
+    const titleText = taskRow!.querySelector<HTMLElement>(".task-row__title-text");
+    expect(titleText).not.toBeNull();
+    expect(titleText).toHaveTextContent(longTitle);
+  });
+
   it("puts the current plan first and lets Continue select another plan", async () => {
     const user = userEvent.setup();
     const onOpenTask = vi.fn();

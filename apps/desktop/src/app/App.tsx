@@ -1320,12 +1320,20 @@ export function App() {
     }
 
     const projectId = project.id;
+    const activatedTask = projectPlan.tasks.find((candidate) => candidate.id === taskId) ?? null;
+    if (!activatedTask || activatedTask.status === "done") {
+      throw new Error("Task is no longer available for activation.");
+    }
+
+    if (project.activeTaskId === taskId && activatedTask.status === "active") {
+      return true;
+    }
+
     await api.setActiveTask(projectId, taskId);
     markProjectRecentlyChanged(projectId);
     if (!isCurrentProjectContext(revision)) {
       return false;
     }
-    const activatedTask = projectPlan.tasks.find((candidate) => candidate.id === taskId) ?? null;
 
     setProjects((currentProjects) =>
       currentProjects.map((candidate) =>
@@ -1363,24 +1371,38 @@ export function App() {
     revision = projectContextRevision.current
   ) {
     if (!isCurrentProjectContext(revision)) {
-      return;
+      return false;
     }
-    if (options.activate) {
-      if (!(await activateTask(taskId, revision))) {
-        return;
+
+    try {
+      if (options.activate) {
+        if (!(await activateTask(taskId, revision))) {
+          return false;
+        }
       }
+
+      if (!isCurrentProjectContext(revision)) {
+        return false;
+      }
+      setSelectedTaskId(taskId);
+      if (!(await loadTaskContext(taskId, revision))) {
+        return false;
+      }
+      if (!isCurrentProjectContext(revision)) {
+        return false;
+      }
+      setScreen("task-detail");
+      return true;
+    } catch (error) {
+      if (isCurrentProjectContext(revision)) {
+        showToast(
+          "error",
+          "Could not open task",
+          formatUserFacingError("Opening the task", error)
+        );
+      }
+      return false;
     }
-    if (!isCurrentProjectContext(revision)) {
-      return;
-    }
-    setSelectedTaskId(taskId);
-    if (!(await loadTaskContext(taskId, revision))) {
-      return;
-    }
-    if (!isCurrentProjectContext(revision)) {
-      return;
-    }
-    setScreen("task-detail");
   }
 
   function nextContextExportOperationRevision() {
@@ -1663,7 +1685,7 @@ export function App() {
       return;
     }
 
-    await openTask(todayTask.id);
+    await openTask(todayTask.id, { activate: true });
   }
 
   function handleTodayPrimaryAction(view: ResumeBriefView) {
@@ -2807,7 +2829,7 @@ export function App() {
       <Today
         view={todayView}
         onPrimaryAction={() => handleTodayPrimaryAction(todayView)}
-        onOpenTask={(taskId) => void openTask(taskId)}
+        onOpenTask={(taskId) => void openTask(taskId, { activate: true })}
         onStartManualWorkReview={() => startManualWorkReview(todayTask?.id ?? null)}
         canUsePrimaryAction={todayView.state !== "ready" || Boolean(todayTask)}
       />

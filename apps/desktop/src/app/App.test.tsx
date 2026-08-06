@@ -888,7 +888,68 @@ describe("App", () => {
 
     await user.click(await screen.findByRole("button", { name: "Open Second task" }));
 
+    expect(setActiveTask).toHaveBeenCalledWith("p1", "t2");
     expect(await screen.findByRole("heading", { name: "Second task" })).toBeInTheDocument();
+  });
+
+  it("activates a stale Today task before continuing it", async () => {
+    const user = userEvent.setup();
+    const plan = twoTaskPlanFixture({ firstStatus: "todo", secondStatus: "todo" });
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: null })]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({ taskId: "t1", stageId: "s1", nextStep: "Continue first task" })
+    );
+    loadProjectPlan.mockResolvedValue(plan);
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+
+    expect(setActiveTask).toHaveBeenCalledWith("p1", "t1");
+    expect(await screen.findByRole("heading", { name: "First task" })).toBeInTheDocument();
+  });
+
+  it("does not reactivate an already active Today task", async () => {
+    const user = userEvent.setup();
+    const plan = twoTaskPlanFixture({ firstStatus: "active", secondStatus: "todo" });
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: "t1" })]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({ taskId: "t1", stageId: "s1", nextStep: "Continue first task" })
+    );
+    loadProjectPlan.mockResolvedValue(plan);
+    listNotesForTask.mockResolvedValue([]);
+    listWorkEntriesForTask.mockResolvedValue([]);
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+
+    expect(setActiveTask).not.toHaveBeenCalled();
+    expect(await screen.findByRole("heading", { name: "First task" })).toBeInTheDocument();
+  });
+
+  it("keeps Today open and shows an error when task activation fails", async () => {
+    const user = userEvent.setup();
+    const plan = twoTaskPlanFixture({ firstStatus: "todo", secondStatus: "todo" });
+    enableTauriApi();
+    listProjects.mockResolvedValue([projectFixture({ activeTaskId: null })]);
+    getResumeBrief.mockResolvedValue(
+      resumeBriefFixture({ taskId: "t1", stageId: "s1", nextStep: "Continue first task" })
+    );
+    loadProjectPlan.mockResolvedValue(plan);
+    setActiveTask.mockRejectedValueOnce(new Error("database unavailable"));
+
+    renderWithRouter(<App />);
+
+    await user.click(await screen.findByRole("button", { name: "Continue task" }));
+
+    expect(await screen.findByText(/Opening the task could not be completed\./)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Continue where you left off" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start focus" })).not.toBeInTheDocument();
   });
 
   it("shows saved projects after closing and can reopen the same project", async () => {
@@ -3191,8 +3252,12 @@ describe("App", () => {
       expect(loadProjectPlan).toHaveBeenCalledTimes(2);
     });
     await waitFor(() => {
-      const firstTaskRow = screen.getByText("First task").closest(".task-row");
-      const secondTaskRow = screen.getByText("Second task").closest(".task-row");
+      const firstTaskRow = screen
+        .getByText("First task", { selector: ".task-row__title-text" })
+        .closest(".task-row");
+      const secondTaskRow = screen
+        .getByText("Second task", { selector: ".task-row__title-text" })
+        .closest(".task-row");
 
       expect(firstTaskRow).not.toBeNull();
       expect(secondTaskRow).not.toBeNull();

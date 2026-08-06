@@ -17,6 +17,7 @@ import {
 } from "./plannerViewState";
 import {
   Button,
+  HoverTooltip,
   InlineAlert,
   ScreenHeader,
   SelectField,
@@ -2440,15 +2441,11 @@ function renderStageFrame(
 
             return (
               <div
-                className={`task-row${isRecommended ? " task-row--recommended" : ""}`}
+                className={`task-row task-row--interactive${isRecommended ? " task-row--recommended" : ""}`}
                 key={task.id}
               >
                 <div className="task-row__content">
-                  <div className="task-row__title">
-                    <span>{task.title}</span>
-                    {isRecommended ? <span className="task-row__next-marker">Next</span> : null}
-                    <TaskStatusBadge status={task.status} />
-                  </div>
+                  <TaskRowTitle task={task} isRecommended={isRecommended} />
                   {task.nextStep ? <p className="task-row__next-step">Next: {task.nextStep}</p> : null}
                   {task.checklist.length > 0 ? (
                     <small>
@@ -2465,6 +2462,7 @@ function renderStageFrame(
                 </div>
                 <Button
                   variant="secondary"
+                  className="task-row__action"
                   aria-label={`${actionLabel} ${task.title}`}
                   onClick={() =>
                     onOpenTask(task.id, { activate: task.status !== "done" })
@@ -2488,22 +2486,42 @@ function renderCompactTask(
   const actionLabel = task.status === "done" ? "Open" : "Continue";
 
   return (
-    <div className="task-row task-row--summary task-row--recommended">
+    <div className="task-row task-row--interactive task-row--summary task-row--recommended">
       <div className="task-row__content">
-        <div className="task-row__title">
-          <span>{task.title}</span>
-          <span className="task-row__next-marker">Next</span>
-          <TaskStatusBadge status={task.status} />
-        </div>
+        <TaskRowTitle task={task} isRecommended />
         {task.nextStep ? <p className="task-row__next-step">Next: {task.nextStep}</p> : null}
       </div>
       <Button
         variant="secondary"
+        className="task-row__action"
         aria-label={`${actionLabel} ${task.title}`}
         onClick={() => onOpenTask(task.id, { activate: task.status !== "done" })}
       >
         {actionLabel}
       </Button>
+    </div>
+  );
+}
+
+function TaskRowTitle({
+  task,
+  isRecommended
+}: {
+  task: Task;
+  isRecommended: boolean;
+}) {
+  return (
+    <div className="task-row__title">
+      <HoverTooltip
+        className="task-row__title-tooltip"
+        content={task.title}
+        onlyWhenTruncated
+        panelClassName="task-row__title-tooltip-panel"
+      >
+        <span className="task-row__title-text">{task.title}</span>
+      </HoverTooltip>
+      {isRecommended ? <span className="task-row__next-marker">Next</span> : null}
+      <TaskStatusBadge status={task.status} />
     </div>
   );
 }
