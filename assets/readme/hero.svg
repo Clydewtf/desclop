@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-labelledby="title desc">
+  <title id="title">Desclop — Resume coding with your context intact</title>
+  <desc id="desc">A local-first desktop workspace for individual developers. One local context cue points to a Resume Brief showing a current task and its next action.</desc>
+
+  <rect width="1200" height="420" rx="28" fill="#10151c"/>
+  <rect x="1" y="1" width="1198" height="418" rx="27" fill="none" stroke="#344352"/>
+
+  <g id="title-block" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <circle cx="72" cy="83" r="7" fill="#27bed0"/>
+    <text x="88" y="90" fill="#a8b4c0" font-size="22" font-weight="700" letter-spacing="2">LOCAL-FIRST WORKSPACE FOR DEVELOPERS</text>
+    <text x="72" y="184" fill="#edf2f7" font-size="82" font-weight="760" letter-spacing="-3">Desclop</text>
+    <text x="72" y="242" fill="#edf2f7" font-size="38" font-weight="650" letter-spacing="-1">Resume coding with your</text>
+    <text x="72" y="287" fill="#27bed0" font-size="38" font-weight="650" letter-spacing="-1">context intact.</text>
+  </g>
+
+  <g id="context-cue" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <circle cx="650" cy="193" r="18" fill="none" stroke="#27bed0" stroke-width="7"/>
+    <circle cx="672" cy="215" r="18" fill="none" stroke="#ffc23a" stroke-width="7"/>
+    <text x="661" y="268" fill="#a8b4c0" font-size="18" font-weight="750" letter-spacing="1" text-anchor="middle">LOCAL CONTEXT</text>
+    <path d="M704 204h30" fill="none" stroke="#27bed0" stroke-width="4" stroke-linecap="round"/>
+    <path d="M724 194l14 10-14 10" fill="none" stroke="#27bed0" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g id="resume-brief" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <rect x="760" y="56" width="372" height="308" rx="18" fill="#18212b" stroke="#344352" stroke-width="2"/>
+    <text x="784" y="96" fill="#a8b4c0" font-size="19" font-weight="760" letter-spacing="1">RESUME BRIEF</text>
+    <path d="M784 120h324" stroke="#344352"/>
+
+    <text x="784" y="156" fill="#a8b4c0" font-size="19" font-weight="650">CURRENT TASK</text>
+    <text x="784" y="198" fill="#edf2f7" font-size="31" font-weight="720" letter-spacing="-.6">Define local store</text>
+
+    <rect x="784" y="218" width="324" height="96" rx="12" fill="#1e3a5f"/>
+    <text x="804" y="245" fill="#bfdbfe" font-size="18" font-weight="760" letter-spacing=".7">NEXT ACTION</text>
+    <text x="804" y="276" fill="#edf2f7" font-size="20" font-weight="650">Wire the schema into</text>
+    <text x="804" y="300" fill="#edf2f7" font-size="20" font-weight="650">app state.</text>
+
+    <circle cx="796" cy="337" r="7" fill="#3c9a60"/>
+    <text x="812" y="343" fill="#d4dde5" font-size="20" font-weight="650">Ready to resume</text>
+  </g>
+</svg>

@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480" role="img" aria-labelledby="title desc">
+  <title id="title">The local resume loop</title>
+  <desc id="desc">Markdown plans, notes and captures, read-only Git activity, and work reviews stay with a local project. Desclop uses that context to provide a Resume Brief with a current task, recent facts, and a next action.</desc>
+
+  <rect width="1200" height="480" rx="28" fill="#10151c"/>
+  <rect x="1" y="1" width="1198" height="478" rx="27" fill="none" stroke="#344352"/>
+
+  <g id="heading" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <circle cx="72" cy="72" r="7" fill="#ffc23a"/>
+    <text x="88" y="79" fill="#a8b4c0" font-size="22" font-weight="750" letter-spacing="2">THE LOCAL RESUME LOOP</text>
+    <text x="72" y="119" fill="#edf2f7" font-size="31" font-weight="720" letter-spacing="-.6">Keep the handoff with the work—not in your head.</text>
+  </g>
+
+  <g id="source-cards" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <rect x="72" y="155" width="286" height="60" rx="12" fill="#18212b" stroke="#344352"/>
+    <circle cx="94" cy="185" r="7" fill="#27bed0"/>
+    <text x="112" y="181" fill="#edf2f7" font-size="22" font-weight="720">Markdown plan</text>
+    <text x="112" y="203" fill="#a8b4c0" font-size="18">stages, tasks &amp; checklists</text>
+
+    <rect x="72" y="231" width="286" height="60" rx="12" fill="#18212b" stroke="#344352"/>
+    <circle cx="94" cy="261" r="7" fill="#27bed0"/>
+    <text x="112" y="257" fill="#edf2f7" font-size="22" font-weight="720">Notes &amp; captures</text>
+    <text x="112" y="279" fill="#a8b4c0" font-size="18">details worth keeping</text>
+
+    <rect x="72" y="307" width="286" height="60" rx="12" fill="#18212b" stroke="#344352"/>
+    <circle cx="94" cy="337" r="7" fill="#ffc23a"/>
+    <text x="112" y="333" fill="#edf2f7" font-size="22" font-weight="720">Read-only Git</text>
+    <text x="112" y="355" fill="#a8b4c0" font-size="18">recent commits &amp; changed files</text>
+
+    <rect x="72" y="383" width="286" height="60" rx="12" fill="#18212b" stroke="#344352"/>
+    <circle cx="94" cy="413" r="7" fill="#3c9a60"/>
+    <text x="112" y="409" fill="#edf2f7" font-size="22" font-weight="720">Work review</text>
+    <text x="112" y="431" fill="#a8b4c0" font-size="18">done, remains &amp; next step</text>
+  </g>
+
+  <g id="connections" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M358 185h63c25 0 25 67 50 67h34" stroke="#27bed0" stroke-width="4"/>
+    <path d="M358 261h147" stroke="#27bed0" stroke-width="4"/>
+    <path d="M358 337h63c25 0 25-67 50-67h34" stroke="#ffc23a" stroke-width="4"/>
+    <path d="M358 413h63c25 0 25-67 50-67h34" stroke="#3c9a60" stroke-width="4"/>
+    <path d="M753 280h72" stroke="#27bed0" stroke-width="5"/>
+    <path d="M808 270l20 10-20 10" stroke="#27bed0" stroke-width="5"/>
+  </g>
+
+  <g id="local-context" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <rect x="505" y="188" width="248" height="184" rx="18" fill="#18212b" stroke="#27bed0" stroke-width="2"/>
+    <circle cx="539" cy="224" r="14" fill="none" stroke="#27bed0" stroke-width="6"/>
+    <circle cx="555" cy="240" r="14" fill="none" stroke="#ffc23a" stroke-width="6"/>
+    <text x="529" y="287" fill="#a8b4c0" font-size="20" font-weight="750" letter-spacing="1">LOCAL PROJECT</text>
+    <text x="529" y="325" fill="#edf2f7" font-size="29" font-weight="720" letter-spacing="-.6">Context stays</text>
+    <text x="529" y="353" fill="#edf2f7" font-size="29" font-weight="720" letter-spacing="-.6">with the work.</text>
+  </g>
+
+  <g id="resume-brief" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif">
+    <rect x="828" y="155" width="300" height="226" rx="18" fill="#18212b" stroke="#344352" stroke-width="2"/>
+    <text x="854" y="195" fill="#a8b4c0" font-size="20" font-weight="750" letter-spacing="1">RESUME BRIEF</text>
+    <text x="854" y="235" fill="#edf2f7" font-size="28" font-weight="720">Current task</text>
+    <text x="854" y="266" fill="#d4dde5" font-size="21">Latest local context</text>
+    <text x="854" y="297" fill="#d4dde5" font-size="21">One next action</text>
+    <rect x="854" y="322" width="145" height="38" rx="10" fill="#1e3a5f"/>
+    <text x="874" y="348" fill="#bfdbfe" font-size="20" font-weight="750">Continue</text>
+    <circle cx="1089" cy="341" r="8" fill="#3c9a60"/>
+  </g>
+</svg>

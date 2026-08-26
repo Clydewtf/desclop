@@ -1,126 +1,61 @@
 # Desclop
 
-Desclop is a desktop-only, local-first workspace for developers who want to resume coding without losing context.
+<p align="center">
+  <img src="./assets/readme/hero.svg" width="100%" alt="Desclop is a local-first desktop workspace that helps individual developers resume coding with their project context intact.">
+</p>
 
-It helps you keep a project plan, task context, notes, lightweight work history, Git activity, and next steps in one local desktop app. The main idea is simple: when you return to a project, Desclop should help you understand where you stopped and what to do next.
+<p align="center">
+  A calm desktop workspace for individual developers: keep one local record of the plan, work context, and next concrete action—then return ready to code.
+</p>
 
-## Who It Is For
+<p align="center">
+  <strong>Beta · local-first · desktop-only · read-only Git</strong>
+</p>
 
-Desclop is built for individual developers working on local coding projects:
+## Return to a project without reconstructing the last session
 
-- solo developers and indie hackers;
-- freelancers and students;
-- developers working on pet projects;
-- developers who use AI heavily and need to preserve project context between sessions.
+Desclop keeps the practical context around a local coding project in one place: a plan, task notes, lightweight work history, inbox captures, recent Git activity, and the next action. When you come back, **Today** gives you a Resume Brief so you can continue instead of trying to remember where you stopped.
 
-It is not meant to be a team project management system, a full Git client, a time tracker, or a replacement for issue trackers like Jira.
+It is built for solo developers, indie hackers, freelancers, students, pet-project builders, and AI-heavy developers who want their project context to survive between sessions. It is not a team project-management system, a full Git client, or a replacement for Jira.
 
-## Features
+<p align="center">
+  <img src="./assets/readme/resume-loop.svg" width="100%" alt="A local resume loop: Markdown plans, notes and captures, read-only Git activity, and work reviews remain with a local project and feed a Resume Brief with a current task, recent context, and a next action.">
+</p>
 
-- Resume-first workspace centered on "continue where you left off".
-- Local project workflow data stored on your machine.
-- Markdown plan import with stages, tasks, and checklists.
-- Native local-file plan import for `.md`, `.markdown`, and `.txt` files.
-- Planner view with stage frames and task progress.
-- Explicit Edit plan mode for safely changing plans, stages, tasks, checklists, and their order.
-- Task details with notes, checklist, work entries, linked commits, inbox items, and next step.
-- Manual inbox capture for bugs, ideas, questions, notes, and task candidates.
-- Work review for capturing what was done, what remains, and what should happen next.
-- Optional Focus Mode with ambient and timebox sessions.
-- Read-only Git integration for recent commits and task context.
-- Markdown export for readable project workflow snapshots.
-- Portable bundle export/import for moving Desclop workflow data without copying source code.
+## What Desclop keeps close
 
-## Project Status
+- **A usable plan.** Import a Markdown plan into stages, tasks, and checklists; then edit the structure safely in the Planner.
+- **The working details.** Keep task notes, manual inbox captures, optional Focus Mode sessions, and work reviews close to the task they belong to.
+- **Git context without Git-client scope.** Read-only recent commits and changed-file context can be linked to a task.
+- **A concrete way back in.** Resume Brief, Today, Timeline, and Weekly Review surface the current task, what happened, and the next small action.
 
-Desclop is currently in beta.
+## The first successful loop
 
-The current release line is `v0.2.0-beta.2`, focused on safe local plan import and editing while keeping Today and Resume Brief in sync. Expect rough edges and platform-specific limitations while the beta is being validated.
+1. Create or open a local project and optionally connect its local Git repository.
+2. Import an existing plan from a `.md`, `.markdown`, or `.txt` file.
+3. Work normally: update a task, leave a note, capture a thought, or save a work review.
+4. Return to **Today** and continue from a specific next action instead of rebuilding the session from scratch.
 
-## Installation
+## Get Desclop
 
-Prebuilt desktop builds are published through GitHub Releases.
+Prebuilt desktop packages are published through [Releases](https://github.com/Clydewtf/desclop/releases). Download the package for your operating system rather than the automatically generated source-code archives.
 
-To install Desclop:
+- macOS: `.dmg` or a macOS app archive
+- Linux: `.AppImage`, `.deb` or `.rpm`
+- Windows: `.exe` installer
 
-1. Open the latest release on GitHub.
-2. Download the asset for your operating system.
-3. Use the platform package, not the automatically generated `Source code` archives.
+> [!WARNING]
+> Desclop is currently in beta (`v0.2.0-beta.2`). Packages are not yet signed or notarized, so macOS and Windows may show platform-security warnings. The Windows installer may need internet access to obtain WebView2.
 
-Typical release assets are:
+## Boundaries by design
 
-- macOS: `.dmg` or macOS app archive;
-- Linux: `.AppImage` or `.deb`;
-- Windows: `.exe` installer.
-
-The beta packages are not currently signed/notarized. macOS may warn about an unidentified developer, and Windows may show SmartScreen publisher warnings. The Windows installer may need internet access to obtain WebView2. The owner-only beta release pack is kept locally in the ignored `release-private/beta/` folder and is distributed to testers separately.
-
-## Development
-
-Install dependencies:
-
-```bash
-npm install
-```
-
-Start the desktop frontend in development mode:
-
-```bash
-npm run dev
-```
-
-Run Tauri commands through the workspace script:
-
-```bash
-npm run tauri -- <command>
-```
-
-## Building
-
-Build the desktop application with Tauri:
-
-```bash
-npm run tauri -- build
-```
-
-The desktop app lives in `apps/desktop`.
-
-## Verification
-
-Run unit and integration tests:
-
-```bash
-npm run test -- --run
-```
-
-Run Rust tests:
-
-```bash
-cd apps/desktop/src-tauri
-cargo test
-```
-
-Run end-to-end tests:
-
-```bash
-npm run test:e2e
-```
-
-## Releases
-
-Release builds are handled by GitHub Actions.
-
-When a version tag is published, the release workflow builds desktop packages for macOS, Linux, and Windows, then uploads the generated Tauri assets to the GitHub Release.
-
-The workflow can also be started manually for a specific release tag and platform.
-
-Use manual `mode=check` with the expected `tag` and a `source_ref` branch/commit to build and verify release bundles without creating or uploading a GitHub Release. The check keeps short-lived GitHub Actions artifacts available for manual native smoke; it does not create release assets. Use `mode=publish` only after the three-platform native smoke checklist is signed off. Distribute the private beta feedback guide to testers and ask them to share only the support report, not project files.
-
-## MVP Boundaries
-
-- Project workflow data stays local.
+- Project workflow data stays local to your machine.
 - Git integration is read-only.
-- Focus Mode is optional.
-- Markdown export is readable, not a full-fidelity backup.
-- Portable bundles transfer workflow data and do not copy source code.
-- License state is isolated from project data.
+- Focus Mode is optional; Desclop remains useful without time tracking.
+- Markdown exports are readable snapshots, not full-fidelity backups.
+- Portable bundles move Desclop workflow data but never copy source code.
+- License state stays isolated from project data.
+
+## Status
+
+Desclop is in beta. The current release line focuses on safe local plan import and editing while keeping Today and Resume Brief in sync. Expect rough edges and platform-specific limitations while the beta is validated. See the [changelog](./CHANGELOG.md) for release history.
